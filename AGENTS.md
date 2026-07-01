@@ -38,7 +38,7 @@ This project uses a **Option A** architecture (see `BRAINSTORMING_LOG.md`):
 
 1. **No server-side LLM** — No API keys, no `gpt-4`, no prompt chaining inside the container.
 2. **Chromium only (v1)** — Firefox/WebKit are deferred to v2. The tool interface is designed to add them later without changing the API.
-3. **Web testing only (v1)** — Mobile (Appium/Maestro) is stubbed in `src/tools/mobile.ts` and deferred to v2.
+3. **Web testing only (v1)** — Mobile (Appium/Maestro) is entirely out of scope for v1. No stub file exists yet; a v2 implementation would start from scratch in a new `src/tools/mobile.ts`.
 4. **HTTP/SSE transport** — The MCP server communicates over HTTP on `localhost:8765`, not stdio. This allows the container to stay running while you call it from Claude Code.
 5. **Docker base image fixed** — Use `mcr.microsoft.com/playwright:v1.61.1-jammy` (must match `playwright` npm version in `package.json`). Do not hand-roll browser install scripts.
 
@@ -61,27 +61,28 @@ curl http://localhost:8765/health
 
 ### 2. Add the MCP Server to Claude Code
 
-In Claude Code, open **Settings** → **MCP Servers** (or consult your Claude Code docs for the current UI path).
+Run this from a terminal in your project:
 
-Add a new MCP server with these exact settings:
+```bash
+claude mcp add --transport http easy-ui-mcp http://localhost:8765/mcp
+```
+
+This writes an entry to `.mcp.json`:
 
 ```json
 {
-  "name": "easy-ui-mcp",
-  "type": "http",
-  "url": "http://localhost:8765/mcp",
-  "headers": {
-    "Accept": "application/json, text/event-stream",
-    "Content-Type": "application/json"
-  },
-  "session_header": "mcp-session-id"
+  "mcpServers": {
+    "easy-ui-mcp": {
+      "type": "http",
+      "url": "http://localhost:8765/mcp"
+    }
+  }
 }
 ```
 
-**Important fields**:
+**Notes**:
 - **url**: `http://localhost:8765/mcp` — the HTTP endpoint where the server listens for MCP requests
-- **headers**: `Accept: application/json, text/event-stream` — required by the MCP SDK's HTTP/SSE transport (tells the server to send tool definitions as JSON and stream responses as server-sent events)
-- **session_header**: `mcp-session-id` — tells Claude Code to generate a unique session ID for each conversation and pass it in this header
+- Claude Code's Streamable HTTP transport handles the `mcp-session-id` header and the `Accept: application/json, text/event-stream` negotiation automatically — no manual header configuration needed
 
 ### 3. Test the Connection
 
@@ -141,7 +142,6 @@ The `ok` field in each action is `false` if the tool call failed. If any action 
 | `src/server.ts` | Main entrypoint — MCP server setup, tool registration, session tracking |
 | `src/tools/web.ts` | Playwright primitives (`navigate`, `click`, `fill`, etc.) |
 | `src/tools/session.ts` | Session lifecycle (create, end, log actions) |
-| `src/tools/mobile.ts` | Stub (deferred to v2) |
 | `src/api/run-test.ts` | REST wrapper for `/api/run-test` endpoint (non-MCP callers) |
 | `src/reports/index.ts` | JSON + HTML report generation |
 | `Dockerfile` | Docker build: `mcr.microsoft.com/playwright`, `npm ci`, `npm run build`, `node dist/server.js` |
@@ -208,7 +208,7 @@ curl -s -X POST http://localhost:8765/mcp \
     "id": 1,
     "method": "initialize",
     "params": {
-      "protocolVersion": "2024-11-05",
+      "protocolVersion": "2025-06-18",
       "capabilities": {"sampling": {}},
       "clientInfo": {"name": "test", "version": "1.0.0"}
     }
