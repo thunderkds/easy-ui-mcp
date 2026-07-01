@@ -39,10 +39,10 @@ Add `ui_start_session(target)` and `ui_end_session()` MCP tools that bracket a t
 
 ### Requirement Fidelity Gate (sign off BEFORE implementation)
 
-- [ ] Restated intent confirmed to match the user's request
-- [ ] Domain terms align with `PROJECT_SPEC.md` glossary
-- [ ] Every Acceptance Criterion below traces to a line in the Requirement
-- [ ] All Requirement Refs exist in `PRD.md` and are fully covered by the Acceptance Criteria above
+- [x] Restated intent confirmed to match the user's request
+- [x] Domain terms align with `PROJECT_SPEC.md` glossary
+- [x] Every Acceptance Criterion below traces to a line in the Requirement
+- [x] All Requirement Refs exist in `PRD.md` and are fully covered by the Acceptance Criteria above
 
 ---
 
@@ -80,12 +80,12 @@ npm test -- reports/session
 
 | Check | Result | Notes / output snippet |
 |-------|--------|------------------------|
-| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | |
-| Verification command run | ☐ pass / ☐ fail | |
-| Negative cases hold | ☐ pass / ☐ fail | |
-| `verify` skill — works in running app | ☐ pass / ☐ fail | |
-| Review scope bounded to the change's blast radius | ☐ pass / ☐ fail | |
-| Full smoke suite still green (no regression) | ☐ pass / ☐ fail | |
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ✅ pass | `test/session.test.ts` — 5 new tests: happy path (AC1-3), mid-session failure (AC4), concurrent sessions (AC5), timeout cleanup (AC6), unmatched `ui_end_session` (Edge Case Checklist). All 5 pass. |
+| Verification command run | ✅ pass | `npm test -- reports/session` → 23/23 pass (18 pre-existing T001/T002 tests + 5 new T003 tests). Also ran plain `npm test` → same 23/23. |
+| Negative cases hold | ✅ pass | mid-session failure marks session `failed` + captures screenshot; `ui_end_session` on unknown/no session returns a clear error, not a crash; timed-out session frees browser resources without hanging. |
+| `verify` skill — works in running app | ⚠️ partial | Attempted a live HTTP/MCP drive of `ui_start_session`→`ui_navigate`→`ui_end_session` against `localhost:8765`, but port 8765 is currently bound by a different worktree's Docker container (`agent-a16b02961521eb820-easy-ui-mcp-1`, running the pre-T003 `dist/server.js`) — not my code, and not mine to stop (Common-Infrastructure territory). Module-level behavior (session lifecycle, action logging, report generation, atomic writes) is fully covered by the automated `test/session.test.ts` suite instead. Recommend Common-Infrastructure rebuild/restart the container against this branch to confirm the live HTTP path before merge. |
+| Review scope bounded to the change's blast radius | ✅ pass | Touched only `src/server.ts` (wiring), new `src/tools/session.ts`, new `src/reports/index.ts`, new `test/session.test.ts`. `src/tools/web.ts` untouched (logging done via a wrapper in `server.ts` instead, see Deviations). |
+| Full smoke suite still green (no regression) | ✅ pass | `npm test` → 23/23 pass (all pre-existing T001/T002 tests unaffected). |
 | **UI: Visual regression** | ☐ N/A | No UI — backend/tooling task |
 | **UI: Design-system compliance** | ☐ N/A | No UI — backend/tooling task |
 | **UI: Responsiveness** | ☐ N/A | No UI — backend/tooling task |
@@ -115,6 +115,16 @@ Keep session state in-memory keyed by a session ID returned from `ui_start_sessi
 | `src/server.ts` | Register session tools; wire action logging into existing primitive tool calls |
 | `src/tools/web.ts` | Minor — tools log their invocation to the active session if one exists |
 
+**Actual files changed (see Deviations below for why):**
+
+| File | Change |
+|------|--------|
+| `src/tools/session.ts` | New — session registry (start/end/log/markFailed), per-session browser context + page, timeout cleanup |
+| `src/reports/index.ts` | New — JSON + self-contained HTML report generator, atomic write-then-rename |
+| `src/server.ts` | Registers `ui_start_session`/`ui_end_session`; existing primitive tool handlers now resolve the active session's page and log their outcome via a `recordAction` closure |
+| `test/session.test.ts` | New — 5 tests covering all 4 Test Plan scenarios + the unmatched-`ui_end_session` edge case |
+| `src/tools/web.ts` | **Not touched** — see Deviations |
+
 ## Files Must NOT Touch
 
 | File | Reason |
@@ -130,12 +140,23 @@ Automated tests for: full session happy path, mid-session failure path, concurre
 
 ---
 
+## Deviations from the predicted approach
+
+1. **`src/tools/session.ts` instead of `src/tools/unified.ts`** — the session registry is session-keyed (not "unified" with the primitives), so a name reflecting its actual responsibility seemed clearer. No behavior difference from what the guide describes.
+2. **`src/tools/web.ts` untouched** — rather than have each primitive function log its own invocation, the logging + failure-screenshot capture is done once, in `server.ts`, via a shared `recordAction` closure that wraps every `registerTool` handler. This keeps `web.ts`'s primitives pure/transport-agnostic (as T001/T002 left them) and avoids duplicating logging logic six times.
+3. **Session/browser-context boundary**: each `ui_start_session` call launches its own fresh `Browser` + `BrowserContext` + `Page`, tracked in a module-level registry keyed by a random session id (not tied to the MCP transport's `mcp-session-id`). Only one `ui_session` may be active at a time per MCP connection (a second `ui_start_session` before `ui_end_session` returns a clear error) — this satisfies AC5 (concurrent sessions started back-to-back get isolated contexts) without introducing multi-session-per-connection complexity the requirement didn't ask for.
+4. **Report file naming**: `reports/session-<id>.json` / `.html`, one pair per session, matching the "reports/" volume-mount requirement (FR-008) without inventing a nested folder scheme.
+
+## Known environment note (not a code defect)
+
+Manually driving the live HTTP/MCP endpoint on `localhost:8765` was blocked because that port is currently owned by a **different worktree's** Docker container (`agent-a16b02961521eb820-easy-ui-mcp-1`, serving the pre-T003 `dist/server.js`). This is a container-ownership conflict between two active agent worktrees, not a T003 code issue — see the `verify` row in Evidence above. `npm run build` (`tsc`) succeeds cleanly against the new code, and the full automated suite (which exercises the real session/report/timeout code paths, not mocks) is green.
+
 ## Completion Checklist
 
-- [ ] Implementation done
-- [ ] Self-review: `Skill({ skill: "code-review" })` run
-- [ ] Lint passes
-- [ ] Tests written AND pass — output pasted into Evidence table (Hard-Stop Gate 5)
-- [ ] `Skill({ skill: "verify" })` run — feature confirmed working in running app
-- [ ] `memory/MEMORY.md` updated (if new patterns or feedback learned)
-- [ ] Supervisor notified: task ready for Stage 4 review
+- [x] Implementation done
+- [ ] Self-review: `Skill({ skill: "code-review" })` run — deferred to Stage 4 (Supervisor-run)
+- [x] Lint passes (`tsc -p tsconfig.json` — 0 errors)
+- [x] Tests written AND pass — output pasted into Evidence table (Hard-Stop Gate 5)
+- [ ] `Skill({ skill: "verify" })` run — partially blocked by a port conflict with another worktree's container; see Evidence table and "Known environment note" above
+- [ ] `memory/MEMORY.md` updated — Supervisor-only write; flagging for Supervisor: (a) per-connection browser/page state pattern for session isolation, (b) dash (`/bin/sh`) vs zsh `**` globstar mismatch in `npm test`'s glob — keep new test files flat under `test/`, not in subdirectories, or the pattern silently drops top-level test files
+- [x] Supervisor notified: task ready for Stage 4 review (this report)
