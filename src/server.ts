@@ -92,7 +92,10 @@ function buildMcpServer(): McpServer {
       inputSchema: { selector: z.string().describe("CSS selector of the element to click") },
     },
     async ({ selector }) => {
-      const target = await getPage();
+      const target = currentPage();
+      if (!target) {
+        return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
+      }
       const result = await click(target, selector);
       if (!result.ok) {
         return { isError: true, content: [{ type: "text", text: result.error ?? "Click failed" }] };
@@ -112,7 +115,10 @@ function buildMcpServer(): McpServer {
       },
     },
     async ({ selector, value }) => {
-      const target = await getPage();
+      const target = currentPage();
+      if (!target) {
+        return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
+      }
       const result = await fill(target, selector, value);
       if (!result.ok) {
         return { isError: true, content: [{ type: "text", text: result.error ?? "Fill failed" }] };
