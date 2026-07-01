@@ -88,12 +88,12 @@ docker-compose up -d && sleep 5 && curl -sf http://localhost:8765/health
 
 | Check | Result | Notes / output snippet |
 |-------|--------|------------------------|
-| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | |
-| Verification command run | ☐ pass / ☐ fail | |
-| Negative cases hold | ☐ pass / ☐ fail | |
-| `verify` skill — works in running app | ☐ pass / ☐ fail | |
-| Review scope bounded to the change's blast radius | ☐ pass / ☐ fail | |
-| Full smoke suite still green (no regression) | ☐ pass / ☐ fail | |
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ✅ pass | `test/health.test.ts` (health + MCP initialize/tools-list), `test/web.test.ts` (navigate success, unreachable URL, malformed URL). 5/5 tests pass: "GET /health returns 200...", "MCP initialize handshake succeeds and advertises ui_navigate", "navigate succeeds on a reachable page", "navigate fails clearly on an unreachable URL", "navigate fails clearly on a malformed URL" |
+| Verification command run | ✅ pass | `docker compose up -d && sleep 5 && curl -sf http://localhost:8765/health` → `{"status":"ok"}`. MCP handshake → session ID → `tools/call ui_navigate({url:"https://example.com"})` → `"Navigated to https://example.com/ (title: \"Example Domain\")"` |
+| Negative cases hold | ✅ pass | `ui_navigate` on unreachable URL → `isError: true`, `"Navigation failed: page.goto: net::ERR_NAME_NOT_RESOLVED..."`, no hang, container stayed `Up` |
+| verify | ✅ pass | Live MCP wire protocol drive (initialize→tools/list→tools/call) against rebuilt container. Found + fixed a stack-trace leak on malformed JSON (400 now returns clean `{"error":"Invalid JSON body"}`), re-verified full flow + 5/5 tests pass after fix. See verification report in conversation, 2026-07-01. |
+| Review scope bounded to the change's blast radius | ✅ pass | Reviewed only T001's new files: `Dockerfile`, `docker-compose.yml`, `package.json`, `tsconfig.json`, `src/server.ts`, `src/tools/web.ts`, `test/*.test.ts` — no pre-existing code to check against (greenfield first task) |
+| Full smoke suite still green (no regression) | ✅ pass | 5/5 tests pass after applying the `npm ci` fix; `docker compose build` clean |
 | **UI: Visual regression** | ☐ N/A | No UI — backend/tooling task |
 | **UI: Design-system compliance** | ☐ N/A | No UI — backend/tooling task |
 | **UI: Responsiveness** | ☐ N/A | No UI — backend/tooling task |
