@@ -1,0 +1,9 @@
+services:
+  easy-ui-mcp:
+    build: .
+    ports:
+      - "8765:8765"
+    volumes:
+      # Report output volume stub — wired fully in T003.
+      - ./reports:/app/reports
+    restart: unless-stopped
