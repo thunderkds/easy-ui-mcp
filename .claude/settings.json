@@ -1,0 +1,69 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "description": "Auto-register new TASK_GUIDE files in PROJECT_KANBAN.md",
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_write_register_task.py"
+          }
+        ]
+      },
+      {
+        "description": "Move task to Ready for Review after agent finishes",
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_agent_move_to_review.py"
+          }
+        ]
+      },
+      {
+        "description": "Prompt Supervisor to run diff-driven memory-update pass after git push/merge/pull",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_bash_memory_update.py"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "description": "Block agent spawn if TASK_GUIDE is missing",
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_agent_validate_guide.py"
+          }
+        ]
+      },
+      {
+        "description": "Block git push/merge if pipeline gates are not satisfied",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_bash_block_unsafe_merge.py"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "description": "Remind Supervisor to run Stage 4 review for pending tasks",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop_review_reminder.py"
+          }
+        ]
+      }
+    ]
+  }
+}
