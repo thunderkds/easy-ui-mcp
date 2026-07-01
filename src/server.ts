@@ -12,9 +12,18 @@ import { chromium, type Browser, type Page } from "playwright";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
-import { navigate } from "./tools/web.js";
+import path from "node:path";
+import {
+  navigate,
+  click,
+  fill,
+  assertCondition,
+  getPageState,
+  takeScreenshot,
+} from "./tools/web.js";
 
 const PORT = 8765;
+const REPORTS_DIR = path.join(process.cwd(), "reports");
 
 const app = express();
 app.use(express.json());
@@ -43,6 +52,11 @@ async function getPage(): Promise<Page> {
   return page;
 }
 
+/** Returns the current page without creating one (undefined if ui_navigate hasn't run yet). */
+function currentPage(): Page | undefined {
+  return page && !page.isClosed() ? page : undefined;
+}
+
 function buildMcpServer(): McpServer {
   const server = new McpServer({ name: "easy-ui-mcp", version: "0.1.0" });
 
@@ -67,6 +81,101 @@ function buildMcpServer(): McpServer {
           { type: "text", text: `Navigated to ${result.url} (title: "${result.title}")` },
         ],
       };
+    }
+  );
+
+  server.registerTool(
+    "ui_click",
+    {
+      title: "ui_click",
+      description: "Click the single element matching the given selector.",
+      inputSchema: { selector: z.string().describe("CSS selector of the element to click") },
+    },
+    async ({ selector }) => {
+      const target = currentPage();
+      if (!target) {
+        return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
+      }
+      const result = await click(target, selector);
+      if (!result.ok) {
+        return { isError: true, content: [{ type: "text", text: result.error ?? "Click failed" }] };
+      }
+      return { content: [{ type: "text", text: `Clicked "${selector}"` }] };
+    }
+  );
+
+  server.registerTool(
+    "ui_fill",
+    {
+      title: "ui_fill",
+      description: "Fill the single input element matching the given selector with a value.",
+      inputSchema: {
+        selector: z.string().describe("CSS selector of the input element to fill"),
+        value: z.string().describe("The value to fill into the input"),
+      },
+    },
+    async ({ selector, value }) => {
+      const target = currentPage();
+      if (!target) {
+        return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
+      }
+      const result = await fill(target, selector, value);
+      if (!result.ok) {
+        return { isError: true, content: [{ type: "text", text: result.error ?? "Fill failed" }] };
+      }
+      return { content: [{ type: "text", text: `Filled "${selector}" with "${value}"` }] };
+    }
+  );
+
+  server.registerTool(
+    "ui_assert",
+    {
+      title: "ui_assert",
+      description: "Evaluate a JS expression against the current page and return pass/fail.",
+      inputSchema: {
+        condition: z.string().describe("JS expression evaluated in the page context"),
+      },
+    },
+    async ({ condition }) => {
+      const result = await assertCondition(currentPage(), condition);
+      if (!result.ok) {
+        return { isError: true, content: [{ type: "text", text: result.error ?? "Assertion failed to run" }] };
+      }
+      return {
+        content: [{ type: "text", text: result.passed ? "Assertion passed" : "Assertion failed" }],
+      };
+    }
+  );
+
+  server.registerTool(
+    "ui_get_page_state",
+    {
+      title: "ui_get_page_state",
+      description: "Return the current page's URL, title, and visible interactive elements.",
+      inputSchema: {},
+    },
+    async () => {
+      const result = await getPageState(currentPage());
+      if (!result.ok) {
+        return { isError: true, content: [{ type: "text", text: result.error ?? "Failed to get page state" }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+  );
+
+  server.registerTool(
+    "ui_take_screenshot",
+    {
+      title: "ui_take_screenshot",
+      description: "Capture the current viewport and save it as a PNG to the reports output.",
+      inputSchema: {},
+    },
+    async () => {
+      const result = await takeScreenshot(currentPage(), REPORTS_DIR);
+      if (!result.ok) {
+        return { isError: true, content: [{ type: "text", text: result.error ?? "Screenshot failed" }] };
+      }
+      return { content: [{ type: "text", text: `Screenshot saved to ${result.path}` }] };
     }
   );
 
