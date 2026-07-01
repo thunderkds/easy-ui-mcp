@@ -30,6 +30,7 @@ import {
   type LoggedAction,
 } from "./tools/session.js";
 import { writeReports } from "./reports/index.js";
+import { handleRunTest } from "./api/run-test.js";
 
 const PORT = 8765;
 const REPORTS_DIR = path.join(process.cwd(), "reports");
@@ -361,6 +362,10 @@ app.delete("/mcp", async (req, res) => {
 app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok" });
 });
+
+// Thin REST wrapper for non-MCP callers (T004) — reuses the same
+// session/tool/report primitives as the MCP tools above.
+app.post("/api/run-test", handleRunTest);
 
 app.listen(PORT, () => {
   console.log(`easy-ui-mcp server listening on http://localhost:${PORT}`);
