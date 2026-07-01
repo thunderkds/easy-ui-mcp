@@ -12,7 +12,6 @@
 ### Todo
 
 ### In Progress
-- [ ] **T005** — AGENTS.md / HARNESS.md documentation | common-infrastructure | C0 | Risk: Low | P1 | Started: 2026-07-01
 
 ### Ready for Review
 
@@ -21,6 +20,7 @@
 - [x] **T002** — Remaining primitive Playwright tools | C1 | Completed: 2026-07-01
 - [x] **T003** — Session lifecycle + JSON/HTML report generation | C2 | Completed: 2026-07-01
 - [x] **T004** — REST API wrapper (/api/run-test) + /health | C1 | Completed: 2026-07-01
+- [x] **T005** — AGENTS.md / HARNESS.md documentation | C0 | Completed: 2026-07-01
 
 ---
 
@@ -38,6 +38,6 @@ None.
 | 1 Environment Setup | ✅ Done |
 | 1.5 Sub-Agent Architecture | ✅ Done |
 | 2 Planning (/plan) | ✅ Done |
-| 3 Execution | 🔄 In Progress |
-| 4 Review | ⬜ Not Started |
-| 5 Integration & Verify | ⬜ Not Started |
+| 3 Execution | ✅ Done |
+| 4 Review | ✅ Done |
+| 5 Integration & Verify | ✅ Done |
