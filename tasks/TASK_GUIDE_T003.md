@@ -80,12 +80,12 @@ npm test -- reports/session
 
 | Check | Result | Notes / output snippet |
 |-------|--------|------------------------|
-| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | |
-| Verification command run | ☐ pass / ☐ fail | |
-| Negative cases hold | ☐ pass / ☐ fail | |
-| `verify` skill — works in running app | ☐ pass / ☐ fail | |
-| Review scope bounded to the change's blast radius | ☐ pass / ☐ fail | |
-| Full smoke suite still green (no regression) | ☐ pass / ☐ fail | |
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ✅ pass | `test/session.test.ts` — 5 new tests: happy path, mid-session failure, concurrent isolated sessions, timeout cleanup, end-without-start. 23/23 total tests pass. |
+| Verification command run | ✅ pass | `npm test -- reports/session` → 23/23 pass. Live MCP drive: ui_start_session → ui_navigate → ui_click (deliberate fail) → ui_end_session → real JSON+HTML report files confirmed on host filesystem with correct "failed" status and embedded failure screenshot. |
+| Negative cases hold | ✅ pass | Mid-session failure correctly stops the session, marks it failed, captures screenshot, still emits report (confirmed both in tests and live). `ui_end_session` on unknown session returns clean error, not a crash. |
+| verify | ✅ pass | Full live MCP session lifecycle drive against rebuilt container; JSON/HTML reports inspected directly on host, both correctly structured. 23/23 tests pass. See verification report in conversation, 2026-07-01. |
+| Review scope bounded to the change's blast radius | ✅ pass | Reviewed only T003's changed files: `src/tools/session.ts`, `src/reports/index.ts`, `src/server.ts`, `test/session.test.ts` |
+| Full smoke suite still green (no regression) | ✅ pass | 23/23 tests pass (18 from T001/T002 + 5 new), no regression |
 | **UI: Visual regression** | ☐ N/A | No UI — backend/tooling task |
 | **UI: Design-system compliance** | ☐ N/A | No UI — backend/tooling task |
 | **UI: Responsiveness** | ☐ N/A | No UI — backend/tooling task |
