@@ -77,12 +77,12 @@ npm test -- api/run-test
 
 | Check | Result | Notes / output snippet |
 |-------|--------|------------------------|
-| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | |
-| Verification command run | ☐ pass / ☐ fail | |
-| Negative cases hold | ☐ pass / ☐ fail | |
-| `verify` skill — works in running app | ☐ pass / ☐ fail | |
-| Review scope bounded to the change's blast radius | ☐ pass / ☐ fail | |
-| Full smoke suite still green (no regression) | ☐ pass / ☐ fail | |
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ✅ pass | `test/api-run-test.test.ts` — 4 new tests: valid body/report generated, missing-field 400, unreachable-URL failed status, /health non-regression. All 4 pass. |
+| Verification command run | ✅ pass | Live POST /api/run-test against rebuilt Docker container: valid body → 200 passed + real report files on host disk; missing field → 400; unreachable URL → 200 failed + report. All confirmed with real curl output above. |
+| Negative cases hold | ✅ pass | Missing `app_url_or_package` → clean 400 error naming the field. Unreachable URL → `status:"failed"`, report still generated, no crash, no hang (0.15s response). |
+| verify | ✅ pass | Full live REST endpoint drive against rebuilt container for all 3 acceptance cases; report files confirmed on host filesystem. 30/30 tests pass across T001-T004 (run per-file due to an environment-specific `npm test` multi-file hang, confirmed unrelated to this code — see verification notes). tsc clean. |
+| Review scope bounded to the change's blast radius | ✅ pass | Reviewed only T004's changed files: `src/api/run-test.ts`, `src/server.ts` (2-line route registration), `test/api-run-test.test.ts` |
+| Full smoke suite still green (no regression) | ✅ pass | 30/30 tests pass (26 from T001-T003 + 4 new), verified individually per-file; `/health` unaffected |
 | **UI: Visual regression** | ☐ N/A | No UI — backend/tooling task |
 | **UI: Design-system compliance** | ☐ N/A | No UI — backend/tooling task |
 | **UI: Responsiveness** | ☐ N/A | No UI — backend/tooling task |
