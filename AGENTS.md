@@ -103,6 +103,31 @@ If you see tool calls succeed and a report path in the response, the connection 
 
 ---
 
+## Using easy-ui-mcp From Another Repo
+
+MCP registration in Claude Code is scoped **per project** by default — registering it here does not make the tools available in a different repo's Claude Code session. To drive UI tests for any other project, repeat these required steps:
+
+1. **Ensure the container is running.** It's a single shared local service — you do not run a second copy per project:
+   ```bash
+   cd /path/to/easy-ui-mcp
+   docker compose up -d --build
+   curl http://localhost:8765/health   # {"status":"ok"}
+   ```
+2. **Register the server from the other repo's root:**
+   ```bash
+   cd /path/to/other-repo
+   claude mcp add --transport http easy-ui-mcp http://localhost:8765/mcp
+   ```
+   This writes the `easy-ui-mcp` entry into that repo's own `.mcp.json` (or project-scoped config) — it must be run once per repo you want to use it from.
+   - To skip repeating this per repo, register once with `--scope user` instead of the default project scope: `claude mcp add --transport http --scope user easy-ui-mcp http://localhost:8765/mcp`.
+3. **Start/restart the Claude Code session** in the other repo so it picks up the new MCP registration.
+4. **Verify** by asking Claude Code in that repo to navigate to a URL and take a screenshot (see Step 3 above) — confirm `mcp__easy-ui-mcp__*` tools appear and a report path is returned.
+5. **Verify the container can actually reach the other repo's dev server** — this is a separate check from step 4 above, and the one most likely to silently fail. Start the target app's dev server (e.g. `npm run dev` in the other repo), then have Claude Code call `ui_navigate` against `http://localhost:<that-app's-port>`. If it hangs or returns `ERR_CONNECTION_REFUSED`/a timeout even though `curl http://localhost:<port>` works fine from your host shell, the container's networking is the problem — see **Networking** in the [README](README.md#networking) (the fix is `network_mode: host` in `docker-compose.yml`, already applied by default in this repo; re-run `docker compose up -d --build` after any local edits to `docker-compose.yml`).
+
+**Note**: The container has no notion of "which repo" is calling it — session reports land in this repo's `reports/` volume regardless of which project initiated them. If you need reports co-located with the calling repo, mount that repo's `reports/` directory into the container (see `HARNESS.md` → Docker Compose Volume Mount) instead of using the default volume. **Better yet**: after each session, copy the screenshots/report you care about into the *calling* repo at `reports/evidence/<TASK_ID>/` and commit them there — this repo's `reports/` volume is not a durable evidence store for other projects (see `kitchd`'s `CLAUDE.md` Stage 5 "Evidence-archiving rule" for the pattern).
+
+---
+
 ## Understanding Session Reports
 
 When `ui_end_session()` is called, the server generates two files in the `reports/` volume:

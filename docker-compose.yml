@@ -1,8 +1,7 @@
 services:
   easy-ui-mcp:
     build: .
-    ports:
-      - "8765:8765"
+    network_mode: host
     volumes:
       # Report output volume stub — wired fully in T003.
       - ./reports:/app/reports
