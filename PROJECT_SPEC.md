@@ -29,7 +29,10 @@ A Dockerized Node.js/TypeScript MCP server (based on the official `mcr.microsoft
 
 - No server-side LLM calls or API keys inside the Docker container (Option A architecture decision — see `BRAINSTORMING_LOG.md`)
 - Chromium only for v1 — do not add Firefox/WebKit browser installs without a scope change
-- Web only for v1 — `src/tools/mobile.ts` stays a stub; no Appium/Maestro integration until v2
+- v2 (Android): Appium/WebDriver only, targeting an **external** emulator/device reached over ADB (host or LAN) — no emulator/AVD bundled in the Docker image
+- v2 (Android): the MCP server spawns/owns the Appium server as a child process, mirroring the existing `browser` singleton lifecycle in `server.ts`
+- v2 (Android): `android_*` tools and `src/tools/android.ts`/`android-session.ts` stay fully separate from `src/tools/web.ts` — no shared Driver abstraction (see `BRAINSTORMING_LOG_android.md` Option C, rejected Option B)
+- `src/tools/session.ts` may be extended with a `kind: 'web' | 'android'` discriminant to reuse the session-bracket/report layer, but existing `ui_*` session behavior must not regress
 - MCP transport is HTTP/SSE on `localhost:8765` — do not switch to a stdio bridge without revisiting NFR-001
 - Docker base image must be `mcr.microsoft.com/playwright` — do not hand-roll browser install scripting
 - `.claude/agents/`, `.claude/skills/`, `templates/`, `memory/` are Supervisor framework scaffolding — implementers must not touch them
