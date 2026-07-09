@@ -1,5 +1,5 @@
 # PROJECT_KANBAN.md
-**Last updated**: 2026-07-01
+**Last updated**: 2026-07-09
 
 > Compact task board. Full context lives in `PROJECT_SPEC.md`. Update this file whenever a task status changes.
 
@@ -10,8 +10,6 @@
 > Task line format: **Txxx** — [title] | [agent] | C[0–3] | Risk: Low/Med/High | P[0–2]
 
 ### Todo
-- [ ] **T006** — Docker/infra: bundle adb, Appium deps, local-emulator connection guide | common-infrastructure | C1 | Risk: Low | P0 | Blocked by: None
-- [ ] **T007** — Appium session lifecycle: android_start_session/android_end_session + session.ts kind discriminant | backend-developer | C2 | Risk: Medium | P0 | Blocked by: T006
 - [ ] **T008** — android_tap primitive + report wiring (tracer bullet) | backend-developer | C1 | Risk: Low | P0 | Blocked by: T007
 - [ ] **T009** — android_input + android_swipe primitives | backend-developer | C1 | Risk: Low | P1 | Blocked by: T007
 - [ ] **T010** — android_assert + android_get_screen_state primitives | backend-developer | C1 | Risk: Low | P1 | Blocked by: T007
@@ -19,6 +17,7 @@
 - [ ] **T012** — Android smoke suite + end-to-end verification + docs | qa-expert | C1 | Risk: Low | P0 | Blocked by: T008, T009, T010, T011
 
 ### In Progress
+- [ ] **T007** — Appium session lifecycle: android_start_session/android_end_session + session.ts kind discriminant | backend-developer | C2 | Risk: Medium | P0 | Blocked by: None (T006 done)
 
 ### Ready for Review
 
@@ -28,6 +27,7 @@
 - [x] **T003** — Session lifecycle + JSON/HTML report generation | C2 | Completed: 2026-07-01
 - [x] **T004** — REST API wrapper (/api/run-test) + /health | C1 | Completed: 2026-07-01
 - [x] **T005** — AGENTS.md / HARNESS.md documentation | C0 | Completed: 2026-07-01
+- [x] **T006** — Docker/infra: bundle adb, Appium deps, local-emulator connection guide | common-infrastructure | C1 | Completed: 2026-07-09
 
 ---
 
@@ -59,6 +59,6 @@ None.
 | 1 Environment Setup | ✅ Done (reuses v1 setup) |
 | 1.5 Sub-Agent Architecture | ✅ Done (reuses v1 team) |
 | 2 Planning (/plan) | ✅ Done — T006–T012 generated |
-| 3 Execution | ⬜ Not started |
-| 4 Review | ⬜ Not started |
-| 5 Integration & Verify | ⬜ Not started |
+| 3 Execution | 🔄 In progress — T006 done, T007 next |
+| 4 Review | 🔄 T006 reviewed (0 P0/P1, 1 P2 carried into T007) |
+| 5 Integration & Verify | 🔄 T006 merged to main |
