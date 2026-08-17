@@ -108,6 +108,8 @@ Deleted — pure-backend task, no UI component. All three UI Evidence rows above
 
 Follow Option C from `BRAINSTORMING_LOG_android.md`: extend, don't duplicate, `session.ts`. Add `src/tools/android-session.ts` mirroring the structure of the existing `browser`/`getPage` singleton pattern in `server.ts` but for an Appium child process (spawn via Node's `child_process`, health-check its HTTP port, expose a `getAppiumClient()`/`getSessionAndroidClient(id)` accessor analogous to `getSessionPage(id)`). Register `android_start_session`/`android_end_session` tools in `server.ts` next to the existing `ui_start_session`/`ui_end_session`, reusing the single `activeSessionId` variable (not a second global) so the one-bracket-at-a-time invariant is enforced structurally, not by convention.
 
+**Carried over from T006's Stage 4 review (P2 finding)**: `appium@2.11.4`'s `postinstall` script does **not** auto-install any driver — `appium driver list --installed` returns empty in the T006-built container. Before `android_start_session` can open a real WebDriver session, the `uiautomator2` driver must be installed, either baked into the `Dockerfile` (`RUN appium driver install uiautomator2`, alongside T006's `adb` install step) or installed lazily on first `android_start_session` call. Decide and document which; the Dockerfile approach is recommended for parity with how Playwright's browsers are already baked into the base image rather than installed at runtime.
+
 ---
 
 ## Edge Case Checklist
