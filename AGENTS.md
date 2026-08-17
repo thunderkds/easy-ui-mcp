@@ -22,9 +22,10 @@ This project uses a **Option A** architecture (see `BRAINSTORMING_LOG.md`):
 
 - **No server-side LLM calls** — the container has no API keys or LLM reasoning. Instead, **Claude Code (or another agent) calls primitive Playwright tools step-by-step** and decides what to do next.
 - **Session bracketing** — every test run is wrapped in `ui_start_session(target)` and `ui_end_session()`. All tool calls between these two are logged into a single report (JSON + HTML).
-- **Primitive tools only** — the server exposes 10 tools:
+- **Primitive tools only** — the server exposes 11 tools:
   - `ui_start_session(target)` — Open a fresh browser context, label this test run
   - `ui_end_session()` — Close the context, write reports (JSON + HTML with screenshots)
+  - `ui_step(label)` — Start a caller-labelled report step; subsequent actions stay in it until the next `ui_step`
   - `ui_navigate(url)` — Go to a URL
   - `ui_click(selector)` — Click a CSS-selectable element
   - `ui_fill(selector, value)` — Fill an input field
@@ -96,10 +97,11 @@ Can you navigate to https://example.com and take a screenshot?
 
 Claude Code should:
 1. Call `ui_start_session("Navigate to example.com")`
-2. Call `ui_navigate("https://example.com")`
-3. Call `ui_take_screenshot()`
-4. Call `ui_end_session()`
-5. Show you the report path (in `reports/session-<UUID>.html` inside the container)
+2. Call `ui_step("Open example.com and capture evidence")`
+3. Call `ui_navigate("https://example.com")`
+4. Call `ui_take_screenshot()`
+5. Call `ui_end_session()`
+6. Show you the report path (in `reports/session-<UUID>.html` inside the container)
 
 If you see tool calls succeed and a report path in the response, the connection is working.
 

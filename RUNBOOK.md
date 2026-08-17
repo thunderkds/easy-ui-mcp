@@ -45,8 +45,8 @@ Ordered steps to ship a release. Commands copy-pasteable.
 | Check | Command / URL | Pass condition |
 |-------|---------------|----------------|
 | Liveness | `curl -fsS http://localhost:8765/health` | HTTP 200, `{"status":"ok"}` |
-| MCP tool discovery | `tools/list` JSON-RPC call to `/mcp` | Response lists all 8 tools (`ui_navigate`, `ui_click`, `ui_fill`, `ui_assert`, `ui_get_page_state`, `ui_take_screenshot`, `ui_start_session`, `ui_end_session`) |
-| REST smoke check | `POST /api/run-test` with a valid `app_url_or_package` | HTTP 200, `status: "passed"`, `report_url` points to a real file |
+| MCP tool discovery | `tools/list` JSON-RPC call to `/mcp` | Response lists all 11 tools (`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot`) |
+| REST smoke check | `POST /api/run-test` with a valid `app_url_or_package` | HTTP 200, `status: "passed"`; `report_url` is a container path whose basename exists under the host's mounted `./reports/` directory |
 
 - **Dashboards**: none (local-only tool) — check `docker compose logs -f easy-ui-mcp` for live logs.
 

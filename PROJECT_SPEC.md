@@ -21,7 +21,7 @@
 
 ## Architecture Summary
 
-A Dockerized Node.js/TypeScript MCP server (based on the official `mcr.microsoft.com/playwright` image) exposes primitive Playwright web-automation tools over HTTP/SSE on `localhost:8765`. Claude Code drives multi-step flows itself by calling `ui_start_session` → primitive actions (`ui_navigate`, `ui_click`, `ui_fill`, `ui_assert`, `ui_get_page_state`, `ui_take_screenshot`) → `ui_end_session`, with the server logging each action server-side to produce a JSON + HTML report per session. A thin REST wrapper (`/api/run-test`, `/health`) exists for non-MCP callers. No LLM reasoning happens inside the container.
+A Dockerized Node.js/TypeScript MCP server (based on the official `mcr.microsoft.com/playwright` image) exposes primitive Playwright web-automation tools over HTTP/SSE on `localhost:8765`. Claude Code drives multi-step flows itself by calling `ui_start_session` → optional `ui_step` intent labels → primitive actions (`ui_navigate`, `ui_click`, `ui_fill`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot`) → `ui_end_session`, with the server logging each action server-side to produce a JSON + HTML report per session. A thin REST wrapper (`/api/run-test`, `/health`) exists for non-MCP callers. No LLM reasoning happens inside the container.
 
 ---
 
@@ -44,7 +44,7 @@ A Dockerized Node.js/TypeScript MCP server (based on the official `mcr.microsoft
 | Area | Risk Level | Reason | Files |
 |------|-----------|--------|-------|
 | MCP HTTP/SSE transport wiring | Medium | Unverified whether the MCP SDK's transport cleanly supports the session-bracketing model (start/end tools driving one long-lived browser context) — flagged for a Stage 3 spike | `src/server.ts` |
-| Session/browser-context lifecycle | Medium | Leaked browser contexts (no `ui_end_session` call, concurrent sessions) could exhaust container resources | `src/tools/unified.ts` |
+| Session/browser-context lifecycle | Medium | Leaked browser contexts (no `ui_end_session` call, concurrent sessions) could exhaust container resources | `src/tools/session.ts` |
 | Docker↔Claude Code connectivity (NFR-001) | Medium | Core success metric — must be verified working end-to-end, not just documented | `Dockerfile`, `docker-compose.yml`, `AGENTS.md` |
 
 ---
