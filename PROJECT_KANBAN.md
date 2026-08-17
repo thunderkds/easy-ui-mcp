@@ -16,11 +16,11 @@
 - [ ] **T010** — android_assert + android_get_screen_state primitives | backend-developer | C1 | Risk: Low | P1 | Blocked by: T007
 - [ ] **T011** — android_take_screenshot + android failure-capture story | backend-developer | C1 | Risk: Medium | P1 | Blocked by: T007
 - [ ] **T012** — Android smoke suite + end-to-end verification + docs | qa-expert | C1 | Risk: Low | P0 | Blocked by: T008, T009, T010, T011
-- [ ] **T014** — Human-readable reports: `ui_step` + grouped renderer + durations + console/network capture | backend-developer | C2 | Risk: Low | P1 | Blocked by: T013 | Go/no-go gated on reviewing T013's output
 
 ### In Progress
 
 ### Ready for Review
+- [ ] **T014** — Human-readable reports: `ui_step` + grouped renderer + durations + console/network capture | backend-developer | C2 | Risk: Low | P1 | Implemented 2026-08-17; 46 focused tests pass; full suite 66/68 with 2 pre-existing API report-path failures; live drive rendered 3 labelled steps + captured console/network issues without changing the verdict
 - [ ] **T013** — Truthful verdicts: `ui_check` + `ui_wait_for` + screenshot dedupe/budget | backend-developer | C2 | Risk: Medium | P0 | Implemented 2026-08-17; 19/19 tests, live drive passed both soft and hard paths. Note for T007: `session.ts` gained `soft` on `LoggedAction` + 2 record fields — merge with the `kind` discriminant carefully
 
 

@@ -32,6 +32,8 @@ import {
   markFailed,
   isFatalOutcome,
   claimFailureScreenshot,
+  setCurrentStep,
+  getCurrentStep,
   type LoggedAction,
 } from "./tools/session.js";
 import { writeReports } from "./reports/index.js";
@@ -115,6 +117,8 @@ function buildMcpServer(): McpServer {
     if (!activeSessionId) return;
     const entry: LoggedAction = { timestamp: new Date().toISOString(), action: name, args, ok, detail };
     if (soft) entry.soft = true;
+    const step = getCurrentStep(activeSessionId);
+    if (step) entry.step = step;
     logAction(activeSessionId, entry);
     if (!isFatalOutcome(entry)) return;
 
@@ -287,6 +291,36 @@ function buildMcpServer(): McpServer {
       return {
         content: [{ type: "text", text: result.passed ? "Assertion passed" : "Assertion failed" }],
       };
+    }
+  );
+
+  server.registerTool(
+    "ui_step",
+    {
+      title: "ui_step",
+      description:
+        "Label what you are about to do, in plain language. Every following action is grouped under this label in the report " +
+        "until the next ui_step. Call it before each meaningful part of the flow (e.g. \"Log in as jcarlin\", " +
+        "\"Toggle Manual Invoice access on\", \"Reload and confirm it persisted\") — this label is the only human-readable " +
+        "description the report has, so write it for the person who will read the result, not for yourself.",
+      inputSchema: {
+        label: z.string().min(1).describe("Short description of what this step verifies or does"),
+      },
+    },
+    async ({ label }) => {
+      if (!activeSessionId) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "No active session — call ui_start_session first" }],
+        };
+      }
+      const trimmed = label.trim();
+      if (trimmed === "") {
+        return { isError: true, content: [{ type: "text", text: "Step label cannot be blank" }] };
+      }
+      setCurrentStep(activeSessionId, trimmed);
+      await recordAction("ui_step", { label: trimmed }, true);
+      return { content: [{ type: "text", text: `Step: ${trimmed}` }] };
     }
   );
 
