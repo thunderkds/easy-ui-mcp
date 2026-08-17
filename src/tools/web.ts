@@ -115,6 +115,65 @@ export async function assertCondition(
   }
 }
 
+/** Upper bound on a single wait, so a wait can never outlive its session
+ * (SESSION_TIMEOUT_MS) and leave the poll loop running against a closed page. */
+export const MAX_WAIT_MS = 60_000;
+const POLL_INTERVAL_MS = 100;
+
+export interface WaitResult {
+  ok: boolean;
+  elapsedMs?: number;
+  error?: string;
+}
+
+/**
+ * Poll `condition` until it holds or `timeoutMs` elapses. Unlike ui_check this is
+ * a hard outcome: not becoming true is a failure, because the caller asserted it
+ * eventually would (FR-015).
+ *
+ * An expression that *throws* fails immediately rather than being retried — a
+ * ReferenceError will not fix itself, and retrying it just delays a clear error
+ * by the full timeout.
+ */
+export async function waitForCondition(
+  page: Page | undefined,
+  condition: string,
+  timeoutMs: number
+): Promise<WaitResult> {
+  if (!page) {
+    return { ok: false, error: "No active page — call ui_navigate first" };
+  }
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return { ok: false, error: "timeoutMs must be a positive number" };
+  }
+
+  const budget = Math.min(timeoutMs, MAX_WAIT_MS);
+  const startedAt = Date.now();
+
+  for (;;) {
+    try {
+      if (await page.evaluate(condition)) {
+        return { ok: true, elapsedMs: Date.now() - startedAt };
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, elapsedMs: Date.now() - startedAt, error: message };
+    }
+
+    const elapsed = Date.now() - startedAt;
+    if (elapsed >= budget) {
+      return {
+        ok: false,
+        elapsedMs: elapsed,
+        error: `Timed out after ${elapsed}ms waiting for: ${condition}`,
+      };
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(POLL_INTERVAL_MS, budget - elapsed))
+    );
+  }
+}
+
 export interface PageElement {
   role: string;
   name: string;

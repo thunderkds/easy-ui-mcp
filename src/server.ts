@@ -18,8 +18,10 @@ import {
   click,
   fill,
   assertCondition,
+  waitForCondition,
   getPageState,
   takeScreenshot,
+  MAX_WAIT_MS,
 } from "./tools/web.js";
 import {
   startSession,
@@ -27,6 +29,8 @@ import {
   getSessionPage,
   logAction,
   markFailed,
+  isFatalOutcome,
+  claimFailureScreenshot,
   type LoggedAction,
 } from "./tools/session.js";
 import { writeReports } from "./reports/index.js";
@@ -92,23 +96,34 @@ function buildMcpServer(): McpServer {
 
   /**
    * Logs `action`'s outcome to the active session (no-op if no session is
-   * active). On the first failing step, marks the session failed and
-   * captures a screenshot for the report (NFR-007).
+   * active). On a fatal failing step, marks the session failed and captures a
+   * screenshot for the report (NFR-007).
+   *
+   * `soft: true` records the outcome without condemning the run and without
+   * spending a screenshot — the ui_check path (FR-014). Screenshot capture is
+   * also budgeted per session, so a run with many failures does not write a PNG
+   * for every one (NFR-008).
    */
   async function recordAction(
     name: string,
     args: Record<string, unknown> | undefined,
     ok: boolean,
-    detail?: string
+    detail?: string,
+    soft?: boolean
   ): Promise<void> {
     if (!activeSessionId) return;
     const entry: LoggedAction = { timestamp: new Date().toISOString(), action: name, args, ok, detail };
+    if (soft) entry.soft = true;
     logAction(activeSessionId, entry);
-    if (!ok) {
+    if (!isFatalOutcome(entry)) return;
+
+    if (claimFailureScreenshot(activeSessionId)) {
       const sessionPage = getSessionPage(activeSessionId);
       const shot = await takeScreenshot(sessionPage, REPORTS_DIR);
       markFailed(activeSessionId, shot.ok ? shot.path : undefined);
+      return;
     }
+    markFailed(activeSessionId);
   }
 
   server.registerTool(
@@ -249,7 +264,10 @@ function buildMcpServer(): McpServer {
     "ui_assert",
     {
       title: "ui_assert",
-      description: "Evaluate a JS expression against the current page and return pass/fail.",
+      description:
+        "Assert a JS expression against the current page. This is a HARD check: if it evaluates false the whole session is marked failed. " +
+        "Use it only for claims about the application under test. To wait for the page to become ready use ui_wait_for, and for a " +
+        "non-fatal observation use ui_check — do not call ui_assert in a retry loop, as the first false result permanently fails the run.",
       inputSchema: {
         condition: z.string().describe("JS expression evaluated in the page context"),
       },
@@ -267,6 +285,68 @@ function buildMcpServer(): McpServer {
       }
       return {
         content: [{ type: "text", text: result.passed ? "Assertion passed" : "Assertion failed" }],
+      };
+    }
+  );
+
+  server.registerTool(
+    "ui_check",
+    {
+      title: "ui_check",
+      description:
+        "Check a JS expression against the current page WITHOUT failing the session if it is false. " +
+        "Use this for observations you want recorded in the report but which should not condemn the run. " +
+        "If the expression cannot run at all (no page open, or it throws) that is still a hard failure.",
+      inputSchema: {
+        condition: z.string().describe("JS expression evaluated in the page context"),
+      },
+    },
+    async ({ condition }) => {
+      const result = await assertCondition(resolvePageForRead(), condition);
+      // A condition that ran and came back falsy is soft. One that could not run
+      // is a harness error and stays hard, exactly like ui_assert.
+      await recordAction(
+        "ui_check",
+        { condition },
+        result.ok && result.passed === true,
+        result.ok ? (result.passed ? undefined : "Check evaluated false") : result.error,
+        result.ok && result.passed === false
+      );
+      if (!result.ok) {
+        return { isError: true, content: [{ type: "text", text: result.error ?? "Check failed to run" }] };
+      }
+      return {
+        content: [{ type: "text", text: result.passed ? "Check passed" : "Check evaluated false (session not failed)" }],
+      };
+    }
+  );
+
+  server.registerTool(
+    "ui_wait_for",
+    {
+      title: "ui_wait_for",
+      description:
+        "Poll a JS expression until it becomes true or the timeout elapses. Use this to wait for the page to render " +
+        "instead of retrying ui_assert. Returning true is recorded as one action; timing out fails the session.",
+      inputSchema: {
+        condition: z.string().describe("JS expression evaluated in the page context"),
+        timeoutMs: z
+          .number()
+          .int()
+          .positive()
+          .max(MAX_WAIT_MS)
+          .default(5000)
+          .describe(`How long to keep polling before giving up (max ${MAX_WAIT_MS}ms)`),
+      },
+    },
+    async ({ condition, timeoutMs }) => {
+      const result = await waitForCondition(resolvePageForRead(), condition, timeoutMs);
+      await recordAction("ui_wait_for", { condition, timeoutMs }, result.ok, result.error);
+      if (!result.ok) {
+        return { isError: true, content: [{ type: "text", text: result.error ?? "Wait failed" }] };
+      }
+      return {
+        content: [{ type: "text", text: `Condition held after ${result.elapsedMs}ms` }],
       };
     }
   );

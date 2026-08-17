@@ -37,7 +37,23 @@ of `extra_hosts: ["host.docker.internal:host-gateway"]` to `docker-compose.yml`.
 
 ## Tools
 
-`ui_start_session`, `ui_end_session`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_assert`, `ui_get_page_state`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
+`ui_start_session`, `ui_end_session`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
+
+### Verifying vs waiting — pick the right one
+
+A session is marked `failed` if any hard action fails, so *how* you verify decides whether the report tells the truth.
+
+| Tool | Condition false means | Use it for |
+|------|----------------------|------------|
+| `ui_assert` | **The session fails.** | A claim about the app: "the toggle is now on" |
+| `ui_check` | Recorded and shown, run continues | An observation you want in the report but which should not condemn the run |
+| `ui_wait_for` | Keeps polling; **timing out fails the session** | Waiting for the page to render or settle |
+
+Never call `ui_assert` in a retry loop to wait for something — the first false result permanently fails the run even if the app is fine. That is what `ui_wait_for` is for.
+
+For both `ui_check` and `ui_wait_for`, a condition that cannot *run* (no page open, or the expression throws) is always a hard failure: that is a harness error, not an observation.
+
+Auto-failure screenshots are budgeted per session (`FAILURE_SCREENSHOT_BUDGET`, default 3). Identical screenshot content is embedded in the HTML report only once.
 
 See [AGENTS.md](AGENTS.md) for the architecture and full MCP connection guide, and [HARNESS.md](HARNESS.md) for the REST API reference. Deploy/rollback procedures are in [RUNBOOK.md](RUNBOOK.md).
 

@@ -60,6 +60,8 @@ Each FR must trace to at least one User Story.
 | FR-011 | The system must spawn and manage the Appium server as a child process of the MCP server, mirroring the existing Playwright `browser` singleton lifecycle (start on demand, clean shutdown on `SIGTERM`). | US-007 |
 | FR-012 | The system must connect to an **external** Android device/emulator over ADB (host or LAN) — no AVD/emulator is bundled inside the Docker image. | US-008 |
 | FR-013 | The system must document, in AGENTS.md, a step-by-step guide for connecting the container to a locally running Android emulator (AVD) on the developer's host machine, including the host-networking mechanism that makes this work and the Docker Desktop fallback where host networking doesn't share loopback. | US-008 |
+| FR-014 | The system must provide a `ui_check(condition)` tool that evaluates a condition against the current page and records the outcome **without** marking the session failed, so a caller can observe the page without condemning the run. A condition that cannot run at all (no active page, expression throws) remains a hard failure. | US-005 |
+| FR-015 | The system must provide a `ui_wait_for(condition, timeoutMs)` tool that polls a condition until it holds or the timeout elapses, recording the wait as a single action. Timing out **is** a hard failure. | US-002, US-005 |
 
 ---
 
@@ -74,6 +76,7 @@ Each FR must trace to at least one User Story.
 | NFR-005 | AGENTS.md and HARNESS.md must give a future agent (human or AI) enough context to extend the project without re-deriving architecture decisions. | Maintainability |
 | NFR-006 | v1 supports Chromium only (Playwright). Firefox/WebKit are deferred; the tool interface must not need to change to add them later. | Compatibility |
 | NFR-007 | On a failing step within `ui_run_flow`, execution must fail fast: stop at the failing step, capture a screenshot + error context at that point, and still emit a report marked as failed. | Reliability |
+| NFR-008 | A session report must stay small enough to open and read in a browser: identical screenshot content must be embedded at most once, and auto-failure screenshots must be budgeted per session, with the report stating when the budget was reached rather than silently dropping captures. | Usability |
 
 ---
 

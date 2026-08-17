@@ -22,13 +22,15 @@ This project uses a **Option A** architecture (see `BRAINSTORMING_LOG.md`):
 
 - **No server-side LLM calls** — the container has no API keys or LLM reasoning. Instead, **Claude Code (or another agent) calls primitive Playwright tools step-by-step** and decides what to do next.
 - **Session bracketing** — every test run is wrapped in `ui_start_session(target)` and `ui_end_session()`. All tool calls between these two are logged into a single report (JSON + HTML).
-- **Primitive tools only** — the server exposes 8 tools:
+- **Primitive tools only** — the server exposes 10 tools:
   - `ui_start_session(target)` — Open a fresh browser context, label this test run
   - `ui_end_session()` — Close the context, write reports (JSON + HTML with screenshots)
   - `ui_navigate(url)` — Go to a URL
   - `ui_click(selector)` — Click a CSS-selectable element
   - `ui_fill(selector, value)` — Fill an input field
-  - `ui_assert(condition)` — Evaluate a JavaScript expression (pass/fail)
+  - `ui_assert(condition)` — Evaluate a JavaScript expression; a false result **fails the session**
+  - `ui_check(condition)` — Evaluate a condition and record it **without** failing the session (a condition that cannot run is still a hard failure)
+  - `ui_wait_for(condition, timeoutMs)` — Poll a condition until it holds; recorded as one action, and **timing out fails the session**
   - `ui_get_page_state()` — Return URL, title, and visible elements (DOM state)
   - `ui_take_screenshot()` — Capture viewport as PNG
 
