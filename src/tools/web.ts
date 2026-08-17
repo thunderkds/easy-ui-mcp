@@ -115,6 +115,24 @@ export async function assertCondition(
   }
 }
 
+/**
+ * Translate an `assertCondition` result into how ui_check should record it.
+ *
+ * This is the whole soft/hard decision for FR-014, kept out of server.ts's
+ * per-connection closure so it can be unit-tested: a condition that *ran* and
+ * came back falsy is soft, while one that could not run is a harness error and
+ * stays hard, exactly like ui_assert.
+ */
+export function classifyCheckOutcome(result: AssertResult): {
+  ok: boolean;
+  detail?: string;
+  soft: boolean;
+} {
+  if (!result.ok) return { ok: false, detail: result.error, soft: false };
+  if (result.passed) return { ok: true, soft: false };
+  return { ok: false, detail: "Check evaluated false", soft: true };
+}
+
 /** Upper bound on a single wait, so a wait can never outlive its session
  * (SESSION_TIMEOUT_MS) and leave the poll loop running against a closed page. */
 export const MAX_WAIT_MS = 60_000;

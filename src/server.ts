@@ -18,6 +18,7 @@ import {
   click,
   fill,
   assertCondition,
+  classifyCheckOutcome,
   waitForCondition,
   getPageState,
   takeScreenshot,
@@ -303,15 +304,8 @@ function buildMcpServer(): McpServer {
     },
     async ({ condition }) => {
       const result = await assertCondition(resolvePageForRead(), condition);
-      // A condition that ran and came back falsy is soft. One that could not run
-      // is a harness error and stays hard, exactly like ui_assert.
-      await recordAction(
-        "ui_check",
-        { condition },
-        result.ok && result.passed === true,
-        result.ok ? (result.passed ? undefined : "Check evaluated false") : result.error,
-        result.ok && result.passed === false
-      );
+      const outcome = classifyCheckOutcome(result);
+      await recordAction("ui_check", { condition }, outcome.ok, outcome.detail, outcome.soft);
       if (!result.ok) {
         return { isError: true, content: [{ type: "text", text: result.error ?? "Check failed to run" }] };
       }

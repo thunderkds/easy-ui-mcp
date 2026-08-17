@@ -34,6 +34,7 @@
 - [Appium postinstall doesn't auto-install a driver](decisions.md#infrastructure) — uiautomator2 must be explicitly installed (Dockerfile or lazy) before T007 works
 - [network_mode: host also solves ADB reachability](learnings.md#patterns) — same fix as v1 web dev-server reachability; Docker Desktop needs host.docker.internal fallback instead
 - [network_mode: host port collision with orphaned local server](learnings.md#gotchas) — container binds host port directly; a stray `tsx src/server.ts` on 8765 causes a silent crash-loop, not a Docker/image bug — check `ss -ltnp`
+- [Push gate fails closed on the whole board](learnings.md#gotchas) — any In Progress task or missing memory/event-trace/<TASK>.jsonl blocks every push; the Supervisor writes the trace by hand
 - [Soft vs hard outcomes are now the core session semantic](decisions.md#architecture) — `isFatalOutcome` in session.ts decides failure; `ui_check` soft, `ui_assert`/`ui_wait_for` timeout hard (T013)
 - [Report bloat was ONE large PNG, not duplicate captures](learnings.md#gotchas) — the brainstorm's stated mechanism was wrong; the real win is not capturing on soft failures (357KB → 4KB)
 - [`npm ci` needed locally for T013](learnings.md#gotchas) — this repo normally only builds inside Docker; local test runs need deps installed first

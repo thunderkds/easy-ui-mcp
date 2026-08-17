@@ -53,3 +53,7 @@
 ### 2026-08-17 — This repo builds inside Docker; local test runs need `npm ci` first (T013)
 **Gotcha**: `node_modules` is not populated on the host by default because the normal workflow is `docker compose up --build`. Running `npm test` / `tsc` locally fails confusingly until `npm ci` is run on the host. Not a code problem.
 **Files**: `package.json`, `Dockerfile`
+
+### 2026-08-17 — The push gate fails closed on the whole board, not just the task you're pushing (T013)
+**Gotcha**: `.claude/hooks/pre_bash_block_unsafe_merge.py` blocks *any* `git push` while (a) any KANBAN task sits In Progress, or (b) a Ready-for-Review task's Evidence rows aren't backed by a real tool call recorded in `memory/event-trace/<TASK_ID>.jsonl`. Nothing writes that trace automatically — no PostToolUse hook produces it — so the Supervisor must write it after genuinely running the verification. An unrelated stale task (T007, listed Ready for Review with zero commits on its branch) blocked T013's push until the board was corrected. The fix is always to make the board honest, never to pad the trace: the gate's whole point is that a self-reported "✅ pass" in a guide isn't evidence.
+**Files**: `.claude/hooks/pre_bash_block_unsafe_merge.py`, `memory/event-trace/`, `PROJECT_KANBAN.md`

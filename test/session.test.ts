@@ -12,7 +12,7 @@ import {
   isFatalOutcome,
   claimFailureScreenshot,
 } from "../src/tools/session.js";
-import { waitForCondition } from "../src/tools/web.js";
+import { waitForCondition, classifyCheckOutcome } from "../src/tools/web.js";
 import { writeReports } from "../src/reports/index.js";
 
 const TMP_REPORTS_DIR = path.join(process.cwd(), "test", ".tmp-reports");
@@ -196,6 +196,36 @@ test("a session whose only failure is a soft check ends passed, with the check s
   assert.match(html, /ui_check/);
   assert.match(html, /CHECK/);
   assert.match(html, /1 non-fatal check\(s\) evaluated false/);
+});
+
+// The tests above hand-build the LoggedAction. These cover the step that actually
+// decides `soft` from an assertCondition result — without them, inverting that
+// decision in server.ts would leave the whole suite green.
+
+test("a condition that ran and came back falsy is classified soft, and is not fatal", () => {
+  const outcome = classifyCheckOutcome({ ok: true, passed: false });
+  assert.equal(outcome.soft, true);
+  assert.equal(outcome.ok, false);
+  assert.equal(
+    isFatalOutcome({ timestamp: "t", action: "ui_check", ok: outcome.ok, soft: outcome.soft }),
+    false
+  );
+});
+
+test("a condition that held is classified as a plain pass, not a soft check", () => {
+  const outcome = classifyCheckOutcome({ ok: true, passed: true });
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.soft, false);
+});
+
+test("a condition that could not run is classified hard, and IS fatal", () => {
+  const outcome = classifyCheckOutcome({ ok: false, error: "No active page — call ui_navigate first" });
+  assert.equal(outcome.soft, false);
+  assert.equal(outcome.detail, "No active page — call ui_navigate first");
+  assert.equal(
+    isFatalOutcome({ timestamp: "t", action: "ui_check", ok: outcome.ok, soft: outcome.soft }),
+    true
+  );
 });
 
 // --- AC3: a check that cannot run is a harness error, and stays hard ---
