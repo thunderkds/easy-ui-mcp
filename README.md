@@ -41,7 +41,7 @@ of `extra_hosts: ["host.docker.internal:host-gateway"]` to `docker-compose.yml`.
 
 ### Label your steps
 
-`ui_step(label)` groups everything that follows it under a plain-language heading, until the next `ui_step`. The label is **the only human-readable description the report has** — the server never invents prose (no LLM runs inside the container), so an unlabelled session renders as a list of selectors and conditions.
+`ui_step(label)` groups everything that follows it under a plain-language heading, until the next `ui_step`. The label is the report's **only caller-authored statement of intent**. The server uses deterministic templates such as “Opened …”, “Clicked …”, and “Filled …” for individual actions—no LLM runs inside the container—so an unlabelled session still renders readable action descriptions under one implicit group.
 
 ```
 ui_start_session  target: "Account Access toggle smoke"
@@ -76,7 +76,7 @@ Auto-failure screenshots are budgeted per session (`FAILURE_SCREENSHOT_BUDGET`, 
 
 A verdict box (status, target, step/action/failure counts, duration), then the run as labelled steps with per-step outcomes and elapsed time, then any browser problems, and finally the raw action log collapsed behind a disclosure.
 
-Console errors, uncaught page errors, and failed requests are captured automatically and listed under **Browser problems** — a flow that passes while the console throws is a false green worth seeing. They are informational and never change the verdict. Up to 50 are retained per session; past that the report says the rest were dropped.
+Console errors, uncaught page errors, and network-level request failures are captured automatically and listed under **Browser problems** — a flow that passes while the console throws is a false green worth seeing. HTTP error responses such as 404 or 500 do not trigger Playwright's `requestfailed` event and are not listed automatically. Captured problems are informational and never change the verdict. Up to 50 are retained per session; past that the report says the rest were dropped.
 
 See [AGENTS.md](AGENTS.md) for the architecture and full MCP connection guide, and [HARNESS.md](HARNESS.md) for the REST API reference. Deploy/rollback procedures are in [RUNBOOK.md](RUNBOOK.md).
 
