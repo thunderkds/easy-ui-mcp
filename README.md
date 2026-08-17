@@ -37,7 +37,24 @@ of `extra_hosts: ["host.docker.internal:host-gateway"]` to `docker-compose.yml`.
 
 ## Tools
 
-`ui_start_session`, `ui_end_session`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
+`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
+
+### Label your steps
+
+`ui_step(label)` groups everything that follows it under a plain-language heading, until the next `ui_step`. The label is **the only human-readable description the report has** — the server never invents prose (no LLM runs inside the container), so an unlabelled session renders as a list of selectors and conditions.
+
+```
+ui_start_session  target: "Account Access toggle smoke"
+ui_step           label:  "Open the Settings page"
+ui_navigate       ...
+ui_wait_for       ...
+ui_step           label:  "Turn Manual Invoice access on"
+ui_click          ...
+ui_assert         ...
+ui_end_session
+```
+
+Sessions with no `ui_step` calls still render correctly, under a single implicit group.
 
 ### Verifying vs waiting — pick the right one
 
@@ -54,6 +71,12 @@ Never call `ui_assert` in a retry loop to wait for something — the first false
 For both `ui_check` and `ui_wait_for`, a condition that cannot *run* (no page open, or the expression throws) is always a hard failure: that is a harness error, not an observation.
 
 Auto-failure screenshots are budgeted per session (`FAILURE_SCREENSHOT_BUDGET`, default 3). Identical screenshot content is embedded in the HTML report only once.
+
+### What the report shows
+
+A verdict box (status, target, step/action/failure counts, duration), then the run as labelled steps with per-step outcomes and elapsed time, then any browser problems, and finally the raw action log collapsed behind a disclosure.
+
+Console errors, uncaught page errors, and failed requests are captured automatically and listed under **Browser problems** — a flow that passes while the console throws is a false green worth seeing. They are informational and never change the verdict. Up to 50 are retained per session; past that the report says the rest were dropped.
 
 See [AGENTS.md](AGENTS.md) for the architecture and full MCP connection guide, and [HARNESS.md](HARNESS.md) for the REST API reference. Deploy/rollback procedures are in [RUNBOOK.md](RUNBOOK.md).
 

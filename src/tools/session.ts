@@ -23,7 +23,23 @@ export interface LoggedAction {
    * and stays hard, so `soft` is not set for it.
    */
   soft?: boolean;
+  /** Caller-supplied intent label this action belongs to (T014/FR-016). Absent for
+   * actions recorded before the first ui_step. */
+  step?: string;
 }
+
+/** A browser-side problem observed during the session. Surfaced in the report but
+ * never changes session status (T014/FR-018) — a console error is information, and
+ * failing the run on one would re-create the false-verdict problem T013 fixed. */
+export interface PageIssue {
+  timestamp: string;
+  kind: "console" | "pageerror" | "requestfailed";
+  text: string;
+}
+
+/** Cap on retained page issues. An app in a redirect loop can emit thousands, and
+ * the report must not become the 300 KB artifact T013 just shrank. */
+export const MAX_PAGE_ISSUES = 50;
 
 /**
  * True when an outcome should fail the session. A soft outcome never does;
@@ -51,6 +67,10 @@ export interface SessionRecord {
   /** Set once the budget is exhausted, so the report can say captures were dropped
    * rather than silently omitting them (NFR-008). */
   screenshotBudgetReached?: boolean;
+  /** Console errors, uncaught page errors, and failed requests seen during the run. */
+  issues?: PageIssue[];
+  /** Set once MAX_PAGE_ISSUES is hit, so the report says issues were dropped. */
+  issuesTruncated?: boolean;
 }
 
 interface Session extends SessionRecord {
@@ -58,6 +78,8 @@ interface Session extends SessionRecord {
   context: BrowserContext;
   page: Page;
   timeoutHandle: ReturnType<typeof setTimeout>;
+  /** Label set by the most recent ui_step; stamped onto subsequent actions. */
+  currentStep?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.SESSION_TIMEOUT_MS ?? 10 * 60 * 1000);
@@ -95,13 +117,53 @@ export async function startSession(
     status: "running",
     startedAt: new Date().toISOString(),
     actions: [],
+    issues: [],
     browser,
     context,
     page,
     timeoutHandle,
   };
   sessions.set(id, session);
+  attachIssueListeners(session);
   return toRecord(session);
+}
+
+/**
+ * Watch the page for browser-side problems a passing flow would otherwise hide:
+ * console errors, uncaught exceptions, and failed requests. These are recorded
+ * for the report only — they never touch session status (FR-018).
+ */
+function attachIssueListeners(session: Session): void {
+  const record = (kind: PageIssue["kind"], text: string) => {
+    const issues = session.issues;
+    if (!issues) return;
+    if (issues.length >= MAX_PAGE_ISSUES) {
+      session.issuesTruncated = true;
+      return;
+    }
+    issues.push({ timestamp: new Date().toISOString(), kind, text });
+  };
+
+  session.page.on("console", (msg) => {
+    if (msg.type() === "error") record("console", msg.text());
+  });
+  session.page.on("pageerror", (err) => record("pageerror", err.message));
+  session.page.on("requestfailed", (req) => {
+    const reason = req.failure()?.errorText ?? "request failed";
+    record("requestfailed", `${req.method()} ${req.url()} — ${reason}`);
+  });
+}
+
+/** Set the intent label subsequent actions belong to (FR-016). */
+export function setCurrentStep(id: string, label: string): void {
+  const session = sessions.get(id);
+  if (!session) return;
+  session.currentStep = label;
+}
+
+/** The label to stamp on the next recorded action, if any. */
+export function getCurrentStep(id: string): string | undefined {
+  return sessions.get(id)?.currentStep;
 }
 
 async function cleanupTimedOutSession(id: string): Promise<void> {
@@ -171,6 +233,13 @@ export async function endSession(id: string): Promise<SessionRecord | undefined>
 }
 
 function toRecord(session: Session): SessionRecord {
-  const { browser: _b, context: _c, page: _p, timeoutHandle: _t, ...record } = session;
-  return { ...record, actions: [...record.actions] };
+  const {
+    browser: _b,
+    context: _c,
+    page: _p,
+    timeoutHandle: _t,
+    currentStep: _s,
+    ...record
+  } = session;
+  return { ...record, actions: [...record.actions], issues: [...(record.issues ?? [])] };
 }

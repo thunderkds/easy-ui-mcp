@@ -62,6 +62,9 @@ Each FR must trace to at least one User Story.
 | FR-013 | The system must document, in AGENTS.md, a step-by-step guide for connecting the container to a locally running Android emulator (AVD) on the developer's host machine, including the host-networking mechanism that makes this work and the Docker Desktop fallback where host networking doesn't share loopback. | US-008 |
 | FR-014 | The system must provide a `ui_check(condition)` tool that evaluates a condition against the current page and records the outcome **without** marking the session failed, so a caller can observe the page without condemning the run. A condition that cannot run at all (no active page, expression throws) remains a hard failure. | US-005 |
 | FR-015 | The system must provide a `ui_wait_for(condition, timeoutMs)` tool that polls a condition until it holds or the timeout elapses, recording the wait as a single action. Timing out **is** a hard failure. | US-002, US-005 |
+| FR-016 | The system must provide a `ui_step(label)` tool that attaches a caller-supplied intent label to all subsequent actions until the next `ui_step`, so the report can describe the run in the caller's own words. | US-005 |
+| FR-017 | The HTML report must present a session as a verdict summary plus labelled steps with per-step outcomes and elapsed time; the raw action log must remain available but must not be the primary view. | US-005 |
+| FR-018 | The system must capture browser console errors, uncaught page errors, and failed network requests during a session and surface them in the report. These are informational and must not change session status. | US-005 |
 
 ---
 

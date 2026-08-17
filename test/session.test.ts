@@ -11,6 +11,9 @@ import {
   markFailed,
   isFatalOutcome,
   claimFailureScreenshot,
+  setCurrentStep,
+  getCurrentStep,
+  MAX_PAGE_ISSUES,
 } from "../src/tools/session.js";
 import { waitForCondition, classifyCheckOutcome } from "../src/tools/web.js";
 import { writeReports } from "../src/reports/index.js";
@@ -195,7 +198,7 @@ test("a session whose only failure is a soft check ends passed, with the check s
   const html = readFileSync(htmlPath, "utf8");
   assert.match(html, /ui_check/);
   assert.match(html, /CHECK/);
-  assert.match(html, /1 non-fatal check\(s\) evaluated false/);
+  assert.match(html, /1 non-fatal check\(s\) false/);
 });
 
 // The tests above hand-build the LoggedAction. These cover the step that actually
@@ -365,6 +368,100 @@ test("two actions referencing identical screenshot content embed the image only 
   // ...but both rows still show it.
   const references = html.match(/class="shot shot-[0-9a-f]{12}"/g) ?? [];
   assert.equal(references.length, 2);
+});
+
+// ---------------------------------------------------------------------------
+// T014 — step attribution and browser-problem capture
+// ---------------------------------------------------------------------------
+
+test("setCurrentStep stamps subsequent actions, and unset means no step", async () => {
+  const record = await startSession("step-attribution");
+  assert.equal(getCurrentStep(record.id), undefined);
+
+  logAction(record.id, { timestamp: new Date().toISOString(), action: "ui_navigate", ok: true });
+  setCurrentStep(record.id, "Log in");
+  assert.equal(getCurrentStep(record.id), "Log in");
+  logAction(record.id, {
+    timestamp: new Date().toISOString(),
+    action: "ui_fill",
+    ok: true,
+    step: getCurrentStep(record.id),
+  });
+
+  const ended = await endSession(record.id);
+  assert.equal(ended!.actions[0].step, undefined, "pre-step action keeps no label");
+  assert.equal(ended!.actions[1].step, "Log in");
+});
+
+test("setCurrentStep on an unknown session is a no-op, not a crash", () => {
+  setCurrentStep("does-not-exist", "nope");
+  assert.equal(getCurrentStep("does-not-exist"), undefined);
+});
+
+test("console errors and failed requests are captured without failing the session", async () => {
+  const record = await startSession("issue-capture");
+  const page = getSessionPage(record.id)!;
+  await page.setContent(`<html><body><script>
+    console.error("boom from the page");
+    fetch("http://127.0.0.1:1/never").catch(() => {});
+  </script></body></html>`);
+  // Give the listeners a moment to fire.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  const ended = await endSession(record.id);
+  assert.equal(ended!.status, "passed", "browser problems must not change the verdict");
+
+  const kinds = (ended!.issues ?? []).map((i) => i.kind);
+  assert.ok(kinds.includes("console"), `expected a console issue, got ${JSON.stringify(ended!.issues)}`);
+  assert.ok(
+    (ended!.issues ?? []).some((i) => i.text.includes("boom from the page")),
+    "console message text should be retained"
+  );
+
+  const { htmlPath } = await writeReports(ended!, TMP_REPORTS_DIR);
+  assert.match(readFileSync(htmlPath, "utf8"), /boom from the page/);
+});
+
+test("uncaught page errors are captured as pageerror issues", async () => {
+  const record = await startSession("pageerror-capture");
+  const page = getSessionPage(record.id)!;
+  await page.setContent(`<html><body><script>setTimeout(() => { throw new Error("uncaught kaboom"); }, 0);</script></body></html>`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  const ended = await endSession(record.id);
+  assert.equal(ended!.status, "passed");
+  assert.ok(
+    (ended!.issues ?? []).some((i) => i.kind === "pageerror" && i.text.includes("uncaught kaboom")),
+    `expected a pageerror issue, got ${JSON.stringify(ended!.issues)}`
+  );
+});
+
+test("retained issues are capped and the record says they were truncated", async () => {
+  const record = await startSession("issue-cap");
+  const page = getSessionPage(record.id)!;
+  await page.setContent(`<html><body><script>
+    for (let i = 0; i < ${MAX_PAGE_ISSUES + 20}; i++) console.error("spam " + i);
+  </script></body></html>`);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  const ended = await endSession(record.id);
+  assert.equal(ended!.issues!.length, MAX_PAGE_ISSUES, "must stop retaining past the cap");
+  assert.equal(ended!.issuesTruncated, true);
+
+  const { htmlPath } = await writeReports(ended!, TMP_REPORTS_DIR);
+  assert.match(readFileSync(htmlPath, "utf8"), /later ones were dropped/);
+});
+
+test("a session with no browser problems has no issues section", async () => {
+  const record = await startSession("no-issues");
+  const page = getSessionPage(record.id)!;
+  await page.setContent("<html><body>quiet</body></html>");
+
+  const ended = await endSession(record.id);
+  assert.deepEqual(ended!.issues, []);
+
+  const { htmlPath } = await writeReports(ended!, TMP_REPORTS_DIR);
+  assert.doesNotMatch(readFileSync(htmlPath, "utf8"), /Browser problems/);
 });
 
 test("a missing screenshot file is omitted rather than failing the report", async () => {
