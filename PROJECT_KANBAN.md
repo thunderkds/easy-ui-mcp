@@ -18,9 +18,9 @@
 - [ ] **T014** — Human-readable reports: `ui_step` + grouped renderer + durations + console/network capture | backend-developer | C2 | Risk: Low | P1 | Blocked by: T013 | Go/no-go gated on reviewing T013's output
 
 ### In Progress
+- [ ] **T007** — Appium session lifecycle: android_start_session/android_end_session + session.ts kind discriminant | backend-developer | C2 | Risk: Medium | P0 | Blocked by: None (T006 done) | Worktree `easy-ui-mcp-T007` exists but branch has **zero commits** — not implemented; returned to In Progress 2026-08-17
 
 ### Ready for Review
-- [ ] **T007** — Appium session lifecycle: android_start_session/android_end_session + session.ts kind discriminant | backend-developer | C2 | Risk: Medium | P0 | Blocked by: None (T006 done)
 - [ ] **T013** — Truthful verdicts: `ui_check` + `ui_wait_for` + screenshot dedupe/budget | backend-developer | C2 | Risk: Medium | P0 | Implemented 2026-08-17; 19/19 tests, live drive passed both soft and hard paths. Note for T007: `session.ts` gained `soft` on `LoggedAction` + 2 record fields — merge with the `kind` discriminant carefully
 
 
