@@ -16,6 +16,24 @@ export interface LoggedAction {
   args?: Record<string, unknown>;
   ok: boolean;
   detail?: string;
+  /**
+   * A soft outcome: recorded and shown, but never condemns the session (T013/FR-014).
+   * Only meaningful when `ok` is false — a soft check that *ran* and evaluated falsy.
+   * A check that could not run at all (no page, expression threw) is a harness error
+   * and stays hard, so `soft` is not set for it.
+   */
+  soft?: boolean;
+}
+
+/**
+ * True when an outcome should fail the session. A soft outcome never does;
+ * everything else follows the original rule (any `ok: false` fails the run).
+ *
+ * Extracted so the semantics are unit-testable — `recordAction` itself lives
+ * inside a per-connection closure in server.ts and cannot be called directly.
+ */
+export function isFatalOutcome(entry: LoggedAction): boolean {
+  return entry.ok === false && entry.soft !== true;
 }
 
 export type SessionStatus = "running" | "passed" | "failed";
@@ -28,6 +46,11 @@ export interface SessionRecord {
   endedAt?: string;
   actions: LoggedAction[];
   failureScreenshot?: string;
+  /** Auto-failure screenshots taken so far, against DEFAULT_FAILURE_SCREENSHOT_BUDGET. */
+  failureScreenshotCount?: number;
+  /** Set once the budget is exhausted, so the report can say captures were dropped
+   * rather than silently omitting them (NFR-008). */
+  screenshotBudgetReached?: boolean;
 }
 
 interface Session extends SessionRecord {
@@ -38,6 +61,10 @@ interface Session extends SessionRecord {
 }
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.SESSION_TIMEOUT_MS ?? 10 * 60 * 1000);
+
+/** Max auto-failure screenshots per session. Beyond this the run keeps going but
+ * stops writing PNGs, and the report records that captures were dropped. */
+export const DEFAULT_FAILURE_SCREENSHOT_BUDGET = Number(process.env.FAILURE_SCREENSHOT_BUDGET ?? 3);
 
 const sessions = new Map<string, Session>();
 
@@ -97,6 +124,25 @@ export function isSessionActive(id: string): boolean {
 /** Append a logged action to the session's in-memory action list. */
 export function logAction(id: string, action: LoggedAction): void {
   sessions.get(id)?.actions.push(action);
+}
+
+/**
+ * Reserve one auto-failure screenshot against the session's budget. Returns false
+ * once the budget is spent, and flags the record so the report can say so.
+ */
+export function claimFailureScreenshot(
+  id: string,
+  budget: number = DEFAULT_FAILURE_SCREENSHOT_BUDGET
+): boolean {
+  const session = sessions.get(id);
+  if (!session) return false;
+  const taken = session.failureScreenshotCount ?? 0;
+  if (taken >= budget) {
+    session.screenshotBudgetReached = true;
+    return false;
+  }
+  session.failureScreenshotCount = taken + 1;
+  return true;
 }
 
 /** Mark a session failed (first failing step wins — status only moves running -> failed). */

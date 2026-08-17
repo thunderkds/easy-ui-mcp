@@ -34,6 +34,8 @@ Developers using AI coding agents (like Claude Code) currently have no fast, loc
 | US-004 | As a developer or agent (P1/P2), I want a screenshot and page-state capture tool so that I can inspect the current UI state during a flow. | P1, P2 |
 | US-005 | As a developer or agent (P1/P2), I want an HTML report with embedded screenshots after a run so that I can review what happened and share evidence. | P1, P2 |
 | US-006 | As a developer (P2), I want a `/health` endpoint so that I can confirm the container is ready before running tests. | P2 |
+| US-007 | As Claude Code (P1), I want a set of primitive Android native-app-action tools so that I can drive a real or emulated Android device the same way I drive a browser with `ui_*` tools. | P1 |
+| US-008 | As a developer (P2), I want to point the container at an Android emulator (AVD) already running on my machine, including a local-only setup, without bundling an emulator in the image. | P2 |
 
 ---
 
@@ -53,6 +55,13 @@ Each FR must trace to at least one User Story.
 | FR-007 | The system must expose a `/health` HTTP endpoint reporting readiness. | US-006 |
 | FR-008 | The system must persist reports to a Docker volume-mounted `reports/` folder accessible from the host. | US-005, US-003 |
 | FR-009 | The system must document (in AGENTS.md) the exact MCP connection configuration Claude Code needs to point at the running Docker container. | US-001 |
+| FR-010 | The system must provide primitive Appium/Android action tools (`android_tap`, `android_input`, `android_swipe`, `android_assert`, `android_get_screen_state`, `android_take_screenshot`) mirroring the `ui_*` primitive-tool model, driving a real or emulated Android device — no LLM call happens inside the server. | US-007 |
+| FR-010a | The system must provide `android_start_session(...)` / `android_end_session()` tools bracketing an Android test run, reusing the existing session/report layer (`kind: 'android'`) so all primitive actions between them are logged into one report, consistent with FR-002a. | US-007, US-005 |
+| FR-011 | The system must spawn and manage the Appium server as a child process of the MCP server, mirroring the existing Playwright `browser` singleton lifecycle (start on demand, clean shutdown on `SIGTERM`). | US-007 |
+| FR-012 | The system must connect to an **external** Android device/emulator over ADB (host or LAN) — no AVD/emulator is bundled inside the Docker image. | US-008 |
+| FR-013 | The system must document, in AGENTS.md, a step-by-step guide for connecting the container to a locally running Android emulator (AVD) on the developer's host machine, including the host-networking mechanism that makes this work and the Docker Desktop fallback where host networking doesn't share loopback. | US-008 |
+| FR-014 | The system must provide a `ui_check(condition)` tool that evaluates a condition against the current page and records the outcome **without** marking the session failed, so a caller can observe the page without condemning the run. A condition that cannot run at all (no active page, expression throws) remains a hard failure. | US-005 |
+| FR-015 | The system must provide a `ui_wait_for(condition, timeoutMs)` tool that polls a condition until it holds or the timeout elapses, recording the wait as a single action. Timing out **is** a hard failure. | US-002, US-005 |
 
 ---
 
@@ -67,6 +76,7 @@ Each FR must trace to at least one User Story.
 | NFR-005 | AGENTS.md and HARNESS.md must give a future agent (human or AI) enough context to extend the project without re-deriving architecture decisions. | Maintainability |
 | NFR-006 | v1 supports Chromium only (Playwright). Firefox/WebKit are deferred; the tool interface must not need to change to add them later. | Compatibility |
 | NFR-007 | On a failing step within `ui_run_flow`, execution must fail fast: stop at the failing step, capture a screenshot + error context at that point, and still emit a report marked as failed. | Reliability |
+| NFR-008 | A session report must stay small enough to open and read in a browser: identical screenshot content must be embedded at most once, and auto-failure screenshots must be budgeted per session, with the report stating when the budget was reached rather than silently dropping captures. | Usability |
 
 ---
 
@@ -84,7 +94,7 @@ Each FR must trace to at least one User Story.
 
 The following are explicitly excluded from this project (v1):
 
-- Mobile/native testing via Appium + Maestro (deferred to v2)
+- ~~Mobile/native testing via Appium + Maestro (deferred to v2)~~ — **Android via Appium now in scope for v2, see FR-010–FR-013**; Maestro remains deferred/out of scope
 - iOS support (deferred; would require Mac-specific tooling)
 - CI/CD pipeline triggers (GitHub Actions / Harness pipeline steps) — local execution only for v1
 - Cloud device farms

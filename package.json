@@ -13,8 +13,10 @@
   "license": "ISC",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "appium": "2.11.4",
     "express": "^5.2.1",
     "playwright": "1.61.1",
+    "webdriverio": "9.4.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {

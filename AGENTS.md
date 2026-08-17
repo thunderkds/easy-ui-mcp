@@ -22,13 +22,15 @@ This project uses a **Option A** architecture (see `BRAINSTORMING_LOG.md`):
 
 - **No server-side LLM calls** — the container has no API keys or LLM reasoning. Instead, **Claude Code (or another agent) calls primitive Playwright tools step-by-step** and decides what to do next.
 - **Session bracketing** — every test run is wrapped in `ui_start_session(target)` and `ui_end_session()`. All tool calls between these two are logged into a single report (JSON + HTML).
-- **Primitive tools only** — the server exposes 8 tools:
+- **Primitive tools only** — the server exposes 10 tools:
   - `ui_start_session(target)` — Open a fresh browser context, label this test run
   - `ui_end_session()` — Close the context, write reports (JSON + HTML with screenshots)
   - `ui_navigate(url)` — Go to a URL
   - `ui_click(selector)` — Click a CSS-selectable element
   - `ui_fill(selector, value)` — Fill an input field
-  - `ui_assert(condition)` — Evaluate a JavaScript expression (pass/fail)
+  - `ui_assert(condition)` — Evaluate a JavaScript expression; a false result **fails the session**
+  - `ui_check(condition)` — Evaluate a condition and record it **without** failing the session (a condition that cannot run is still a hard failure)
+  - `ui_wait_for(condition, timeoutMs)` — Poll a condition until it holds; recorded as one action, and **timing out fails the session**
   - `ui_get_page_state()` — Return URL, title, and visible elements (DOM state)
   - `ui_take_screenshot()` — Capture viewport as PNG
 
@@ -100,6 +102,61 @@ Claude Code should:
 5. Show you the report path (in `reports/session-<UUID>.html` inside the container)
 
 If you see tool calls succeed and a report path in the response, the connection is working.
+
+---
+
+## Android / Local Emulator
+
+v2 (Android/Appium) targets an **external** emulator or device reached over ADB — no AVD/emulator is bundled inside the Docker image, and the container has no Android SDK beyond `adb` itself (see `PROJECT_SPEC.md` Critical Constraints / `BRAINSTORMING_LOG_android.md` Option C). Getting the container's `adb` to see a locally running AVD is a host-networking problem, not a code problem, so follow these steps exactly.
+
+### 1. Create the AVD on the host (not in the container)
+
+Use Android Studio's AVD Manager, or the command line via the host's Android SDK:
+```bash
+avdmanager create avd -n test-avd -k "system-images;android-34;google_apis;x86_64"
+```
+The container has no Android SDK/`avdmanager` — this step always happens on your host machine.
+
+### 2. Start the AVD on the host
+
+```bash
+emulator -avd test-avd
+```
+
+### 3. Verify from the host first
+
+```bash
+adb devices
+# Expected: emulator-5554   device
+```
+If the emulator doesn't show up here, fix that before touching the container — the container can only reach what the host's ADB server already sees.
+
+### 4. Verify from inside the container
+
+This repo already sets `network_mode: host` in `docker-compose.yml` (the same fix applied for v1 web-target reachability — see [README Networking](README.md#networking)). On Linux, host networking means the container shares the host's network namespace directly, so the container's `adb` talks to the same loopback interface and reaches the host's ADB server transparently:
+```bash
+docker compose up -d --build
+docker compose exec easy-ui-mcp adb devices
+# Expected: emulator-5554   device
+```
+No manual port-forwarding is required on Linux.
+
+**Startup race**: the AVD can take 10–30+ seconds to finish booting after `emulator -avd test-avd` returns. If `adb devices` runs before the device is ready, it may show nothing or `offline`. Retry, or run `adb wait-for-device` first (host-side or inside the container) before depending on device availability.
+
+**No AVD running**: with no emulator started, `adb devices` inside the container returns an empty device list — this is expected behavior, not an error, and the container/server must not crash or hang on it.
+
+**Multiple AVDs**: if more than one AVD/device is running, `adb devices` lists all of them; a specific device serial will need to be selected explicitly. Session/tool-level device selection is out of scope for this task — see T007.
+
+**`adb` version mismatch**: the container's `adb` (installed via `android-tools-adb` from Ubuntu 22.04/jammy's package repo) must speak a protocol version compatible with the host's ADB server. If you see `adb: error: protocol fault` or similar, the fix is to align versions — e.g. restart the host ADB server (`adb kill-server && adb start-server`) so both sides renegotiate, or install a matching `platform-tools` version on the host. This is a known failure mode of running two independent `adb` binaries (host and container) against one ADB server socket.
+
+### 5. Docker Desktop fallback (Mac / Windows)
+
+`network_mode: host` does **not** share the loopback interface the same way on Docker Desktop for Mac/Windows — the container runs inside a Linux VM, so `network_mode: host` there does not expose the Mac/Windows host's `localhost` to the container. If `docker compose exec easy-ui-mcp adb devices` comes back empty despite the AVD running and visible via `adb devices` on the host, use `host.docker.internal` (Docker Desktop's DNS name for the host) instead of relying on shared loopback:
+```bash
+docker compose exec easy-ui-mcp adb connect host.docker.internal:5555
+docker compose exec easy-ui-mcp adb devices
+```
+Note the ADB server on the host must be reachable on that port (the default emulator ADB port is `5555`, incrementing per additional running AVD — `5555`, `5557`, etc.). This fallback is not needed on Linux, where step 4 above works directly.
 
 ---
 
