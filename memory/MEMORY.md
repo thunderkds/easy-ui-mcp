@@ -38,3 +38,4 @@
 - [Soft vs hard outcomes are now the core session semantic](decisions.md#architecture) — `isFatalOutcome` in session.ts decides failure; `ui_check` soft, `ui_assert`/`ui_wait_for` timeout hard (T013)
 - [Report bloat was ONE large PNG, not duplicate captures](learnings.md#gotchas) — the brainstorm's stated mechanism was wrong; the real win is not capturing on soft failures (357KB → 4KB)
 - [`npm ci` needed locally for T013](learnings.md#gotchas) — this repo normally only builds inside Docker; local test runs need deps installed first
+- [Tests that build the value under test assert the fixture, not the behaviour](learnings.md#patterns) — logic in server.ts closures is unreachable from test/; extract it (T013 review)
