@@ -1,5 +1,5 @@
 # PROJECT_KANBAN.md
-**Last updated**: 2026-08-17
+**Last updated**: 2026-08-25
 
 > Compact task board. Full context lives in `PROJECT_SPEC.md`. Update this file whenever a task status changes.
 
@@ -25,6 +25,7 @@
 
 
 ### Done
+- [x] **T015** — Codex mapping reference for the current Claude Code kit | common-infrastructure | C1 | Risk: Low | P1 | Completed: 2026-08-25; focused test and build pass; environment-blocked full-suite result disclosed in `tasks/TASK_REVIEW_T015.md` and accepted by user direction
 - [x] **T001** — Docker + MCP server skeleton + ui_navigate tracer bullet | C2 | Completed: 2026-07-01
 - [x] **T002** — Remaining primitive Playwright tools | C1 | Completed: 2026-07-01
 - [x] **T003** — Session lifecycle + JSON/HTML report generation | C2 | Completed: 2026-07-01
