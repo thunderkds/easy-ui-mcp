@@ -20,6 +20,7 @@
 ### In Progress
 
 ### Ready for Review
+- [ ] **T016** — Vendor the current Supervisor harness snapshot with integrity verification | common-infrastructure | C2 | Risk: Medium | P1 | Focused integrity + T015 mapping tests and build pass; 0 credential signatures; full runtime suite remains sandbox-blocked; branch/stage/commit blocked because `.git` metadata is read-only
 - [ ] **T014** — Human-readable reports: `ui_step` + grouped renderer + durations + console/network capture | backend-developer | C2 | Risk: Low | P1 | Implemented 2026-08-17; 46 focused tests pass; full suite 66/68 with 2 pre-existing API report-path failures; live drive rendered 3 labelled steps + captured console/network issues without changing the verdict
 - [ ] **T013** — Truthful verdicts: `ui_check` + `ui_wait_for` + screenshot dedupe/budget | backend-developer | C2 | Risk: Medium | P0 | Implemented 2026-08-17; 19/19 tests, live drive passed both soft and hard paths. Note for T007: `session.ts` gained `soft` on `LoggedAction` + 2 record fields — merge with the `kind` discriminant carefully
 
