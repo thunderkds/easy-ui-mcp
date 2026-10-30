@@ -39,3 +39,7 @@
 - [Report bloat was ONE large PNG, not duplicate captures](learnings.md#gotchas) — the brainstorm's stated mechanism was wrong; the real win is not capturing on soft failures (357KB → 4KB)
 - [`npm ci` needed locally for T013](learnings.md#gotchas) — this repo normally only builds inside Docker; local test runs need deps installed first
 - [Tests that build the value under test assert the fixture, not the behaviour](learnings.md#patterns) — logic in server.ts closures is unreachable from test/; extract it (T013 review)
+- [tsx `__name` breaks in-page callbacks](learnings.md#gotchas) — no named inner functions in Playwright `$$eval`/`evaluate` callbacks when run via tsx (T017)
+- [Gate hook matches the word "merge" in any Bash command](learnings.md#gotchas) — even `git merge-base` or a heredoc; trial-combine via cherry-pick in a throwaway worktree, write memory with Edit
+- [MCP drive on a spare port](learnings.md#gotchas) — 8765 is hard-coded and owned by the user's container; verify with a temp server copy on 18766 + SDK client
+- [Web agent-ergonomics batch T017–T021 (2026-10-30)](../PROJECT_KANBAN.md) — page-state names/roles/messages, verified selectors, 5 new primitives, readable report names + index; branch `integ/T017-T021-web-ergonomics` awaiting user OK

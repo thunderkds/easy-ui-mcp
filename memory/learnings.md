@@ -21,6 +21,18 @@
 
 ## Gotchas
 
+### 2026-10-30 — tsx/esbuild breaks named inner functions inside Playwright `$$eval`/`evaluate` callbacks
+**Gotcha**: When code runs through `tsx`, esbuild wraps named inner functions/consts in a `__name(...)` helper. The callback is serialised to the browser, where `__name` does not exist, so `$$eval` throws `ReferenceError: __name is not defined`. Keep in-page callbacks free of named inner functions (use inline arrows/object literals). There is a NOTE comment in `getPageState` (T017).
+**Files**: `src/tools/web.ts`
+
+### 2026-10-30 — The push/merge gate hook matches the word "merge" anywhere in a Bash command
+**Gotcha**: `pre_bash_block_unsafe_merge.py` blocks any Bash call whose text contains the word, including a read-only `git merge-base` or a heredoc writing memory notes, whenever the board gate is failing. While T017–T021 evidence lives only on unmerged branches, the gate reports "no evidence row" for them, because it reads the main checkout's `tasks/TASK_REVIEW_*.md`. To test whether branches combine, cherry-pick onto a throwaway `git worktree add --detach` copy. That is how `integ/T017-T021-web-ergonomics` was built. Write memory text with the Edit tool, not Bash.
+**Files**: `.claude/hooks/pre_bash_block_unsafe_merge.py`
+
+### 2026-10-30 — Verifying MCP tools without touching the user's container
+**Gotcha**: `PORT` is hard-coded to 8765 in `src/server.ts`, and the user's Docker container owns that port. For an independent MCP-level drive, copy `server.ts` with the port changed (e.g. 18766). Run it with `node --import <worktree>/node_modules/tsx/dist/esm/index.mjs` from a scratch cwd, because bare `--import tsx` fails with ERR_MODULE_NOT_FOUND outside the repo. Drive it with the SDK's `StreamableHTTPClientTransport`, then delete the copy. Kill the server by PID; `pkill -f` matches and kills the calling shell.
+**Files**: `src/server.ts`
+
 ### 2026-07-01 — Worktree-isolated agents can't see uncommitted Stage 1/2 planning docs
 **Gotcha**: `PROJECT_SPEC.md`, `PRD.md`, `PROJECT_KANBAN.md`, `tasks/TASK_GUIDE_*.md`, `.claude/agents/`, etc. must be **committed to `main`** before spawning any `isolation: "worktree"` agent — a worktree is created from the last commit, so uncommitted planning artifacts in the main working directory are invisible to it. T001's first spawn attempt correctly self-blocked (Hard-Stop Gate 1) when it found none of these files in its worktree.
 **Files**: N/A (process gotcha, not a specific file)
