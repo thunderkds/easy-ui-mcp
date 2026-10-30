@@ -13,6 +13,7 @@
 > Re-prioritized 2026-10-30 by user direction. Focus: **executable, simple, easy for an agent to drive, readable results**. Web first; Android and human-in-the-loop on hold. Listed in pickup order. T017–T019 and T021 are draft scope from the 2026-10-30 investigation — Brainstorm: `BRAINSTORMING_LOG_agent-ergonomics.md` (paths chosen provisionally by Supervisor, pending user approval). TASK_GUIDEs generated 2026-10-30.
 
 ### In Progress
+- [ ] **T025** — Static docs site for Vercel (guide + how to run) in Graphite Mint; move planning prose `requirements.txt` → `docs/original-plan.md` (Vercel misread it as Python deps) | frontend-developer | C1 | Risk: Low | P1 | Requested by user 2026-10-30 after a failed Vercel deploy; reference page https://personal-agentic-claude.vercel.app/. Guide: `tasks/TASK_GUIDE_T025.md`
 
 ### Ready for Review
 
