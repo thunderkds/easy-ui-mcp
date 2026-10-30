@@ -10,10 +10,10 @@
 > Task line format: **Txxx** — [title] | [agent] | C[0–3] | Risk: Low/Med/High | P[0–2]
 
 ### Todo
-- [ ] **T022** — `npm test` never exits (spawned test servers outlive their tests) | backend-developer | C1 | Risk: Low | P0
 > Re-prioritized 2026-10-30 by user direction. Focus: **executable, simple, easy for an agent to drive, readable results**. Web first; Android and human-in-the-loop on hold. Listed in pickup order. T017–T019 and T021 are draft scope from the 2026-10-30 investigation — Brainstorm: `BRAINSTORMING_LOG_agent-ergonomics.md` (paths chosen provisionally by Supervisor, pending user approval). TASK_GUIDEs generated 2026-10-30.
 
 ### In Progress
+- [ ] **T022** — `npm test` never exits: spawned test servers outlive their tests | backend-developer | C1 | Risk: Low | P0 | Found 2026-10-30 at Stage 5 for T017–T021; pre-existing on `main` (2e61df7); blocks the merge gate, which needs one clean `npm test`. Branch `task/T022-test-teardown` (on top of `integ/T017-T021-web-ergonomics`). Guide: `tasks/TASK_GUIDE_T022.md`
 
 ### Ready for Review
 > **Integration branch ready (2026-10-30):** `integ/T017-T021-web-ergonomics` @ `b8011e9` = T017→T018→T019 + T021 applied on top; no conflicts; 113/113 unit tests, tsc clean. Not merged to `main`, not pushed — awaiting user OK. A live drive on the real container (port 8765) needs a rebuild, also awaiting user OK.
