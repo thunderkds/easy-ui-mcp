@@ -19,7 +19,7 @@
 ### In Progress
 
 ### Ready for Review
-- [ ] **T014** — Human-readable reports: `ui_step` + grouped renderer + durations + console/network capture | backend-developer | C2 | Risk: Low | **P0 (raised 2026-10-30 — readable results is a top goal; closest to Done)** | Implemented 2026-08-17; 46 focused tests pass; full suite 66/68 with 2 pre-existing API report-path failures; live drive rendered 3 labelled steps + captured console/network issues without changing the verdict | **Still blocked from Done (2026-10-30)**: (1) user before/after readability judgement pending; (2) Evidence row "UI: Responsiveness" is blank — Hard-Stop Gate 6. Code merged to main via PR #3
+- [ ] **T014** — Human-readable reports: `ui_step` + grouped renderer + durations + console/network capture | backend-developer | C2 | Risk: Low | **P0 (raised 2026-10-30 — readable results is a top goal; closest to Done)** | Implemented 2026-08-17; 46 focused tests pass; full suite 66/68 with 2 pre-existing API report-path failures; live drive rendered 3 labelled steps + captured console/network issues without changing the verdict | **Still blocked from Done (2026-10-30)**: only the user's before/after readability judgement remains. Responsiveness row filled 2026-10-30 (pass at 1280/768px; 375px overflow noted as P3 follow-up). Code merged to main via PR #3
 
 
 ### Done

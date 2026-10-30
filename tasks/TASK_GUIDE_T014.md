@@ -109,7 +109,7 @@ Then regenerate one of the `orderly/smoke-reports/` flows against the new build 
 | **Self-contained: no external requests** | ✅ pass | AC10. Test asserts no `<link href="http…">`, no `<script src>`, no `@import`. All styling inline; screenshots embedded as data URIs in CSS rules. |
 | **UI: Visual regression** | ✅ pass | The report *is* the UI. Verdict box, step sections, collapsed raw log confirmed in the live artifact; old flat-table layout is preserved verbatim inside the `<details>`. |
 | **UI: Design-system compliance** | ☐ N/A | No design system in this project; `templates/report_template.html` is the nearest reference if a house style is wanted |
-| **UI: Responsiveness** | ☐ | Report should be readable at laptop width; it gets attached to PRs and read in-browser |
+| **UI: Responsiveness** | ✅ pass (laptop target) | **Supervisor check 2026-10-30**: Playwright render of `reports/session-bdea8f40-….html` at three widths, measuring `documentElement.scrollWidth` vs `clientWidth`. **1280px: 1280/1280 and 768px: 768/768, so no horizontal scroll**; verdict box, step sections and per-step badges are all readable (LLM-vision review of the screenshot). **375px: 549/375, overflowing.** Long unbroken code strings (a data: URL, JS conditions) push the page wider, and there is no `<meta name=viewport>`. The guide's target is laptop width, so the row passes; phone overflow is recorded as a P3 follow-up (`overflow-wrap:anywhere` on action text + a viewport meta tag). Screenshots: `reports/evidence/T014/t014-{375,768,1280}.png` (local; `reports/` is git-ignored). |
 
 ---
 
