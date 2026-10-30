@@ -622,7 +622,10 @@ test("T024 AC8: responsive rules: 2-column strip below 720px, scrolling table wr
   assert.match(css, /@media \(max-width:\s*719px\)\s*\{[^@]*\.gm-strip\s*\{[^}]*repeat\(2,/);
   assert.match(css, /\.gm-table-wrap\s*\{[^}]*overflow-x:\s*auto/);
   assert.match(css, /\.page\s*\{[^}]*max-width:\s*var\(--content-max\)[^}]*padding:\s*var\(--space-9\) var\(--space-4\)/);
-  assert.match(css, /overflow-wrap:\s*anywhere/);
+  // Only the target cell may break anywhere (long URLs); status words and times must never split mid-word.
+  assert.match(css, /td:nth-child\(2\)\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  assert.match(css, /\.gm-table th, \.gm-table td\s*\{[^}]*white-space:\s*nowrap/);
+  assert.equal((css.match(/overflow-wrap/g) ?? []).length, 1);
 });
 
 test("T024: session-derived text is still escaped in the restyled markup", async () => {

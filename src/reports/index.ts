@@ -130,59 +130,150 @@ export async function writeIndex(reportsDir: string): Promise<void> {
   await atomicWrite(path.join(reportsDir, "index.html"), renderIndex(entries));
 }
 
+/**
+ * The Graphite Mint stylesheet (the Easy Kit family design system), inlined so the index stays a
+ * single self-contained file. Tokens are declared once on :root with the exact values from the design
+ * system's tokens.json; every rule below references them with var(--…) and carries no raw colour.
+ * The `gm-*` rules are copied from the design system's components/bundle.css (StatStrip, DataTable,
+ * link, eyebrow, no-data, warn text); only `.page`, `h1`, `.lede`, `.gm-num` and the small-screen rules
+ * are this page's own. Fonts are the token families with system fallbacks: nothing is fetched (FR-005).
+ */
+const INDEX_CSS = `
+  :root {
+    --bg: #121413;
+    --bg-sunken: #0E100F;
+    --bg-raised: #181B1A;
+    --line-subtle: #1F2321;
+    --line: #262B29;
+    --text-strong: #EAEDEA;
+    --text: #DCE0DD;
+    --text-2: #ABB3AE;
+    --text-muted: #8C9590;
+    --text-dim: #6E7772;
+    --accent: #7EDDB0;
+    --accent-hover: #B2EDCF;
+    --neon: #3CF5A8;
+    --warn: #E3B66B;
+    --glow-text: 0 0 12px rgba(60, 245, 168, 0.35);
+    --space-2: 8px;
+    --space-4: 16px;
+    --space-6: 24px;
+    --space-7: 32px;
+    --space-9: 48px;
+    --radius-md: 8px;
+    --content-max: 920px;
+    --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  html { background: var(--bg); color-scheme: dark; }
+  body { margin: 0; }
+
+  .gm-page { background: var(--bg); color: var(--text); font: 400 15px/1.6 var(--font-sans); -webkit-font-smoothing: antialiased; }
+  .gm-eyebrow { font: 400 12.5px/1.4 var(--font-mono); color: var(--neon); text-shadow: var(--glow-text); margin: 0; }
+  .gm-link { color: var(--accent); text-decoration: none; }
+  .gm-link:hover { color: var(--accent-hover); text-decoration: underline; text-underline-offset: 3px; }
+  .gm-link:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
+
+  .page { max-width: var(--content-max); margin: 0 auto; padding: var(--space-9) var(--space-4); }
+  .page h1 { font: 600 28px/1.2 var(--font-sans); letter-spacing: -0.01em; color: var(--text-strong); margin: var(--space-2) 0; }
+  .lede { font: 400 17px/1.6 var(--font-sans); color: var(--text-2); max-width: 680px; margin: 0 0 var(--space-7); }
+
+  .gm-strip { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; margin-bottom: var(--space-6); }
+  .gm-strip > * { padding: 20px 22px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .gm-strip > * + * { border-left: 1px solid var(--line); }
+  .gm-strip__num { font: 500 28px/1.1 var(--font-mono); color: var(--text-strong); }
+  .gm-strip__num--key { color: var(--neon); text-shadow: var(--glow-text); }
+  .gm-strip__num--text { font-size: 17px; line-height: 31px; }
+  .gm-strip__label { font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
+
+  .gm-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-md); }
+  .gm-table { width: 100%; border-collapse: collapse; font: 400 14px/1.5 var(--font-sans); }
+  .gm-table th { text-align: left; font: 500 12px/1.4 var(--font-mono); color: var(--text-muted); padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--bg-sunken); }
+  .gm-table td { padding: 12px 16px; border-bottom: 1px solid var(--line-subtle); color: var(--text); vertical-align: top; }
+  .gm-table th, .gm-table td { white-space: nowrap; }
+  .gm-table td:nth-child(2) { white-space: normal; min-width: 220px; overflow-wrap: anywhere; }
+  .gm-table tr:last-child td { border-bottom: 0; }
+  .gm-table tbody tr:hover td { background: var(--bg-raised); }
+  .gm-table .gm-mono { font-family: var(--font-mono); font-size: 13px; }
+  .gm-table .gm-num { text-align: right; }
+  .gm-nodata { color: var(--text-dim); font-family: var(--font-mono); }
+  .gm-warn-text { color: var(--warn); }
+
+  @media (min-width: 720px) {
+    .page { padding-left: var(--space-7); padding-right: var(--space-7); }
+  }
+  @media (max-width: 719px) {
+    .gm-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .gm-strip > :nth-child(3) { border-left: 0; }
+    .gm-strip > :nth-child(n+3) { border-top: 1px solid var(--line); }
+    .gm-table td a { display: inline-block; padding: 12px 0; margin: -12px 0; }
+  }
+`;
+
 function renderIndex(all: IndexEntry[]): string {
   const shown = all.slice(0, MAX_INDEX_ENTRIES);
   const rows = shown.map((e) => {
-    const cls = e.status === "passed" || e.status === "failed" ? e.status : "other";
+    const status = e.status === "failed" ? `<span class="gm-warn-text">failed</span>` : escapeHtml(e.status);
     return `
-      <tr class="session ${cls}">
-        <td class="when">${escapeHtml(e.startedAt)}</td>
-        <td>${escapeHtml(e.target || "(no label)")}</td>
-        <td><span class="status status-${cls}">${escapeHtml(e.status)}</span></td>
-        <td class="num">${e.actionCount}</td>
-        <td>${e.hasHtml ? `<a href="${escapeHtml(encodeURIComponent(e.htmlFile))}">report</a>` : `<span class="note">no HTML report</span>`}</td>
-      </tr>`;
+        <tr class="session">
+          <td class="gm-mono">${escapeHtml(e.startedAt)}</td>
+          <td>${escapeHtml(e.target || "(no label)")}</td>
+          <td class="gm-mono">${status}</td>
+          <td class="gm-mono gm-num">${e.actionCount}</td>
+          <td>${e.hasHtml ? `<a class="gm-link" href="${escapeHtml(encodeURIComponent(e.htmlFile))}">report</a>` : `<span class="gm-nodata">no HTML report</span>`}</td>
+        </tr>`;
   });
-  const note =
-    all.length > shown.length
-      ? `Showing the newest ${shown.length} of ${all.length} sessions; older reports are still on disk.`
-      : `${all.length} session(s).`;
+  const emptyRow = `
+        <tr><td colspan="5"><span class="gm-nodata">no sessions yet</span></td></tr>`;
+
+  const lede =
+    all.length === 0
+      ? "No sessions recorded yet."
+      : all.length > shown.length
+        ? `Showing the newest ${shown.length} of ${all.length} sessions; older reports are still on disk.`
+        : "Every recorded session, newest first.";
+
+  // A missing value reads "no data", never 0 (Graphite Mint StatStrip rule).
+  const stat = (num: string, label: string): string =>
+    `<div>
+      ${num}
+      <div class="gm-strip__label">${label}</div>
+    </div>`;
+  const noData = `<div class="gm-nodata gm-strip__num gm-strip__num--text">no data</div>`;
+  const newest = all[0] ? new Date(all[0].startedMs).toISOString() : undefined;
+  const strip =
+    all.length === 0
+      ? [stat(noData, "sessions"), stat(noData, "passed"), stat(noData, "failed"), stat(noData, "newest run")]
+      : [
+          stat(`<div class="gm-strip__num gm-strip__num--key">${all.length}</div>`, "sessions"),
+          stat(`<div class="gm-strip__num">${all.filter((e) => e.status === "passed").length}</div>`, "passed"),
+          stat(`<div class="gm-strip__num">${all.filter((e) => e.status === "failed").length}</div>`, "failed"),
+          stat(`<div class="gm-strip__num gm-strip__num--text">${newest!.slice(0, 10)}</div>`, "newest run"),
+        ];
 
   return `<!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Session reports</title>
-<style>
-  body { font-family: system-ui, sans-serif; margin: 0 auto; max-width: 60rem;
-         padding: 2rem 1rem; color: #1f2328; line-height: 1.5; }
-  h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
-  .meta { color: #57606a; font-size: 0.9rem; margin: 0.15rem 0 1rem; }
-  .table-wrap { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; }
-  td, th { border: 1px solid #d0d7de; padding: 0.4rem 0.6rem; text-align: left;
-           vertical-align: top; font-size: 0.9rem; }
-  td.when { white-space: nowrap; font-family: ui-monospace, monospace; font-size: 0.85rem; }
-  td.num { text-align: right; }
-  tr.passed { background: #eafaf1; }
-  tr.failed { background: #fde2e2; }
-  .status { font-weight: 600; }
-  .status-passed { color: #1a7f37; }
-  .status-failed { color: #b91c1c; }
-  .status-other { color: #8a6d3b; }
-  .note { color: #8a6d3b; font-size: 0.85rem; }
-</style>
+<style>${INDEX_CSS}</style>
 </head>
-<body>
-  <h1>Session reports</h1>
-  <p class="meta">${note} Newest first.</p>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Started (UTC)</th><th>Target</th><th>Status</th><th>Actions</th><th>Report</th></tr></thead>
-      <tbody>${rows.join("")}</tbody>
-    </table>
-  </div>
+<body class="gm-page">
+  <main class="page">
+    <p class="gm-eyebrow">&gt; easy-ui-mcp reports</p>
+    <h1>Session reports</h1>
+    <p class="lede">${lede}</p>
+    <div class="gm-strip" style="--cols:4">
+      ${strip.join("\n      ")}
+    </div>
+    <div class="gm-table-wrap">
+      <table class="gm-table">
+        <thead><tr><th>started (utc)</th><th>target</th><th>status</th><th class="gm-num">actions</th><th>report</th></tr></thead>
+        <tbody>${rows.length > 0 ? rows.join("") : emptyRow}</tbody>
+      </table>
+    </div>
+  </main>
 </body>
 </html>`;
 }
