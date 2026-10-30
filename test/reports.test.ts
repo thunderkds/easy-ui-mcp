@@ -393,14 +393,14 @@ test("index.html lists legacy and new sessions newest first, skips corrupt JSON,
   const html = readFileSync(indexPath, "utf8");
 
   assert.ok(html.indexOf("Login flow / happy path") < html.indexOf("Legacy run"), "newest first");
-  assert.equal((html.match(/<tr class="session /g) ?? []).length, 2);
+  assert.equal((html.match(/<tr class="session"/g) ?? []).length, 2);
   assert.ok(html.includes(`href="${path.basename(htmlPath)}"`));
   assert.ok(html.includes(`href="session-${legacyId}.html"`));
-  assert.match(html, /class="session passed"/);
-  assert.match(html, /class="session failed"/);
+  assert.match(html, /<span class="gm-warn-text">failed<\/span>/);
+  assert.match(html, />passed</);
   assert.doesNotMatch(html, /session-x|notes\.json|screenshot-abc/);
   // The legacy record had 2 actions; the new one 0.
-  assert.match(html, /Legacy run[\s\S]*?<td class="num">2<\/td>/);
+  assert.match(html, /Legacy run[\s\S]*?<td class="gm-mono gm-num">2<\/td>/);
 });
 
 test("index.html is self-contained and escapes session-derived text", async () => {
@@ -435,7 +435,7 @@ test("the index lists at most the newest MAX_INDEX_ENTRIES sessions and says so"
   }
   await writeIndex(dir);
   const html = readFileSync(path.join(dir, "index.html"), "utf8");
-  assert.equal((html.match(/<tr class="session /g) ?? []).length, 500);
+  assert.equal((html.match(/<tr class="session"/g) ?? []).length, 500);
   assert.match(html, /Showing the newest 500 of 503 sessions/);
   assert.match(html, />run 502</, "newest is listed");
   assert.doesNotMatch(html, />run 2</, "the oldest are dropped");
@@ -454,4 +454,183 @@ test("a session whose .html sibling is missing is listed without a link", async 
   assert.doesNotMatch(html, new RegExp(`href="session-${id}\\.html"`), "no dead link");
   assert.match(html, /Orphan json[\s\S]*?no HTML report/);
   assert.match(html, /href="session-[^"]*has-html-abcdabcd\.html"/, "sessions with an HTML report still link");
+});
+
+// --- T024: Graphite Mint restyle of index.html (temp dirs only) ---
+
+/** The Graphite Mint values (tokens.json) for every token the index page declares. Copied here so the
+ * test never reads outside the repo; a drifting value in the page fails AC10(b). */
+const GRAPHITE_MINT_TOKENS: Record<string, string> = {
+  bg: "#121413",
+  "bg-sunken": "#0E100F",
+  "bg-raised": "#181B1A",
+  "line-subtle": "#1F2321",
+  line: "#262B29",
+  "text-strong": "#EAEDEA",
+  text: "#DCE0DD",
+  "text-2": "#ABB3AE",
+  "text-muted": "#8C9590",
+  "text-dim": "#6E7772",
+  accent: "#7EDDB0",
+  "accent-hover": "#B2EDCF",
+  neon: "#3CF5A8",
+  warn: "#E3B66B",
+  "glow-text": "0 0 12px rgba(60, 245, 168, 0.35)",
+  "space-2": "8px",
+  "space-4": "16px",
+  "space-6": "24px",
+  "space-7": "32px",
+  "space-9": "48px",
+  "radius-md": "8px",
+  "content-max": "920px",
+  "font-sans": '"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif',
+  "font-mono": '"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace',
+};
+
+async function renderedIndex(
+  sessions: Array<Partial<SessionRecord> & { id: string }>,
+  extraFiles: Record<string, string> = {}
+): Promise<string> {
+  const dir = freshDir();
+  for (const [name, contents] of Object.entries(extraFiles)) writeFileSync(path.join(dir, name), contents);
+  for (const s of sessions) await writeReports(record(s), dir);
+  await writeIndex(dir);
+  return readFileSync(path.join(dir, "index.html"), "utf8");
+}
+
+function styleOf(html: string): string {
+  const m = html.match(/<style>([\s\S]*?)<\/style>/);
+  assert.ok(m, "index has an inline <style>");
+  return m[1];
+}
+
+/** The `:root { ... }` block and the CSS with that block removed. */
+function splitRoot(css: string): { root: string; rest: string } {
+  const m = css.match(/:root\s*\{([^}]*)\}/);
+  assert.ok(m, "index CSS declares tokens on :root");
+  return { root: m[1], rest: css.replace(m[0], "") };
+}
+
+const MIXED_SESSIONS = [
+  { id: "aaaaaaaa-0001", target: "Login flow", status: "passed" as const, startedAt: "2026-10-30T09:15:42.000Z" },
+  { id: "bbbbbbbb-0002", target: "Checkout", status: "failed" as const, startedAt: "2026-10-29T08:02:11.000Z" },
+  { id: "cccccccc-0003", target: "Search", status: "passed" as const, startedAt: "2026-10-28T08:02:11.000Z" },
+];
+
+test("T024 AC10a: no raw colour value outside the :root token block", async () => {
+  const { rest } = splitRoot(styleOf(await renderedIndex(MIXED_SESSIONS)));
+  assert.doesNotMatch(rest, /#[0-9a-fA-F]{3,8}\b/, "no hex colour in component rules");
+  assert.doesNotMatch(rest, /\b(rgba?|hsla?)\(/i, "no rgb()/hsl() in component rules");
+});
+
+test("T024 AC10b/AC1: every :root token has exactly the Graphite Mint value, and every var(--x) is declared", async () => {
+  const { root, rest } = splitRoot(styleOf(await renderedIndex(MIXED_SESSIONS)));
+  const declared = new Map<string, string>();
+  for (const m of root.matchAll(/--([a-z0-9-]+)\s*:\s*([^;]+);/g)) declared.set(m[1], m[2].trim());
+  assert.ok(declared.size > 0);
+  for (const [name, value] of declared) {
+    assert.ok(name in GRAPHITE_MINT_TOKENS, `--${name} is a known Graphite Mint token`);
+    assert.equal(value.toLowerCase(), GRAPHITE_MINT_TOKENS[name].toLowerCase(), `--${name} value`);
+  }
+  for (const m of rest.matchAll(/var\(--([a-z0-9-]+)/g)) {
+    // --cols is the StatStrip's own parameter, set inline on the strip, not a token.
+    if (m[1] === "cols") continue;
+    assert.ok(declared.has(m[1]), `var(--${m[1]}) is declared on :root`);
+  }
+});
+
+test("T024 AC2/AC7: weights 400/500/600 only, no all-caps, no gradients or drop shadows, never #000/#fff", async () => {
+  const css = styleOf(await renderedIndex(MIXED_SESSIONS));
+  for (const m of css.matchAll(/font(?:-weight)?\s*:\s*(\d{3})\b/g)) assert.ok(["400", "500", "600"].includes(m[1]), `weight ${m[1]}`);
+  assert.doesNotMatch(css, /text-transform|uppercase|small-caps/i);
+  assert.doesNotMatch(css, /gradient/i);
+  for (const m of css.matchAll(/(?:box|text)-shadow\s*:\s*([^;]+);/g)) assert.match(m[1], /var\(--glow-text\)/, "shadows are the neon glow only");
+  assert.doesNotMatch(css, /#000\b|#000000|#fff\b|#ffffff/i);
+  assert.match(css, /\.gm-page\s*\{[^}]*background:\s*var\(--bg\)/);
+});
+
+test("T024 AC3: header has the mono eyebrow, the app-title h1 and a lede", async () => {
+  const html = await renderedIndex(MIXED_SESSIONS);
+  assert.match(html, /<p class="gm-eyebrow">&gt; easy-ui-mcp reports<\/p>/);
+  assert.match(html, /<h1>Session reports<\/h1>/);
+  assert.match(html, /<p class="lede">/);
+  const css = styleOf(html);
+  assert.match(css, /h1\s*\{[^}]*font:\s*600 28px\/1\.2 var\(--font-sans\)[^}]*color:\s*var\(--text-strong\)/);
+  assert.match(css, /\.lede\s*\{[^}]*color:\s*var\(--text-2\)/);
+});
+
+test("T024 AC4/AC10c: a 4-column StatStrip with exactly one key number (the session count)", async () => {
+  const html = await renderedIndex(MIXED_SESSIONS);
+  assert.match(html, /<div class="gm-strip" style="--cols:4">/);
+  assert.equal((html.match(/class="gm-strip__num gm-strip__num--key"/g) ?? []).length, 1);
+  assert.equal((html.match(/class="gm-strip__num/g) ?? []).length, 4);
+  assert.match(html, /gm-strip__num--key">3<\/div>\s*<div class="gm-strip__label">sessions<\/div>/);
+  assert.match(html, /gm-strip__num">2<\/div>\s*<div class="gm-strip__label">passed<\/div>/);
+  assert.match(html, /gm-strip__num">1<\/div>\s*<div class="gm-strip__label">failed<\/div>/);
+  assert.match(html, /2026-10-30[\s\S]*?<div class="gm-strip__label">newest run/);
+  for (const m of html.matchAll(/class="gm-strip__label">([^<]+)</g)) assert.equal(m[1], m[1].toLowerCase(), "labels are lowercase");
+});
+
+test("T024 AC4/edge: with no sessions the strip says 'no data' (not 0) and the table has one muted row", async () => {
+  const html = await renderedIndex([]);
+  assert.equal((html.match(/class="gm-nodata gm-strip__num/g) ?? []).length, 4, "all four cells read no data");
+  assert.doesNotMatch(html, /gm-strip__num[^"]*">0</);
+  assert.doesNotMatch(html, /class="gm-strip__num gm-strip__num--key"/, "no neon on 'no data'");
+  assert.match(html, /<td colspan="5"><span class="gm-nodata">no sessions yet<\/span><\/td>/);
+  assert.doesNotMatch(html, /<tr class="session"/);
+});
+
+test("T024 AC5/AC10d: DataTable markup; failed is a plain word in gm-warn-text, passed and other are plain; no row fills", async () => {
+  const html = await renderedIndex([
+    ...MIXED_SESSIONS,
+    { id: "dddddddd-0004", target: "Slow", status: "timeout" as unknown as "passed", startedAt: "2026-10-27T08:02:11.000Z" },
+  ]);
+  assert.match(html, /<div class="gm-table-wrap">\s*<table class="gm-table">/);
+  assert.match(html, /<th>started \(utc\)<\/th><th>target<\/th><th>status<\/th><th class="gm-num">actions<\/th><th>report<\/th>/);
+  assert.match(html, /<td class="gm-mono">2026-10-29T08:02:11\.000Z<\/td>/);
+  assert.match(html, /Checkout[\s\S]*?<span class="gm-warn-text">failed<\/span>/);
+  assert.equal((html.match(/gm-warn-text">/g) ?? []).length, 1, "only the one failed session is warned");
+  assert.match(html, /<td class="gm-mono">passed<\/td>/);
+  assert.match(html, /<td class="gm-mono">timeout<\/td>/);
+  assert.doesNotMatch(html, /status-(passed|failed|other)|tr\.(passed|failed)/);
+});
+
+test("T024 AC6: report links use gm-link, the missing-report note uses gm-nodata, links get a neon focus ring", async () => {
+  const id = "99999999-0000-1111-2222-333333333333";
+  const html = await renderedIndex(MIXED_SESSIONS, {
+    [`session-${id}.json`]: JSON.stringify(record({ id, target: "Orphan json", startedAt: "2026-08-01T08:00:00.000Z" })),
+  });
+  assert.match(html, /<a class="gm-link" href="session-[^"]*login-flow-aaaaaaaa\.html">report<\/a>/);
+  assert.match(html, /<span class="gm-nodata">no HTML report<\/span>/);
+  const css = styleOf(html);
+  assert.match(css, /\.gm-link\s*\{[^}]*color:\s*var\(--accent\)/);
+  assert.match(css, /\.gm-link:hover\s*\{[^}]*color:\s*var\(--accent-hover\)/);
+  assert.match(css, /\.gm-link:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--neon\);[^}]*outline-offset:\s*2px/);
+});
+
+test("T024 AC7: neon is used only by the eyebrow, the key number and the focus ring", async () => {
+  const css = styleOf(await renderedIndex(MIXED_SESSIONS));
+  const owners: string[] = [];
+  for (const m of css.replace(/:root\s*\{[^}]*\}/, "").matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+    if (/var\(--neon\)/.test(m[2])) owners.push(m[1].trim());
+  }
+  assert.deepEqual(owners.sort(), [".gm-eyebrow", ".gm-link:focus-visible", ".gm-strip__num--key"].sort());
+});
+
+test("T024 AC8: responsive rules: 2-column strip below 720px, scrolling table wrap, >=16px gutter, content-max column", async () => {
+  const css = styleOf(await renderedIndex(MIXED_SESSIONS));
+  assert.match(css, /@media \(max-width:\s*719px\)\s*\{[^@]*\.gm-strip\s*\{[^}]*repeat\(2,/);
+  assert.match(css, /\.gm-table-wrap\s*\{[^}]*overflow-x:\s*auto/);
+  assert.match(css, /\.page\s*\{[^}]*max-width:\s*var\(--content-max\)[^}]*padding:\s*var\(--space-9\) var\(--space-4\)/);
+  // Only the target cell may break anywhere (long URLs); status words and times must never split mid-word.
+  assert.match(css, /td:nth-child\(2\)\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  assert.match(css, /\.gm-table th, \.gm-table td\s*\{[^}]*white-space:\s*nowrap/);
+  assert.equal((css.match(/overflow-wrap/g) ?? []).length, 1);
+});
+
+test("T024: session-derived text is still escaped in the restyled markup", async () => {
+  const html = await renderedIndex([{ id: "cafebabe-0001", target: '<img src=x onerror="1">', status: "<b>" as unknown as "passed" }]);
+  assert.doesNotMatch(html, /<img src=x|<b>/);
+  assert.match(html, /&lt;img src=x onerror=&quot;1&quot;&gt;/);
+  assert.match(html, /&lt;b&gt;/);
 });
