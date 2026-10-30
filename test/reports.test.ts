@@ -347,6 +347,8 @@ test("slugify: lower-case, symbols collapse to '-', trimmed, <=40 chars, 'untitl
   assert.doesNotMatch(slugify("ab-".repeat(30)), /-$/, "truncation must not leave a trailing dash");
   assert.match(slugify("Đăng nhập thành công"), /^[a-z0-9]+(-[a-z0-9]+)*$/, "non-ASCII input yields an ASCII-safe slug");
   assert.match(slugify("日本語"), /^untitled$/);
+  assert.equal(slugify("Đăng nhập thành công"), "dang-nhap-thanh-cong");
+  assert.equal(slugify("đường Đức"), "duong-duc");
 });
 
 test("new reports are named session-<UTC start>-<slug>-<id8>.{json,html} and the JSON keeps the full id", async () => {
@@ -376,6 +378,7 @@ test("index.html lists legacy and new sessions newest first, skips corrupt JSON,
     path.join(dir, `session-${legacyId}.json`),
     JSON.stringify(record({ id: legacyId, target: "Legacy run", status: "failed", startedAt: "2026-08-01T08:00:00.000Z", actions: [action({ action: "ui_click" }), action({ action: "ui_click" })] }))
   );
+  writeFileSync(path.join(dir, `session-${legacyId}.html`), "<html></html>");
   writeFileSync(path.join(dir, "session-x.json"), "{ not json");
   writeFileSync(path.join(dir, "screenshot-abc.png"), "png");
   writeFileSync(path.join(dir, "notes.json"), JSON.stringify({ hello: "world" }));
@@ -436,4 +439,19 @@ test("the index lists at most the newest MAX_INDEX_ENTRIES sessions and says so"
   assert.match(html, /Showing the newest 500 of 503 sessions/);
   assert.match(html, />run 502</, "newest is listed");
   assert.doesNotMatch(html, />run 2</, "the oldest are dropped");
+});
+
+test("a session whose .html sibling is missing is listed without a link", async () => {
+  const dir = freshDir();
+  const id = "99999999-0000-1111-2222-333333333333";
+  writeFileSync(
+    path.join(dir, `session-${id}.json`),
+    JSON.stringify(record({ id, target: "Orphan json", startedAt: "2026-08-01T08:00:00.000Z" }))
+  );
+  await writeReports(record({ id: "abcdabcd-0000", target: "Has html" }), dir);
+  const html = readFileSync(path.join(dir, "index.html"), "utf8");
+
+  assert.doesNotMatch(html, new RegExp(`href="session-${id}\\.html"`), "no dead link");
+  assert.match(html, /Orphan json[\s\S]*?no HTML report/);
+  assert.match(html, /href="session-[^"]*has-html-abcdabcd\.html"/, "sessions with an HTML report still link");
 });

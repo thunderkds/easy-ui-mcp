@@ -23,6 +23,9 @@ export const MAX_INDEX_ENTRIES = 500;
  */
 export function slugify(target: string): string {
   const slug = target
+    // Vietnamese đ/Đ is a letter in its own right, not a base + combining mark, so NFD leaves it.
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -82,6 +85,7 @@ async function atomicWrite(finalPath: string, contents: string): Promise<void> {
 
 interface IndexEntry {
   htmlFile: string;
+  hasHtml: boolean;
   target: string;
   status: string;
   startedAt: string;
@@ -89,13 +93,15 @@ interface IndexEntry {
   actionCount: number;
 }
 
-async function readIndexEntry(dir: string, file: string): Promise<IndexEntry | undefined> {
+async function readIndexEntry(dir: string, file: string, present: Set<string>): Promise<IndexEntry | undefined> {
   try {
     const raw = JSON.parse(await readFile(path.join(dir, file), "utf8")) as Partial<SessionRecord>;
+    const htmlFile = file.replace(/\.json$/, ".html");
     const startedMs = typeof raw.startedAt === "string" ? Date.parse(raw.startedAt) : NaN;
     if (typeof raw.id !== "string" || Number.isNaN(startedMs)) return undefined;
     return {
-      htmlFile: file.replace(/\.json$/, ".html"),
+      htmlFile,
+      hasHtml: present.has(htmlFile),
       target: typeof raw.target === "string" ? raw.target : "",
       status: typeof raw.status === "string" ? raw.status : "unknown",
       startedAt: raw.startedAt as string,
@@ -114,8 +120,10 @@ async function readIndexEntry(dir: string, file: string): Promise<IndexEntry | u
  * each file; screenshots are never loaded.
  */
 export async function writeIndex(reportsDir: string): Promise<void> {
-  const files = (await readdir(reportsDir)).filter((f) => /^session-.+\.json$/.test(f));
-  const parsed = await Promise.all(files.map((f) => readIndexEntry(reportsDir, f)));
+  const names = await readdir(reportsDir);
+  const present = new Set(names);
+  const files = names.filter((f) => /^session-.+\.json$/.test(f));
+  const parsed = await Promise.all(files.map((f) => readIndexEntry(reportsDir, f, present)));
   const entries = parsed
     .filter((e): e is IndexEntry => e !== undefined)
     .sort((a, b) => b.startedMs - a.startedMs || (a.htmlFile < b.htmlFile ? 1 : -1));
@@ -132,7 +140,7 @@ function renderIndex(all: IndexEntry[]): string {
         <td>${escapeHtml(e.target || "(no label)")}</td>
         <td><span class="status status-${cls}">${escapeHtml(e.status)}</span></td>
         <td class="num">${e.actionCount}</td>
-        <td><a href="${escapeHtml(encodeURIComponent(e.htmlFile))}">report</a></td>
+        <td>${e.hasHtml ? `<a href="${escapeHtml(encodeURIComponent(e.htmlFile))}">report</a>` : `<span class="note">no HTML report</span>`}</td>
       </tr>`;
   });
   const note =
@@ -163,6 +171,7 @@ function renderIndex(all: IndexEntry[]): string {
   .status-passed { color: #1a7f37; }
   .status-failed { color: #b91c1c; }
   .status-other { color: #8a6d3b; }
+  .note { color: #8a6d3b; font-size: 0.85rem; }
 </style>
 </head>
 <body>
