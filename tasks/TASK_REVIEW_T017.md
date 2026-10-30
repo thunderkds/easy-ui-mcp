@@ -33,8 +33,16 @@
 > **before any implementation commit exists**; if it does not (docs, templates, skill-instruction
 > text), BEFORE is the **verbatim prior content** of what changed — a quoted excerpt, not a command.
 
-**BEFORE**: [pasted timestamped command output showing the thing absent/failing, captured before the
-first implementation commit] OR [verbatim excerpt of the prior content, for non-executable changes]
+**BEFORE** (captured before any implementation commit; unmodified code at HEAD 52ce70d):
+
+```
+$ date -u
+Fri Oct 30 06:33:32 AM UTC 2026
+$ node --import tsx scratchpad/demo.mts   # setContent(Requirement fixture); console.log(JSON.stringify(await getPageState(page)))
+{"ok":true,"url":"about:blank","title":"","elements":[{"role":"combobox","name":"A"},{"role":"button","name":"Save"}]}
+```
+
+Both text inputs (Email, Search) are missing and there is no `messages` field, so "Password too short" is not reported.
 
 **AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
 
