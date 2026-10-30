@@ -4,6 +4,12 @@
 
 ## Architecture
 
+### 2026-10-30 — Web agent ergonomics: page state carries verified selectors; one tool per interaction verb (T017–T022)
+**Decision**: `ui_get_page_state` returns `{role, name, selector}` per element, plus `messages` (alert/status text). Names use an ordered accessible-name lookup: aria-label > aria-labelledby > label > text > placeholder > title > value (button inputs only). Every `selector` is chosen from `[data-testid]` > `#id` > `role=…[name=…]` > `… >> nth=i` and **verified by element identity** on the live page before it is returned. Five new primitives exist, each a separate tool: `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`. Reports are named `session-<UTC stamp>-<slug>-<id8>`, and `reports/index.html` is rewritten after every report (best effort, never fails the report). `npm test` runs files sequentially (`--test-concurrency=1`), because two test files bind the hard-coded port 8765.
+**Why**: the user's goals (2026-10-30) were "executable, simple as is, easy for the agent to drive, readable results". Agents were guessing CSS selectors, and could not see inputs or error messages. Identity verification means hostile page text can only cause a fall-through, never a wrong click. One tool per verb (not a multiplexer) matches the existing vocabulary.
+**Rejected**: server-side element ref maps (stateful, invalidation rules); `page.accessibility` snapshot (deprecated, no DOM handle); a sidecar sessions log for the index (second source of truth).
+**Files**: `src/tools/web.ts`, `src/server.ts`, `src/reports/index.ts`, `test/*.test.ts`, `package.json`
+
 ### 2026-07-01 — Primitive Playwright tools + explicit session bracketing (no server-side LLM)
 **Decision**: The MCP server exposes low-level Playwright action tools (`ui_navigate`, and in T002+: `ui_click`, `ui_fill`, `ui_assert`, `ui_get_page_state`, `ui_take_screenshot`). The calling agent (Claude Code) reasons over natural-language flows itself, step by step. No LLM call happens inside the server.
 **Why**: Avoids server-side LLM credentials/cost, keeps the server deterministic and debuggable, matches the proven `playwright-mcp` tool shape. See `BRAINSTORMING_LOG.md` Option A.

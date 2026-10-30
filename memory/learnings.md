@@ -21,6 +21,14 @@
 
 ## Gotchas
 
+### 2026-10-30 — Event-trace records truncate at 300 chars; a piped test hides its own failure
+**Gotcha**: `post_tool_trace.py` (wired in `.claude/settings.json` on 2026-10-30) keeps only the first 300 characters of a Bash command. If long absolute paths come before `npm test`, the merge gate can't see that a test runner was invoked. Write the `.claude/hooks/.state/active_task` file in its own Bash call, then run `cd <dir> && npm test > log 2>&1` with no pipe. `npm test | grep …` exits 0 even when tests fail, so the trace would record a failing run as a success.
+**Files**: `.claude/hooks/post_tool_trace.py`, `.claude/hooks/pre_bash_block_unsafe_merge.py`
+
+### 2026-10-30 — `npm test` requires port 8765 free and runs files sequentially
+**Gotcha**: `test/health.test.ts` and `test/api-run-test.test.ts` spawn the server on the hard-coded port 8765, so stop the user's Docker container first (`docker compose stop`, then `docker compose up -d --build`). Before T022 the tests spawned via `npx`, which left orphaned servers and a hanging run. Parallel test files also raced on the port; the script now passes `--test-concurrency=1`.
+**Files**: `test/health.test.ts`, `test/api-run-test.test.ts`, `package.json`
+
 ### 2026-10-30 — tsx/esbuild breaks named inner functions inside Playwright `$$eval`/`evaluate` callbacks
 **Gotcha**: When code runs through `tsx`, esbuild wraps named inner functions/consts in a `__name(...)` helper. The callback is serialised to the browser, where `__name` does not exist, so `$$eval` throws `ReferenceError: __name is not defined`. Keep in-page callbacks free of named inner functions (use inline arrows/object literals). There is a NOTE comment in `getPageState` (T017).
 **Files**: `src/tools/web.ts`
