@@ -1,4 +1,4 @@
-# TASK_REVIEW — T019: [Short Title]
+# TASK_REVIEW — T019: Missing interaction primitives
 
 > Sibling of `tasks/TASK_GUIDE_T019.md`. Everything here is **filled by the reviewer at Stage
 > 4/5** — it is deliberately NOT in the guide, because the implementing agent re-reads the guide on
@@ -14,15 +14,15 @@
 
 | Check | Result | Notes / output snippet |
 |-------|--------|------------------------|
-| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | [test file path(s) — required before Done] |
-| Verification command run | ☐ pass / ☐ fail | [paste actual output] |
-| Negative cases hold | ☐ pass / ☐ fail | |
-| verify | ☐ pass / ☐ fail / ☐ N/A | [what was observed — must literally state "pass" or "fail" here too, e.g. "skill run, feature confirmed working — pass": the merge gate scans this Notes column for the word "pass", not just the Result column] |
-| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☐ pass / ☐ fail | [what was reviewed vs. skipped, and why] |
-| Full smoke suite still green (no regression) | ☐ pass / ☐ fail | |
-| **UI: Visual regression (diff or verdict pasted)** | ☐ pass / ☐ fail / ☐ N/A | [screenshot path or LLM verdict — required for UI tasks, Hard-Stop Gate 6] |
-| **UI: Design-system compliance (tokens/colors/typography verified)** | ☐ pass / ☐ fail / ☐ N/A | [method used + output] |
-| **UI: Responsiveness at target viewports** | ☐ pass / ☐ fail / ☐ N/A | [viewports tested, any overflow findings] |
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | pass (implementer-run; reviewer to confirm) | `test/web.test.ts` (14 new T019 tests: AC1-6, AC8, edges), `test/reports.test.ts` (3 new: AC7 sentences, truncation, HTML-escape). Run 2026-10-30T07:29:16Z: `node --import tsx --test test/web.test.ts test/reports.test.ts test/session.test.ts` -> `ℹ tests 101 / ℹ pass 101 / ℹ fail 0`. The reports test was seen red before implementation; the web tests were written first but their red run was an import failure, not individually observed. |
+| Verification command run | pass | `node --import tsx --test test/web.test.ts test/reports.test.ts test/session.test.ts && npx tsc --noEmit` -> `ℹ tests 101`, `ℹ pass 101`, `ℹ fail 0`, then `tsc exit 0` (no output). |
+| Negative cases hold | pass | Unknown option (`No option "Atlantis" in "#c"; available: "United States", "Vietnam"`), unknown key (`keyboard.press: Unknown key: "Nope"`), non-checkbox / radio uncheck, non-select, 0 and 2 matches for every tool: all asserted in `test/web.test.ts`. |
+| verify | ☐ pending Supervisor | Implementer drove a scratch copy of `server.ts` on port 18765 (not the user's container on 8765) with the MCP client SDK: all five tools listed and callable, report shows readable sentences, session status `failed` after the two deliberate failures (hard, with failure screenshots) -- pass for the scratch-server drive. The guide's live drive against the rebuilt container on 8765 is NOT done: that port belongs to the user's running container and rebuilding it needs the user's OK. The Supervisor does it at integration. |
+| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☐ pending reviewer | Changed: `src/tools/web.ts` (additive), `src/server.ts` (additive: imports, `TOOL` consts, `runInteraction`, 5 registrations), `src/reports/index.ts` (`describe()` only), README tool list, 2 test files. No existing function body touched. |
+| Full smoke suite still green (no regression) | pass, with 2 pre-existing failures | `health` 2/2, `codex-mapping` 1/1, `harness-snapshot` 3/3, `session`/`web`/`reports` all pass. `test/api-run-test.test.ts` 2 of 4 fail (`report_url should point at a real file on disk`, and the unreachable-URL case). Identical 2 failures on pristine `287fba0` checked out in a throwaway worktree, so not caused by T019. |
+| **UI: Visual regression (diff or verdict pasted)** | N/A | Pure backend task, no UI component. |
+| **UI: Design-system compliance (tokens/colors/typography verified)** | N/A | Pure backend task, no UI component. |
+| **UI: Responsiveness at target viewports** | N/A | Pure backend task, no UI component. |
 
 ---
 
@@ -53,9 +53,24 @@ $ fill(page, "#c", "vn") on <select id="c"> (npx tsx, output truncated to 200 ch
 ```
 (The `grep -o 'registerTool(\s*"..."'` form from the spawn prompt matches nothing because `registerTool(` and the tool name are on different lines; `grep -A1` is the equivalent used here.)
 
-**AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
+**AFTER** (2026-10-30, after commit 7d26cb4; scratch server on port 18765, MCP client SDK):
 
-**DELTA**: [one sentence — what a user can now do that they could not before]
+```
+$ grep -A1 "registerTool(" src/server.ts | grep -o '"ui_[a-z_]*"'   # names now go through the TOOL const, so verified through tools/list instead:
+tools/list filtered -> [ 'ui_select_option', 'ui_press_key', 'ui_hover', 'ui_set_checked', 'ui_scroll' ]
+ui_select_option {"selector":"#c","value":"Vietnam"} ok - Selected "Vietnam" in "#c"
+ui_select_option {"selector":"#c","value":"Atlantis"} ERROR - No option "Atlantis" in "#c"; available: "United States", "Vietnam"
+ui_press_key {"key":"Enter","selector":"#q"} ok - Pressed Enter in "#q"
+ui_hover {"selector":"#m"} ok - Hovered over "#m"
+ui_set_checked {"selector":"#t","checked":true} ok - Set "#t" to checked
+ui_scroll {"selector":"#foot"} ok - Scrolled "#foot" into view
+ui_scroll {} ok - Scrolled down one page
+ui_press_key {"key":"Nope"} ERROR - keyboard.press: Unknown key: "Nope"
+ui_scroll {} (before any navigate) ERROR - No active page -- call ui_navigate first
+```
+Report sentences from that session's HTML: `Selected "Vietnam" in #c`, `Pressed Enter in #q`, `Hovered over #m`, `Set #t to checked`, `Scrolled #foot into view`, `Scrolled down one page`. Session status: failed (hard failures recorded). The select-on-`<select>` case now succeeds via `selectOption(page,"#c","vn")` -> `{ok:true}` (test `selectOption selects by option value and by visible label`).
+
+**DELTA**: An agent can now choose a `<select>` option, press keys (Enter submits a form), hover menus open, check/uncheck boxes and scroll lazy pages, each as one tool that is logged and fails like `ui_click`.
 
 **WITNESS**: [who ran it and when — derived from `memory/event-trace/Txxx.jsonl`, never the
 implementing agent alone]
