@@ -14,15 +14,15 @@
 
 | Check | Result | Notes / output snippet |
 |-------|--------|------------------------|
-| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | [test file path(s) — required before Done] |
-| Verification command run | ☐ pass / ☐ fail | [paste actual output] |
-| Negative cases hold | ☐ pass / ☐ fail | |
-| verify | ☐ pass / ☐ fail / ☐ N/A | [what was observed — must literally state "pass" or "fail" here too, e.g. "skill run, feature confirmed working — pass": the merge gate scans this Notes column for the word "pass", not just the Result column] |
-| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☐ pass / ☐ fail | [what was reviewed vs. skipped, and why] |
-| Full smoke suite still green (no regression) | ☐ pass / ☐ fail | |
-| **UI: Visual regression (diff or verdict pasted)** | ☐ pass / ☐ fail / ☐ N/A | [screenshot path or LLM verdict — required for UI tasks, Hard-Stop Gate 6] |
-| **UI: Design-system compliance (tokens/colors/typography verified)** | ☐ pass / ☐ fail / ☐ N/A | [method used + output] |
-| **UI: Responsiveness at target viewports** | ☐ pass / ☐ fail / ☐ N/A | [viewports tested, any overflow findings] |
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/site.test.ts` (10 tests: AC1/2/3/4/5/6/7/9a-f/10 plus facts). Red commit 1431ef5: `ℹ tests 10 / pass 0 / fail 10`. Green commit fa14a01: see next row |
+| Verification command run | ☑ pass | `node --import tsx --test test/site.test.ts test/docs-tools.test.ts && npx tsc --noEmit` -> `ℹ tests 11 / ℹ pass 11 / ℹ fail 0`, tsc exit 0 |
+| Negative cases hold | ☑ pass | Static serve of `site/` (python3 http.server): `GET / -> 200`, `GET /requirements.txt -> 404`, `GET /reports/ -> 404`; `vercel.json` parses to `{framework:null,installCommand:"",buildCommand:"",outputDirectory:"site"}`, no rewrites |
+| verify | ☐ pass / ☐ fail / ☐ N/A | Left for the Supervisor's Stage 5 `verify`. Implementer observation only: page rendered in Playwright at 375/768/1280, no page-level scroll (scrollWidth == clientWidth at all three) |
+| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☐ pass / ☐ fail | Left for Stage 4. Blast radius: 5 files (`site/index.html`, `vercel.json`, `test/site.test.ts`, `README.md`, `requirements.txt` -> `docs/original-plan.md`); no `src/`, Dockerfile or compose change |
+| Full smoke suite still green (no regression) | ☐ pass / ☐ fail | NOT RUN by the implementer: full `npm test` needs port 8765 free (held by the user's container); the Supervisor runs it at Stage 5. Nothing under `src/` changed |
+| **UI: Visual regression (diff or verdict pasted)** | ☑ pass | New page (no prior). LLM-vision verdict on the screenshots: dark graphite page, 64px top bar (`>_` glyph, name, GitHub link), left side nav with `// getting started` / `// reference` / `// operating` mono labels at 768 and 1280, outlined sunken code boxes with neon `$` prompts, outlined tables, neon only on glyph, eyebrow, key number `16`, step numbers 01-03 and prompts. Screenshots: see paths below |
+| **UI: Design-system compliance (tokens/colors/typography verified)** | ☑ pass | Automated: `test/site.test.ts` AC9b (no hex/rgb outside `:root`, no inline `style=`), AC9c (every `:root` token equals the tokens.json fixture, every `var(--x)` declared), AC6 (weights 400/500/600, no uppercase, no gradients/box-shadow, text-shadow only `var(--glow-text)`, 2px neon focus ring). Computed style in Playwright: h1 `28px 600 "IBM Plex Sans", system-ui…`; body Plex Sans stack; `pre code` Plex Mono stack; code block radius 6px (`radius-sm`, as the design system assigns code boxes), table wrappers 8px (`radius-md`) |
+| **UI: Responsiveness at target viewports** | ☑ pass | Playwright `scrollWidth` vs `clientWidth`: 375 -> 375/375, 768 -> 768/768, 1280 -> 1280/1280 (no page-level horizontal scroll). 375: nav is a static top list, main gutter 16px, code blocks (9) and tables (3) scroll inside their own boxes. 768: side nav + 520px main, stat strip 2x2. 1280: side nav + 920px column (`content-max`), strip 4-up, tables fit |
 
 ---
 
@@ -44,9 +44,21 @@ Refined Goal
 Create a unified UI Testing MCP Server that: 
 ```
 
-**AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
+**AFTER** (same command, after commit fa14a01):
+```
+$ date -u; ls site vercel.json requirements.txt 2>&1; head -3 docs/original-plan.md
+Fri Oct 30 10:40:53 AM UTC 2026
+ls: cannot access 'requirements.txt': No such file or directory
+vercel.json
 
-**DELTA**: [one sentence — what a user can now do that they could not before]
+site:
+index.html
+Refined Goal
+Create a unified UI Testing MCP Server that:
+```
+Screenshots (git-ignored, in the worktree): `reports/evidence/T025/docs-375.png`, `docs-768.png`, `docs-1280.png` (first viewport), `docs-375-full.png`, `docs-768-full.png`, `docs-1280-full.png` (full page), `docs-375-networking.png`, `docs-375-troubleshooting.png`, `docs-1280-tools.png`. Absolute prefix: `/home/hungnguyenhuu/workspace/pets/hungnguyen111/easy-ui-mcp/.claude/worktrees/agent-af3b6febb28c46931/reports/evidence/T025/`
+
+**DELTA**: Pushing `main` to Vercel now publishes a static docs page (what it is, how to run it, tools, reports, REST, troubleshooting) instead of failing on `requirements.txt` being parsed as a pip file.
 
 **WITNESS**: [who ran it and when — derived from `memory/event-trace/T025.jsonl`, never the
 implementing agent alone]
