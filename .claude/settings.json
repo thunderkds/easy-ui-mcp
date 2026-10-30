@@ -33,6 +33,16 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_bash_memory_update.py"
           }
         ]
+      },
+      {
+        "description": "Record every tool call to memory/event-trace/<task>.jsonl (evidence for the merge gate)",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_tool_trace.py"
+          }
+        ]
       }
     ],
     "PreToolUse": [

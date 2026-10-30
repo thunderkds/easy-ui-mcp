@@ -60,7 +60,7 @@ User (2026-10-30): make the MCP "easy for the agent to drive" and "executable, s
 | 1 | An `<input>` with `<label for=id>Email</label>` appears with role `textbox` and name `Email` | inputs named by label dropped |
 | 2 | An `<input>` wrapped by `<label>Remember me <input type=checkbox></label>` appears with name containing `Remember me` | inputs named by label dropped |
 | 3 | An `<input placeholder="Search">` with no label appears with name `Search` | inputs named by placeholder dropped |
-| 4 | Name precedence: `aria-label` > `aria-labelledby` > label > placeholder > `title` > text content; an element named by `aria-labelledby` resolves to the referenced element's text | sensible name |
+| 4 | Name precedence: `aria-label` > `aria-labelledby` > label > text content > placeholder > `title` (> `value`, button-type inputs only; corrected at Stage 4 pre-review, was title above text); an element named by `aria-labelledby` resolves to the referenced element's text | sensible name |
 | 5 | `<div role="alert">Password too short</div>` (and `role="status"`, `aria-live` regions with non-empty text) is returned in a new `messages: string[]` field on the success result | alert/error text never reported |
 | 6 | Existing behaviour holds: buttons/links still named by text; unnamed + invisible elements still excluded; the no-page error result is unchanged | no regression |
 | 7 | Hidden alert regions (zero-size / `display:none`) and empty ones are not reported in `messages` | boundary |
