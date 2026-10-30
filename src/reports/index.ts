@@ -1,7 +1,7 @@
 // JSON + self-contained HTML report generation for a completed ui_session.
 // T003 — see tasks/TASK_GUIDE_T003.md.
 
-import { mkdir, writeFile, rename, readFile } from "node:fs/promises";
+import { mkdir, writeFile, rename, readFile, readdir, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { LoggedAction, SessionRecord } from "../tools/session.js";
@@ -11,30 +11,180 @@ export interface ReportPaths {
   htmlPath: string;
 }
 
+/** Longest slug kept in a report filename. */
+const MAX_SLUG_LENGTH = 40;
+
+/** Newest sessions listed in `index.html`; older ones stay on disk, unlisted. */
+export const MAX_INDEX_ENTRIES = 500;
+
+/**
+ * Filename-safe, human-readable form of a session target: ASCII lower-case,
+ * diacritics folded, every run of other characters collapsed to one `-`.
+ */
+export function slugify(target: string): string {
+  const slug = target
+    // Vietnamese đ/Đ is a letter in its own right, not a base + combining mark, so NFD leaves it.
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, MAX_SLUG_LENGTH)
+    .replace(/-+$/g, "");
+  return slug === "" ? "untitled" : slug;
+}
+
+/** `session-<YYYYMMDD-HHMMSS UTC of start>-<slug>-<first 8 of id>`: says when and what. */
+function reportBaseName(record: SessionRecord): string {
+  const started = new Date(record.startedAt);
+  const when = Number.isNaN(started.getTime()) ? new Date() : started;
+  const stamp = when.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+  const id8 = record.id.slice(0, 8).replace(/[^A-Za-z0-9-]/g, "_");
+  return `session-${stamp}-${slugify(record.target)}-${id8}`;
+}
+
 /**
  * Write `record` to `reportsDir` as both a JSON report and a self-contained
- * HTML report (screenshots embedded as base64 data URIs). Writes go to a
- * temp file first and are then renamed into place, so a container restart
- * mid-write can never leave a corrupt/partial report at the final path
- * (Edge Case Checklist).
+ * HTML report (screenshots embedded as base64 data URIs), then refresh
+ * `index.html`. Writes go to a temp file first and are then renamed into place,
+ * so a container restart mid-write can never leave a corrupt/partial report at
+ * the final path (Edge Case Checklist). The index is best effort: its failure is
+ * logged and never fails the report.
  */
 export async function writeReports(record: SessionRecord, reportsDir: string): Promise<ReportPaths> {
   await mkdir(reportsDir, { recursive: true });
 
-  const base = `session-${record.id}`;
+  const base = reportBaseName(record);
   const jsonPath = path.join(reportsDir, `${base}.json`);
   const htmlPath = path.join(reportsDir, `${base}.html`);
 
   await atomicWrite(jsonPath, JSON.stringify(record, null, 2));
   await atomicWrite(htmlPath, await renderHtml(record));
 
+  try {
+    await writeIndex(reportsDir);
+  } catch (error) {
+    console.error(`could not update ${path.join(reportsDir, "index.html")}:`, error);
+  }
+
   return { jsonPath, htmlPath };
 }
 
 async function atomicWrite(finalPath: string, contents: string): Promise<void> {
-  const tmpPath = `${finalPath}.tmp-${process.pid}-${Date.now()}`;
+  const tmpPath = `${finalPath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await writeFile(tmpPath, contents, "utf8");
-  await rename(tmpPath, finalPath);
+  try {
+    await rename(tmpPath, finalPath);
+  } catch (error) {
+    await rm(tmpPath, { force: true });
+    throw error;
+  }
+}
+
+interface IndexEntry {
+  htmlFile: string;
+  hasHtml: boolean;
+  target: string;
+  status: string;
+  startedAt: string;
+  startedMs: number;
+  actionCount: number;
+}
+
+async function readIndexEntry(dir: string, file: string, present: Set<string>): Promise<IndexEntry | undefined> {
+  try {
+    const raw = JSON.parse(await readFile(path.join(dir, file), "utf8")) as Partial<SessionRecord>;
+    const htmlFile = file.replace(/\.json$/, ".html");
+    const startedMs = typeof raw.startedAt === "string" ? Date.parse(raw.startedAt) : NaN;
+    if (typeof raw.id !== "string" || Number.isNaN(startedMs)) return undefined;
+    return {
+      htmlFile,
+      hasHtml: present.has(htmlFile),
+      target: typeof raw.target === "string" ? raw.target : "",
+      status: typeof raw.status === "string" ? raw.status : "unknown",
+      startedAt: raw.startedAt as string,
+      startedMs,
+      actionCount: Array.isArray(raw.actions) ? raw.actions.length : 0,
+    };
+  } catch {
+    // Unreadable or corrupt — not listable, but never fatal.
+    return undefined;
+  }
+}
+
+/**
+ * (Re)write `<reportsDir>/index.html`: one row per `session-*.json`, newest first,
+ * capped at MAX_INDEX_ENTRIES. Only the few fields the table needs are kept from
+ * each file; screenshots are never loaded.
+ */
+export async function writeIndex(reportsDir: string): Promise<void> {
+  const names = await readdir(reportsDir);
+  const present = new Set(names);
+  const files = names.filter((f) => /^session-.+\.json$/.test(f));
+  const parsed = await Promise.all(files.map((f) => readIndexEntry(reportsDir, f, present)));
+  const entries = parsed
+    .filter((e): e is IndexEntry => e !== undefined)
+    .sort((a, b) => b.startedMs - a.startedMs || (a.htmlFile < b.htmlFile ? 1 : -1));
+  await atomicWrite(path.join(reportsDir, "index.html"), renderIndex(entries));
+}
+
+function renderIndex(all: IndexEntry[]): string {
+  const shown = all.slice(0, MAX_INDEX_ENTRIES);
+  const rows = shown.map((e) => {
+    const cls = e.status === "passed" || e.status === "failed" ? e.status : "other";
+    return `
+      <tr class="session ${cls}">
+        <td class="when">${escapeHtml(e.startedAt)}</td>
+        <td>${escapeHtml(e.target || "(no label)")}</td>
+        <td><span class="status status-${cls}">${escapeHtml(e.status)}</span></td>
+        <td class="num">${e.actionCount}</td>
+        <td>${e.hasHtml ? `<a href="${escapeHtml(encodeURIComponent(e.htmlFile))}">report</a>` : `<span class="note">no HTML report</span>`}</td>
+      </tr>`;
+  });
+  const note =
+    all.length > shown.length
+      ? `Showing the newest ${shown.length} of ${all.length} sessions; older reports are still on disk.`
+      : `${all.length} session(s).`;
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session reports</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0 auto; max-width: 60rem;
+         padding: 2rem 1rem; color: #1f2328; line-height: 1.5; }
+  h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
+  .meta { color: #57606a; font-size: 0.9rem; margin: 0.15rem 0 1rem; }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { border: 1px solid #d0d7de; padding: 0.4rem 0.6rem; text-align: left;
+           vertical-align: top; font-size: 0.9rem; }
+  td.when { white-space: nowrap; font-family: ui-monospace, monospace; font-size: 0.85rem; }
+  td.num { text-align: right; }
+  tr.passed { background: #eafaf1; }
+  tr.failed { background: #fde2e2; }
+  .status { font-weight: 600; }
+  .status-passed { color: #1a7f37; }
+  .status-failed { color: #b91c1c; }
+  .status-other { color: #8a6d3b; }
+  .note { color: #8a6d3b; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+  <h1>Session reports</h1>
+  <p class="meta">${note} Newest first.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Started (UTC)</th><th>Target</th><th>Status</th><th>Actions</th><th>Report</th></tr></thead>
+      <tbody>${rows.join("")}</tbody>
+    </table>
+  </div>
+</body>
+</html>`;
 }
 
 /**
@@ -132,6 +282,18 @@ export function describe(action: LoggedAction): string {
       return `Checked ${condition ?? "a condition"}`;
     case "ui_wait_for":
       return `Waited for ${condition ?? "a condition"}`;
+    case "ui_select_option":
+      return `Selected "${arg(action, "value") ?? "an option"}" in ${selector ?? "a select"}`;
+    case "ui_press_key": {
+      const key = arg(action, "key") ?? "a key";
+      return selector ? `Pressed ${key} in ${selector}` : `Pressed ${key}`;
+    }
+    case "ui_hover":
+      return `Hovered over ${selector ?? "an element"}`;
+    case "ui_set_checked":
+      return `Set ${selector ?? "a checkbox"} to ${action.args?.checked === false ? "unchecked" : "checked"}`;
+    case "ui_scroll":
+      return selector ? `Scrolled ${selector} into view` : "Scrolled down one page";
     case "ui_get_page_state":
       return "Read the page state";
     case "ui_take_screenshot":

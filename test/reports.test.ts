@@ -4,9 +4,18 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, rmSync, readFileSync } from "node:fs";
+import { existsSync, rmSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, groupIntoSteps, formatDuration, writeReports } from "../src/reports/index.js";
+import {
+  describe,
+  groupIntoSteps,
+  formatDuration,
+  writeReports,
+  writeIndex,
+  slugify,
+  MAX_INDEX_ENTRIES,
+} from "../src/reports/index.js";
 import type { LoggedAction, SessionRecord } from "../src/tools/session.js";
 
 const TMP_REPORTS_DIR = path.join(process.cwd(), "test", ".tmp-reports-t014");
@@ -61,6 +70,36 @@ test("describe falls back to the tool name for an unknown action, and never thro
   assert.equal(describe(action({ action: "android_tap" })), "android_tap");
   assert.equal(describe(action({ action: "ui_click" })), "Clicked an element");
   assert.equal(describe(action({ action: "ui_navigate" })), "Opened the page");
+});
+
+test("describe renders a readable sentence for each T019 interaction (AC7)", () => {
+  assert.equal(
+    describe(action({ action: "ui_select_option", args: { selector: "#country", value: "Vietnam" } })),
+    'Selected "Vietnam" in #country'
+  );
+  assert.equal(
+    describe(action({ action: "ui_press_key", args: { key: "Enter", selector: "#q" } })),
+    "Pressed Enter in #q"
+  );
+  assert.equal(describe(action({ action: "ui_press_key", args: { key: "Escape" } })), "Pressed Escape");
+  assert.equal(describe(action({ action: "ui_hover", args: { selector: "#menu" } })), "Hovered over #menu");
+  assert.equal(
+    describe(action({ action: "ui_set_checked", args: { selector: "#terms", checked: true } })),
+    "Set #terms to checked"
+  );
+  assert.equal(
+    describe(action({ action: "ui_set_checked", args: { selector: "#terms", checked: false } })),
+    "Set #terms to unchecked"
+  );
+  assert.equal(describe(action({ action: "ui_scroll", args: { selector: "#footer" } })), "Scrolled #footer into view");
+  assert.equal(describe(action({ action: "ui_scroll" })), "Scrolled down one page");
+});
+
+test("describe truncates long values in the T019 sentences and keeps them to one line (AC7)", () => {
+  const long = "x".repeat(500);
+  const text = describe(action({ action: "ui_select_option", args: { selector: "#s", value: long } }));
+  assert.ok(text.length < 250, `expected a bounded sentence, got ${text.length} chars`);
+  assert.match(text, /500 chars/);
 });
 
 // --- groupIntoSteps() ---
@@ -204,6 +243,21 @@ test("step labels and details are HTML-escaped", async () => {
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
 
+test("T019 action sentences are HTML-escaped in the rendered report (AC7)", async () => {
+  const { htmlPath } = await writeReports(
+    record({
+      actions: [
+        action({ action: "ui_select_option", args: { selector: "#s", value: "<img src=x onerror=alert(1)>" } }),
+      ],
+    }),
+    TMP_REPORTS_DIR
+  );
+  const html = readFileSync(htmlPath, "utf8");
+
+  assert.doesNotMatch(html, /<img src=x/);
+  assert.match(html, /Selected &quot;&lt;img src=x onerror=alert\(1\)&gt;&quot; in #s/);
+});
+
 test("browser problems are listed and explicitly do not change the verdict", async () => {
   const { htmlPath } = await writeReports(
     record({
@@ -267,4 +321,137 @@ test("a 120-action session still renders", async () => {
   assert.ok(existsSync(htmlPath));
   const html = readFileSync(htmlPath, "utf8");
   assert.match(html, /Raw action log \(126\)/);
+});
+
+
+// --- T021: readable filenames + reports/index.html (always a temp dir, never the real reports/) ---
+
+const freshDirs: string[] = [];
+
+test.after(() => {
+  for (const dir of freshDirs) rmSync(dir, { recursive: true, force: true });
+});
+
+function freshDir(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), "t021-reports-"));
+  freshDirs.push(dir);
+  return dir;
+}
+
+test("slugify: lower-case, symbols collapse to '-', trimmed, <=40 chars, 'untitled' when empty", () => {
+  assert.equal(slugify("Login flow / happy path"), "login-flow-happy-path");
+  assert.equal(slugify("<script>alert(1)</script>"), "script-alert-1-script");
+  assert.equal(slugify(""), "untitled");
+  assert.equal(slugify("  !!! ???  "), "untitled");
+  assert.equal(slugify("a".repeat(100)), "a".repeat(40));
+  assert.doesNotMatch(slugify("ab-".repeat(30)), /-$/, "truncation must not leave a trailing dash");
+  assert.match(slugify("Đăng nhập thành công"), /^[a-z0-9]+(-[a-z0-9]+)*$/, "non-ASCII input yields an ASCII-safe slug");
+  assert.match(slugify("日本語"), /^untitled$/);
+  assert.equal(slugify("Đăng nhập thành công"), "dang-nhap-thanh-cong");
+  assert.equal(slugify("đường Đức"), "duong-duc");
+});
+
+test("new reports are named session-<UTC start>-<slug>-<id8>.{json,html} and the JSON keeps the full id", async () => {
+  const dir = freshDir();
+  const id = "3f2a9c1e-7b4d-4e8a-9a10-5d6c2b7e1f00";
+  const { jsonPath, htmlPath } = await writeReports(
+    record({ id, target: "Login flow / happy path", startedAt: "2026-10-30T09:15:42.000Z" }),
+    dir
+  );
+  assert.equal(path.basename(jsonPath), "session-20261030-091542-login-flow-happy-path-3f2a9c1e.json");
+  assert.equal(path.basename(htmlPath), "session-20261030-091542-login-flow-happy-path-3f2a9c1e.html");
+  assert.ok(existsSync(jsonPath) && existsSync(htmlPath));
+  assert.equal(JSON.parse(readFileSync(jsonPath, "utf8")).id, id);
+});
+
+test("two same-second same-target sessions get distinct files (id8)", async () => {
+  const dir = freshDir();
+  const a = await writeReports(record({ id: "aaaaaaaa-1111" }), dir);
+  const b = await writeReports(record({ id: "bbbbbbbb-2222" }), dir);
+  assert.notEqual(a.jsonPath, b.jsonPath);
+});
+
+test("index.html lists legacy and new sessions newest first, skips corrupt JSON, links the HTML reports", async () => {
+  const dir = freshDir();
+  const legacyId = "11111111-2222-3333-4444-555555555555";
+  writeFileSync(
+    path.join(dir, `session-${legacyId}.json`),
+    JSON.stringify(record({ id: legacyId, target: "Legacy run", status: "failed", startedAt: "2026-08-01T08:00:00.000Z", actions: [action({ action: "ui_click" }), action({ action: "ui_click" })] }))
+  );
+  writeFileSync(path.join(dir, `session-${legacyId}.html`), "<html></html>");
+  writeFileSync(path.join(dir, "session-x.json"), "{ not json");
+  writeFileSync(path.join(dir, "screenshot-abc.png"), "png");
+  writeFileSync(path.join(dir, "notes.json"), JSON.stringify({ hello: "world" }));
+
+  const { htmlPath } = await writeReports(
+    record({ id: "deadbeef-0000", target: "Login flow / happy path", startedAt: "2026-10-30T09:15:42.000Z" }),
+    dir
+  );
+
+  const indexPath = path.join(dir, "index.html");
+  assert.ok(existsSync(indexPath));
+  const html = readFileSync(indexPath, "utf8");
+
+  assert.ok(html.indexOf("Login flow / happy path") < html.indexOf("Legacy run"), "newest first");
+  assert.equal((html.match(/<tr class="session /g) ?? []).length, 2);
+  assert.ok(html.includes(`href="${path.basename(htmlPath)}"`));
+  assert.ok(html.includes(`href="session-${legacyId}.html"`));
+  assert.match(html, /class="session passed"/);
+  assert.match(html, /class="session failed"/);
+  assert.doesNotMatch(html, /session-x|notes\.json|screenshot-abc/);
+  // The legacy record had 2 actions; the new one 0.
+  assert.match(html, /Legacy run[\s\S]*?<td class="num">2<\/td>/);
+});
+
+test("index.html is self-contained and escapes session-derived text", async () => {
+  const dir = freshDir();
+  const { htmlPath } = await writeReports(
+    record({ id: "cafebabe-0000", target: "<script>alert(1)</script>" }),
+    dir
+  );
+  assert.equal(path.basename(htmlPath).split("-").slice(3).join("-"), "script-alert-1-script-cafebabe.html");
+  const html = readFileSync(path.join(dir, "index.html"), "utf8");
+  assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<link[^>]+href=/);
+  assert.doesNotMatch(html, /<script[^>]*src=/);
+  assert.doesNotMatch(html, /@import/);
+});
+
+test("an index-write failure never fails writeReports", async () => {
+  const dir = freshDir();
+  mkdirSync(path.join(dir, "index.html")); // index.html is a directory -> rename onto it fails
+  const { jsonPath, htmlPath } = await writeReports(record({ id: "feedface-0000" }), dir);
+  assert.ok(existsSync(jsonPath) && existsSync(htmlPath));
+});
+
+test("the index lists at most the newest MAX_INDEX_ENTRIES sessions and says so", async () => {
+  const dir = freshDir();
+  assert.equal(MAX_INDEX_ENTRIES, 500);
+  for (let i = 0; i < 503; i += 1) {
+    const id = `${String(i).padStart(8, "0")}-0000`;
+    const startedAt = new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString();
+    writeFileSync(path.join(dir, `session-${id}.json`), JSON.stringify(record({ id, target: `run ${i}`, startedAt })));
+  }
+  await writeIndex(dir);
+  const html = readFileSync(path.join(dir, "index.html"), "utf8");
+  assert.equal((html.match(/<tr class="session /g) ?? []).length, 500);
+  assert.match(html, /Showing the newest 500 of 503 sessions/);
+  assert.match(html, />run 502</, "newest is listed");
+  assert.doesNotMatch(html, />run 2</, "the oldest are dropped");
+});
+
+test("a session whose .html sibling is missing is listed without a link", async () => {
+  const dir = freshDir();
+  const id = "99999999-0000-1111-2222-333333333333";
+  writeFileSync(
+    path.join(dir, `session-${id}.json`),
+    JSON.stringify(record({ id, target: "Orphan json", startedAt: "2026-08-01T08:00:00.000Z" }))
+  );
+  await writeReports(record({ id: "abcdabcd-0000", target: "Has html" }), dir);
+  const html = readFileSync(path.join(dir, "index.html"), "utf8");
+
+  assert.doesNotMatch(html, new RegExp(`href="session-${id}\\.html"`), "no dead link");
+  assert.match(html, /Orphan json[\s\S]*?no HTML report/);
+  assert.match(html, /href="session-[^"]*has-html-abcdabcd\.html"/, "sessions with an HTML report still link");
 });
