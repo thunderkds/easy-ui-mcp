@@ -10,6 +10,7 @@
 > Task line format: **Txxx** — [title] | [agent] | C[0–3] | Risk: Low/Med/High | P[0–2]
 
 ### Todo
+- [ ] **T022** — `npm test` never exits (spawned test servers outlive their tests) | backend-developer | C1 | Risk: Low | P0
 > Re-prioritized 2026-10-30 by user direction. Focus: **executable, simple, easy for an agent to drive, readable results**. Web first; Android and human-in-the-loop on hold. Listed in pickup order. T017–T019 and T021 are draft scope from the 2026-10-30 investigation — Brainstorm: `BRAINSTORMING_LOG_agent-ergonomics.md` (paths chosen provisionally by Supervisor, pending user approval). TASK_GUIDEs generated 2026-10-30.
 
 ### In Progress
