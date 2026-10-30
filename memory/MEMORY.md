@@ -44,4 +44,5 @@
 - [MCP drive on a spare port](learnings.md#gotchas) — 8765 is hard-coded and owned by the user's container; verify with a temp server copy on 18766 + SDK client
 - [Web agent ergonomics T017–T022 done (2026-10-30)](decisions.md#architecture) — page state has verified selectors + messages; 5 new primitives; readable report names + index.html; `npm test` sequential. Pushed to origin/main 2026-10-30 (99ad926)
 - [Event-trace hook now wired](learnings.md#gotchas) — `post_tool_trace.py` registered 2026-10-30; records truncate at 300 chars, so keep test commands short (`cd <dir> && npm test`), set active_task in a separate call
+- [Doc-drift test guards tool lists (T023)](../test/docs-tools.test.ts) — every `registerTool` name must appear in README + RUNBOOK and RUNBOOK's "all N tools" must match; adding a tool means updating both docs
 - [`npm test` needs port 8765 free](learnings.md#gotchas) — stop the Docker container first; tests spawn their own server on the hard-coded port
