@@ -148,6 +148,104 @@ test("getPageState fails clearly when no active page", async () => {
   assert.match(result.error ?? "", /no active page/i);
 });
 
+// T017: name resolution + on-page messages
+
+const pageStateOf = async (html: string) => {
+  await fixturePage.setContent(html, { waitUntil: "domcontentloaded" });
+  return getPageState(fixturePage);
+};
+
+test("getPageState names inputs by label-for and placeholder, and reports alert text (T017 AC1,3,5)", async () => {
+  const result = await pageStateOf(
+    '<label for=e>Email</label><input id=e placeholder="you@x.com"><input placeholder="Search"><select><option>A</option></select><button>Save</button><div role=alert>Password too short</div>'
+  );
+  assert.equal(result.ok, true);
+  assert.ok(result.elements?.some((e) => e.role === "textbox" && e.name === "Email"));
+  assert.ok(result.elements?.some((e) => e.role === "textbox" && e.name === "Search"));
+  assert.ok(result.elements?.some((e) => e.role === "combobox"));
+  assert.ok(result.elements?.some((e) => e.role === "button" && e.name === "Save"));
+  assert.deepEqual(result.messages, ["Password too short"]);
+});
+
+test("getPageState names a wrapped checkbox by its enclosing label (T017 AC2)", async () => {
+  const result = await pageStateOf("<label>Remember me <input type=checkbox></label>");
+  const box = result.elements?.[0];
+  assert.ok(box, "checkbox input should be listed");
+  assert.match(box.name, /Remember me/);
+});
+
+test("getPageState resolves label-for ids that are not valid CSS selectors (T017 edge)", async () => {
+  const result = await pageStateOf("<label for='a.b:c'>Odd id</label><input id='a.b:c'>");
+  assert.ok(result.elements?.some((e) => e.name === "Odd id"));
+});
+
+test("getPageState name precedence: aria-label > aria-labelledby > label > placeholder > title > text (T017 AC4)", async () => {
+  const result = await pageStateOf(`
+    <span id=l1>Via</span><span id=l2>Labelledby</span>
+    <label for=a>Label A</label><input id=a aria-label="Aria" aria-labelledby="l1 l2" placeholder="PH" title="T">
+    <label for=b>Label B</label><input id=b aria-labelledby="l1 missing l2" placeholder="PH" title="T">
+    <label for=c>Label C</label><input id=c placeholder="PH" title="T">
+    <input id=d placeholder="PH D" title="T">
+    <input id=f title="Only title">
+    <button id=g title="T">Button text</button>
+    <input id=h aria-labelledby="nope" placeholder="Falls back">
+    <input id=i aria-label="  " placeholder="Blank aria-label ignored">`);
+  const names = (result.elements ?? []).map((e) => e.name);
+  assert.deepEqual(names, [
+    "Aria",
+    "Via Labelledby",
+    "Label C",
+    "PH D",
+    "Only title",
+    "T", // title outranks text content per AC4
+    "Falls back",
+    "Blank aria-label ignored",
+  ]);
+});
+
+test("getPageState never names a password input from its value (T017 edge)", async () => {
+  const result = await pageStateOf(
+    "<input type=password value=hunter2><label for=p>Password</label><input id=p type=password value=hunter2>"
+  );
+  const names = (result.elements ?? []).map((e) => e.name);
+  assert.deepEqual(names, ["Password"]);
+});
+
+test("getPageState truncates very long names (T017 edge)", async () => {
+  const result = await pageStateOf(`<button>${"x".repeat(200)}</button>`);
+  const name = result.elements?.[0]?.name ?? "";
+  assert.ok(name.length <= 81 && name.endsWith("…"));
+});
+
+test("getPageState keeps submit-button values and text-named buttons/links, drops unnamed/invisible elements (T017 AC6)", async () => {
+  const result = await pageStateOf(
+    '<input type=submit value="Go"><a href="#">Home</a><button></button><button style="display:none">Hidden</button><input style="display:none" placeholder="Nope">'
+  );
+  assert.deepEqual(
+    (result.elements ?? []).map((e) => e.name),
+    ["Go", "Home"]
+  );
+  assert.equal(result.elements?.[1]?.role, "link");
+});
+
+test("getPageState reports status and aria-live messages but not empty, hidden or aria-live=off ones (T017 AC5,7)", async () => {
+  const shown = await pageStateOf(
+    "<div role=status>Saved</div><p aria-live=polite> Loading… </p><div aria-live=off>quiet</div>"
+  );
+  assert.deepEqual(shown.messages, ["Saved", "Loading…"]);
+
+  const none = await pageStateOf(
+    '<div role=alert></div><div role=alert style="display:none">Hidden</div><div role=alert style="width:0;height:0;overflow:hidden">Zero</div>'
+  );
+  assert.deepEqual(none.messages, []);
+});
+
+test("getPageState reports an interactive alert as a message, not as an element (T017 edge)", async () => {
+  const result = await pageStateOf("<button role=alert>Retry failed</button>");
+  assert.deepEqual(result.messages, ["Retry failed"]);
+  assert.deepEqual(result.elements, []);
+});
+
 // --- ui_take_screenshot ---
 
 test("takeScreenshot writes a PNG file to the output dir and returns its path", async () => {

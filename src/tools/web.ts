@@ -202,24 +202,33 @@ export interface PageState {
   url?: string;
   title?: string;
   elements?: PageElement[];
+  messages?: string[];
   error?: string;
 }
 
 const INTERACTIVE_SELECTOR =
   'button, a[href], input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"]';
 
+const MESSAGE_SELECTOR = '[role="alert"], [role="status"], [aria-live]:not([aria-live="off"])';
+
 /**
- * Return structured page state (URL, title, visible interactive elements)
- * an agent can reason over to decide its next action. Walks visible
- * interactive elements and derives an accessible role/name for each —
- * cheaper for the calling agent to reason over than a raw HTML dump
- * (per BRAINSTORMING_LOG.md).
+ * Return structured page state (URL, title, visible interactive elements,
+ * visible alert/status messages) an agent can reason over to decide its next
+ * action. Walks visible interactive elements and derives an accessible
+ * role/name for each — cheaper for the calling agent to reason over than a raw
+ * HTML dump (per BRAINSTORMING_LOG.md).
+ *
+ * Name precedence (T017): aria-label > aria-labelledby > <label> > placeholder
+ * > title > text content (> value, for button-type inputs only). A trimmed
+ * empty string counts as missing at every step.
  */
 export async function getPageState(page: Page | undefined): Promise<PageState> {
   if (!page) {
     return { ok: false, error: "No active page — call ui_navigate first" };
   }
   try {
+    // NOTE: no named inner functions/consts in these callbacks — tsx/esbuild wraps
+    // them in a `__name` helper that does not exist in the browser context.
     const elements = await page.$$eval(INTERACTIVE_SELECTOR, (nodes) =>
       nodes
         .filter((el) => {
@@ -240,17 +249,49 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
                   : tag === "select"
                     ? "combobox"
                     : tag);
-          const name =
-            el.getAttribute("aria-label") ??
-            (el as HTMLElement).innerText?.trim() ??
-            (el as HTMLInputElement).placeholder ??
-            (el as HTMLInputElement).value ??
-            "";
-          return { role, name };
+          const input = el as HTMLInputElement;
+          // `labels` resolves <label for> (by id, no CSS escaping) and wrapping labels.
+          const labelText = input.labels
+            ? Array.from(input.labels, (l) => l.innerText).join(" ")
+            : "";
+          const labelledByText = (el.getAttribute("aria-labelledby") ?? "")
+            .split(/\s+/)
+            .map((id) => (id ? (document.getElementById(id)?.textContent ?? "") : ""))
+            .join(" ");
+          // Only button-type inputs are named by value; never text/password values.
+          const buttonValue =
+            tag === "input" && ["submit", "button", "reset"].includes(input.type)
+              ? input.value
+              : "";
+          // Precedence: aria-label > aria-labelledby > label > placeholder > title > text > value.
+          // A whitespace-only string counts as missing.
+          const name = [
+            el.getAttribute("aria-label"),
+            labelledByText,
+            labelText,
+            input.placeholder,
+            el.getAttribute("title"),
+            (el as HTMLElement).innerText,
+            buttonValue,
+          ]
+            .map((t) => (t ?? "").replace(/\s+/g, " ").trim())
+            .find((t) => t.length > 0) ?? "";
+          return { role, name: name.length > 80 ? `${name.slice(0, 80)}…` : name };
         })
-        .filter((e) => e.name.length > 0)
+        // Alerts/status regions are reported in `messages`, not as elements.
+        .filter((e) => e.name.length > 0 && e.role !== "alert" && e.role !== "status")
     );
-    return { ok: true, url: page.url(), title: await page.title(), elements };
+    const messages = await page.$$eval(MESSAGE_SELECTOR, (nodes) => {
+      const seen = new Set<string>();
+      for (const el of nodes) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        const text = ((el as HTMLElement).innerText ?? "").replace(/\s+/g, " ").trim();
+        if (text) seen.add(text);
+      }
+      return Array.from(seen);
+    });
+    return { ok: true, url: page.url(), title: await page.title(), elements, messages };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };
