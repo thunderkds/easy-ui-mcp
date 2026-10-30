@@ -55,7 +55,7 @@ $ node --import tsx demo.mts
 
 **DELTA**: An agent can now pass an element's `selector` from `ui_get_page_state` unchanged to `ui_click`/`ui_fill` and hit exactly that element, including one of several identically named buttons, instead of guessing CSS.
 
-**WITNESS**: Implementing agent (backend-developer) 2026-10-30 07:24Z; to be re-run by the Supervisor.
+**WITNESS**: Supervisor, 2026-10-30 — independent round-trip on a separate realistic form (label-wrapped email, password with `<label for>`, `Save` next to `Save as draft`, two identical `Delete` buttons, a labelled checkbox): selectors returned were `role=textbox[name="Email"]`, `#pw`, `role=button[name="Save"]`, `role=button[name="Save as draft"]`, `role=button[name="Delete"] >> nth=0/1`, `#tos`. Clicking each button via its selector logged `save;draft;del1;del2;` in order, and both fills returned ok, so every selector hit exactly its own element. Re-ran the tests: web + session + reports `ℹ tests 84 / ℹ pass 84 / ℹ fail 0`; `npx tsc --noEmit` clean.
 
 ---
 
@@ -66,3 +66,39 @@ $ node --import tsx demo.mts
 - **Design choice**: `getPageState` now collects `ElementHandle`s (`page.$$`) and passes them to a single `page.evaluate`, instead of `$$eval`, so identity checks are exact with no race between collection and verification. Elements with a duplicated role+name share one page round-trip (500 identical buttons: ~1.2s; 500 unique: ~1.1s; 500 with ids: ~0.35s, capped at 200 shown).
 - **Truncation note**: new optional `note` field on `PageState` ("Showing first 200 of N elements; ..."), absent when not truncated.
 - **Cut list**: stable refs, XPath, `text=` selectors, iframe elements, shadow-DOM elements (not returned at all).
+
+
+---
+
+## Security Review (Medium risk — Supervisor, 2026-10-30)
+
+Threat: page-controlled strings (testid, id, role attribute, accessible name) are used to build Playwright selectors that the agent later passes back to `ui_click`/`ui_fill`. A hostile page could try to craft a name that yields a selector targeting a *different* element (e.g. a "Pay" button).
+
+- **Sink check:** page strings reach only `page.locator(...)` / `evaluateAll`. They never reach an `evaluate` code string, a shell, or the file system. Confirmed in the diff.
+- **Escaping:** `quoteSelectorString` escapes `\`, `"` and newlines; `cssEscapeIdent` follows CSSOM `CSS.escape`. The role token is only used when it matches `^[a-z][a-z0-9-]*$`.
+- **Defence in depth (decisive):** every emitted selector is verified **by element identity** on the live page (count 1 **and** that match is the target handle). If escaping ever has a gap, the result falls through to the next strategy; a wrong target is never returned. When nothing verifies, the element is omitted.
+- **Tests:** hostile-content cases exist in `test/web.test.ts` (names containing `"] >> text=Pay…`, an id `a" ] , button`, a bad testid, `role="button]x"`).
+- **Resource handling:** element handles are disposed in a `finally`, so no handle leak across repeated calls in a long session.
+- **Verdict:** no P0/P1 security findings. Note that the selector is stale-able by design (`nth=`); the tool description warns the agent.
+
+## Code Review (Stage 4 — Supervisor, 2026-10-30)
+
+Scope: `fac59b2..2e68813`: `src/tools/web.ts` (`getPageState`, `buildSelector`, `locate`, escaping helpers), the `src/server.ts` description strings, and `test/web.test.ts`. Callers: `src/server.ts:390`. `src/reports/index.ts` is not affected (it logs the tool name only). Personas: correctness, testing, maintainability, standards, security, performance, adversarial (>50 lines).
+
+Entry-point reachability: `ui_get_page_state` is registered in `src/server.ts`, so it is reachable.
+
+### P0 — Must Fix
+None.
+
+### P1 — Should Fix
+None.
+
+### P2 — Recommended
+None.
+
+### P3 — Optional (follow-ups, not blocking)
+| File | Finding | Confidence | Action |
+|---|---|---|---|
+| `src/tools/web.ts` | The last-resort positional selector embeds the whole `INTERACTIVE_SELECTOR` list (≈170 chars), which is noisy in reports | 100 | Prefix it with a tag-scoped selector (e.g. `button >> nth=i`) when the tag alone is enough |
+| `src/tools/web.ts` | Elements that fail all verification are dropped silently | 75 | Count them into `note` ("N elements omitted: could not build a unique selector") |
+| `src/tools/web.ts` | AC5 (tool descriptions) has no automated check | 75 | Accept: description text, verified in the diff |
