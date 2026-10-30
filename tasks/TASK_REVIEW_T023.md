@@ -14,15 +14,15 @@
 
 | Check | Result | Notes / output snippet |
 |-------|--------|------------------------|
-| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | [test file path(s) — required before Done] |
-| Verification command run | ☐ pass / ☐ fail | [paste actual output] |
-| Negative cases hold | ☐ pass / ☐ fail | |
-| verify | ☐ pass / ☐ fail / ☐ N/A | [what was observed — must literally state "pass" or "fail" here too, e.g. "skill run, feature confirmed working — pass": the merge gate scans this Notes column for the word "pass", not just the Result column] |
-| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☐ pass / ☐ fail | [what was reviewed vs. skipped, and why] |
-| Full smoke suite still green (no regression) | ☐ pass / ☐ fail | |
-| **UI: Visual regression (diff or verdict pasted)** | ☐ pass / ☐ fail / ☐ N/A | [screenshot path or LLM verdict — required for UI tasks, Hard-Stop Gate 6] |
-| **UI: Design-system compliance (tokens/colors/typography verified)** | ☐ pass / ☐ fail / ☐ N/A | [method used + output] |
-| **UI: Responsiveness at target viewports** | ☐ pass / ☐ fail / ☐ N/A | [viewports tested, any overflow findings] |
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/docs-tools.test.ts` (AC 7; red before, green after, output in Demonstration). AC 1-6 are doc content, checked by diff review |
+| Verification command run | ☑ pass | `node --import tsx --test test/docs-tools.test.ts` pass 1 fail 0; `npx tsc --noEmit` exit 0. Full `npm test` NOT run by implementer (port 8765 owned by container) |
+| Negative cases hold | ☑ pass | The drift test fails when a registered tool is missing from either doc. Proven by the BEFORE run, which failed on `RUNBOOK.md does not mention `ui_select_option``. The RUNBOOK count is derived from the code, not hard-coded. |
+| verify | ☑ pass | **Supervisor 2026-10-30**, user container stopped, branch at 4375a32: full `npm test` → `ℹ tests 120 / ℹ pass 120 / ℹ fail 0` (119 existing + the new doc-drift test) — pass. Each doc claim was checked against the code: 16 `registerTool` names, `MAX_PAGE_ELEMENTS`=200, `MAX_INDEX_ENTRIES`=500, the `reportBaseName` format, and the T022 port/concurrency facts. |
+| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☑ pass | Reviewed the diffs of `RUNBOOK.md`, `README.md`, `HARNESS.md`, `PRD.md`, `test/docs-tools.test.ts` only. No `src/` change. |
+| Full smoke suite still green (no regression) | ☑ pass | `npm test` 120/120, exit 0 (see verify row). |
+| **UI: Visual regression** | ☑ N/A | Docs-only task, no UI surface |
+| **UI: Design-system compliance** | ☑ N/A | Docs-only task, no UI surface |
+| **UI: Responsiveness** | ☑ N/A | Docs-only task, no UI surface |
 
 ---
 
@@ -33,12 +33,57 @@
 > **before any implementation commit exists**; if it does not (docs, templates, skill-instruction
 > text), BEFORE is the **verbatim prior content** of what changed — a quoted excerpt, not a command.
 
-**BEFORE**: [pasted timestamped command output showing the thing absent/failing, captured before the
-first implementation commit] OR [verbatim excerpt of the prior content, for non-executable changes]
+**BEFORE**: (executable change: new test run against the CURRENT, unedited docs)
 
-**AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
+```
+$ date -u; node --import tsx --test test/docs-tools.test.ts
+Fri Oct 30 08:42:53 AM UTC 2026
+✖ README and RUNBOOK name every registered tool, and RUNBOOK states the count (11.201095ms)
+ℹ tests 1
+ℹ pass 0
+ℹ fail 1
+  AssertionError [ERR_ASSERTION]: RUNBOOK.md does not mention `ui_select_option`
+      at TestContext.<anonymous> (test/docs-tools.test.ts:34:14)
+```
 
-**DELTA**: [one sentence — what a user can now do that they could not before]
+Prior `RUNBOOK.md` line 48 (verbatim):
 
-**WITNESS**: [who ran it and when — derived from `memory/event-trace/Txxx.jsonl`, never the
-implementing agent alone]
+> | MCP tool discovery | `tools/list` JSON-RPC call to `/mcp` | Response lists all 11 tools (`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot`) |
+
+Prior `RUNBOOK.md` line 61 (verbatim):
+
+> | `npm test` appears to hang indefinitely | Sandbox-specific `node:test` multi-file process-isolation quirk, not a code bug (see `memory/learnings.md`) | Kill the process, verify the live endpoint directly via `curl`, then run test files individually: `node --import tsx --test test/<file>.test.ts` |
+
+**AFTER**:
+
+```
+$ date -u; node --import tsx --test test/docs-tools.test.ts
+Fri Oct 30 08:43:55 AM UTC 2026
+✔ README and RUNBOOK name every registered tool, and RUNBOOK states the count (2.7321ms)
+ℹ pass 1
+ℹ fail 0
+$ npx tsc --noEmit    # exit 0
+```
+
+New `RUNBOOK.md` line 48: "Response lists all 16 tools (`ui_start_session`, ... `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_assert`, ...)".
+New `RUNBOOK.md` line 61: "`npm test` appears to hang or fails with `EADDRINUSE` | Port 8765 is held (usually by the running Docker container) ... | `docker compose stop`, run `npm test`, then `docker compose up -d`."
+
+**DELTA**: The docs now describe all 16 tools, the real `npm test` port-8765 cause, selectors/messages and readable report names, and a test fails if README or RUNBOOK drift from the tools registered in `src/server.ts`.
+
+**WITNESS**: Supervisor, 2026-10-30 — full `npm test` 120/120 on the T023 branch, recorded by the event-trace hook under T023.
+
+
+---
+
+## Code Review (Stage 4, light tier — Supervisor, 2026-10-30)
+
+Scope: `36022f6..4375a32`. Facts in the docs were cross-checked against `src/server.ts`, `src/tools/web.ts` and `src/reports/index.ts`.
+Entry-point reachability: `README.md` exists and was updated — pass.
+
+### P0 / P1 / P2
+None.
+
+### P3 — Optional
+| File | Finding | Confidence | Action |
+|---|---|---|---|
+| `HARNESS.md` | Example filenames use the slug `http-localhost-3000`, which is illustrative, not a captured real file | 75 | Accept: it is labelled as an example |

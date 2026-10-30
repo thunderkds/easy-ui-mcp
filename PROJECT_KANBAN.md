@@ -13,9 +13,9 @@
 > Re-prioritized 2026-10-30 by user direction. Focus: **executable, simple, easy for an agent to drive, readable results**. Web first; Android and human-in-the-loop on hold. Listed in pickup order. T017–T019 and T021 are draft scope from the 2026-10-30 investigation — Brainstorm: `BRAINSTORMING_LOG_agent-ergonomics.md` (paths chosen provisionally by Supervisor, pending user approval). TASK_GUIDEs generated 2026-10-30.
 
 ### In Progress
-- [ ] **T023** — Bring docs in line with T017–T022 (RUNBOOK tool count + stale npm-test advice, README selectors/report index, HARNESS example, PRD FRs) + doc-drift test | backend-developer | C0 | Risk: Low | P1 | Requested by user 2026-10-30. Guide: `tasks/TASK_GUIDE_T023.md`
 
 ### Ready for Review
+- [ ] **T023** — Bring docs in line with T017–T022 (RUNBOOK tool count + stale npm-test advice, README selectors/report index, HARNESS example, PRD FRs) + doc-drift test | backend-developer | C0 | Risk: Low | P1 | Requested by user 2026-10-30. Guide: `tasks/TASK_GUIDE_T023.md` | **Stage 4 passed 2026-10-30**: 0 P0–P2; full `npm test` 120/120 incl. new doc-drift test. Evidence: `tasks/TASK_REVIEW_T023.md`
 
 
 ### Done
