@@ -280,6 +280,199 @@ test("getPageState reports an interactive alert as a message, not as an element 
   assert.deepEqual(result.elements, []);
 });
 
+// T018: actionable selector per element
+
+type StateElement = NonNullable<Awaited<ReturnType<typeof getPageState>>["elements"]>[number];
+
+/** Every selector must resolve to exactly one element on the live page. */
+const assertAllSelectorsUnique = async (elements: StateElement[]) => {
+  for (const e of elements) {
+    assert.equal(typeof e.selector, "string", `${e.role}:${e.name} has a selector`);
+    assert.equal(await fixturePage.locator(e.selector).count(), 1, `selector ${e.selector} must match once`);
+  }
+};
+
+test("getPageState selectors follow the strategy order and round-trip through click/fill (T018 AC1-3)", async () => {
+  const result = await pageStateOf(`
+    <button onclick="log('del0')">Delete</button>
+    <button onclick="log('del1')">Delete</button>
+    <button data-testid="save" onclick="log('save')">Save</button>
+    <input id="a:b" placeholder="Name" oninput="log('name=' + this.value)">
+    <a href="#" onclick="log('help'); return false">Help "me"</a>
+    <p id="out"></p>
+    <script>window.log = (m) => { document.getElementById('out').textContent += m + ';'; };</script>`);
+  const els = result.elements ?? [];
+  assert.deepEqual(
+    els.map((e) => e.selector),
+    [
+      'role=button[name="Delete"] >> nth=0',
+      'role=button[name="Delete"] >> nth=1',
+      '[data-testid="save"]',
+      "#a\\:b",
+      'role=link[name="Help \\"me\\""]',
+    ]
+  );
+  await assertAllSelectorsUnique(els);
+
+  // Observable side effects prove each selector hit the intended element.
+  const sel = (i: number) => els[i].selector;
+  assert.equal((await click(fixturePage, sel(1))).ok, true);
+  assert.equal((await click(fixturePage, sel(0))).ok, true);
+  assert.equal((await click(fixturePage, sel(2))).ok, true);
+  assert.equal((await fill(fixturePage, sel(3), "Bob")).ok, true);
+  assert.equal((await click(fixturePage, sel(4))).ok, true);
+  assert.equal(await fixturePage.textContent("#out"), "del1;del0;save;name=Bob;help;");
+});
+
+test("getPageState selectors work for an unlabeled-but-placeholdered input and ids that are not CSS identifiers (T018 AC2,3 / edge)", async () => {
+  const result = await pageStateOf(
+    '<input id="1st" placeholder="First"><input id="a.b c" placeholder="Second"><input placeholder="Third">'
+  );
+  const els = result.elements ?? [];
+  assert.deepEqual(
+    els.map((e) => e.selector),
+    ["#\\31 st", "#a\\.b\\ c", 'role=textbox[name="Third"]']
+  );
+  await assertAllSelectorsUnique(els);
+  for (const [i, v] of ["one", "two", "three"].entries()) {
+    assert.equal((await fill(fixturePage, els[i].selector, v)).ok, true);
+  }
+  assert.deepEqual(
+    await fixturePage.$$eval("input", (n) => n.map((x) => (x as HTMLInputElement).value)),
+    ["one", "two", "three"]
+  );
+});
+
+test("getPageState rejects an id that is duplicated on the page (T018 edge)", async () => {
+  const result = await pageStateOf(
+    '<button id=dup onclick="document.title=\'first\'">First</button><button id=dup onclick="document.title=\'second\'">Second</button>'
+  );
+  const els = result.elements ?? [];
+  assert.deepEqual(
+    els.map((e) => e.selector),
+    ['role=button[name="First"]', 'role=button[name="Second"]']
+  );
+  await assertAllSelectorsUnique(els);
+  await click(fixturePage, els[1].selector);
+  assert.equal(await fixturePage.title(), "second");
+});
+
+test("getPageState rejects a duplicated data-testid and falls through to the id (T018 AC2)", async () => {
+  const result = await pageStateOf('<button data-testid=x id=one>One</button><button data-testid=x id=two>Two</button>');
+  assert.deepEqual((result.elements ?? []).map((e) => e.selector), ["#one", "#two"]);
+});
+
+test("getPageState escapes quotes and backslashes in names and test ids so the selector parses (T018 AC4)", async () => {
+  const result = await pageStateOf(String.raw`
+    <button onclick="document.title='q'">Say "hi"</button>
+    <button onclick="document.title='b'">C:\temp\new</button>
+    <button data-testid='we"ird\id' onclick="document.title='t'">Tid</button>
+    <button onclick="document.title='s'">It's</button>`);
+  const els = result.elements ?? [];
+  assert.deepEqual(
+    els.map((e) => e.selector),
+    [
+      String.raw`role=button[name="Say \"hi\""]`,
+      String.raw`role=button[name="C:\\temp\\new"]`,
+      String.raw`[data-testid="we\"ird\\id"]`,
+      `role=button[name="It's"]`,
+    ]
+  );
+  await assertAllSelectorsUnique(els);
+  for (const [i, t] of ["q", "b", "t", "s"].entries()) {
+    assert.equal((await click(fixturePage, els[i].selector)).ok, true);
+    assert.equal(await fixturePage.title(), t);
+  }
+});
+
+test("getPageState hostile page content cannot make a selector target a different element (T018 injection)", async () => {
+  const result = await pageStateOf(`
+    <button onclick="document.title='victim'">Pay</button>
+    <button onclick="document.title='evil1'">x"] >> text=Pay >> nth=0 >> [name="y</button>
+    <button id='a" ] , button' onclick="document.title='evil2'">Two</button>
+    <button data-testid='x"], [data-testid="' onclick="document.title='evil3'">Three</button>
+    <button role="button]x" onclick="document.title='evil4'">Four</button>`);
+  const els = result.elements ?? [];
+  assert.equal(els.length, 5);
+  await assertAllSelectorsUnique(els);
+  const titles: string[] = [];
+  for (const e of els) {
+    await fixturePage.evaluate(() => (document.title = ""));
+    assert.equal((await click(fixturePage, e.selector)).ok, true);
+    titles.push(await fixturePage.title());
+  }
+  assert.deepEqual(titles, ["victim", "evil1", "evil2", "evil3", "evil4"]);
+});
+
+test("getPageState disambiguates names that are substrings of one another (T018 AC2)", async () => {
+  const result = await pageStateOf(
+    '<button onclick="document.title=\'short\'">Save</button><button onclick="document.title=\'long\'">Save as draft</button>'
+  );
+  const els = result.elements ?? [];
+  await assertAllSelectorsUnique(els);
+  await click(fixturePage, els[0].selector);
+  assert.equal(await fixturePage.title(), "short");
+  await click(fixturePage, els[1].selector);
+  assert.equal(await fixturePage.title(), "long");
+});
+
+test("getPageState falls back to a positional selector when role matching cannot find the element (T018 edge)", async () => {
+  // Names over 80 chars are truncated in the output, so the role selector can't match.
+  const long = "y".repeat(100);
+  const result = await pageStateOf(
+    `<button onclick="document.title='first'">${long}</button><button onclick="document.title='second'">${long}z</button>`
+  );
+  const els = result.elements ?? [];
+  assert.equal(els.length, 2);
+  await assertAllSelectorsUnique(els);
+  await click(fixturePage, els[1].selector);
+  assert.equal(await fixturePage.title(), "second");
+  await click(fixturePage, els[0].selector);
+  assert.equal(await fixturePage.title(), "first");
+});
+
+test("getPageState selectors are right when invisible and unnamed elements sit between visible ones (T018 edge)", async () => {
+  const result = await pageStateOf(
+    '<button style="display:none">Delete</button><button></button><button onclick="document.title=\'b\'">Delete</button><button onclick="document.title=\'c\'">Delete</button>'
+  );
+  const els = result.elements ?? [];
+  assert.equal(els.length, 2);
+  await assertAllSelectorsUnique(els);
+  await click(fixturePage, els[1].selector);
+  assert.equal(await fixturePage.title(), "c");
+});
+
+test("getPageState gives every element of a realistic form a unique selector (T018 success criterion 2)", async () => {
+  const result = await pageStateOf(`
+    <nav><a href="#home">Home</a><a href="#docs">Docs</a><a href="#docs">Docs</a></nav>
+    <form>
+      <label for=u>User</label><input id=u>
+      <label>Remember <input type=checkbox></label>
+      <label><input type=radio name=r> Yes</label><label><input type=radio name=r> No</label>
+      <select aria-label="Country"><option>A</option></select>
+      <textarea placeholder="Notes"></textarea>
+      <input type=submit value="Go"><button type=reset>Reset</button>
+    </form>
+    <div role=button tabindex=0>Fake button</div><div role=tab>Tab</div><div role=menuitem>Menu</div>`);
+  const els = result.elements ?? [];
+  assert.ok(els.length >= 12);
+  await assertAllSelectorsUnique(els);
+});
+
+test("getPageState caps elements at 200 with a truncation note and stays fast (T018 AC6)", async () => {
+  const many = Array.from({ length: 500 }, (_, i) => `<button>Item</button>`).join("");
+  const started = Date.now();
+  const result = await pageStateOf(many);
+  const elapsed = Date.now() - started;
+  assert.equal(result.elements?.length, 200);
+  assert.match(result.note ?? "", /200 of 500/);
+  assert.ok(elapsed < 4000, `took ${elapsed}ms`);
+  await assertAllSelectorsUnique((result.elements ?? []).slice(0, 5));
+
+  const few = await pageStateOf("<button>One</button>");
+  assert.equal(few.note, undefined);
+});
+
 // --- ui_take_screenshot ---
 
 test("takeScreenshot writes a PNG file to the output dir and returns its path", async () => {

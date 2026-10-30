@@ -195,6 +195,8 @@ export async function waitForCondition(
 export interface PageElement {
   role: string;
   name: string;
+  /** Pass unchanged to ui_click / ui_fill; resolves to exactly this element. */
+  selector: string;
 }
 
 export interface PageState {
@@ -203,13 +205,141 @@ export interface PageState {
   title?: string;
   elements?: PageElement[];
   messages?: string[];
+  /** Set when `elements` was capped at MAX_PAGE_ELEMENTS. */
+  note?: string;
   error?: string;
 }
+
+/** Bounds `ui_get_page_state` output (and selector-verification cost) on huge pages. */
+const MAX_PAGE_ELEMENTS = 200;
 
 const INTERACTIVE_SELECTOR =
   'button, a[href], input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"]';
 
 const MESSAGE_SELECTOR = '[role="alert"], [role="status"], [aria-live]:not([aria-live="off"])';
+
+/** CSS.escape (CSSOM spec), for building `#id` selectors in Node. */
+function cssEscapeIdent(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    const code = value.charCodeAt(i);
+    if (code === 0) out += "�";
+    else if (
+      (code >= 0x1 && code <= 0x1f) ||
+      code === 0x7f ||
+      (i === 0 && code >= 0x30 && code <= 0x39) ||
+      (i === 1 && code >= 0x30 && code <= 0x39 && value.charCodeAt(0) === 0x2d)
+    ) {
+      out += `\\${code.toString(16)} `;
+    } else if (i === 0 && value.length === 1 && code === 0x2d) out += `\\${ch}`;
+    else if (
+      code >= 0x80 ||
+      code === 0x2d ||
+      code === 0x5f ||
+      (code >= 0x30 && code <= 0x39) ||
+      (code >= 0x41 && code <= 0x5a) ||
+      (code >= 0x61 && code <= 0x7a)
+    ) {
+      out += ch;
+    } else out += `\\${ch}`;
+  }
+  return out;
+}
+
+/** Escape for use inside a double-quoted string in a CSS attribute or role selector. */
+function quoteSelectorString(value: string): string {
+  return `"${value
+    .replace(/[\\"]/g, "\\$&")
+    .replace(/\n/g, "\\a ")
+    .replace(/\r/g, "\\d ")
+    .replace(/\f/g, "\\c ")}"`;
+}
+
+interface RawElement {
+  index: number; // position in INTERACTIVE_SELECTOR document order
+  role: string;
+  name: string;
+  testId: string;
+  id: string;
+}
+
+type ElementHandle = NonNullable<Awaited<ReturnType<Page["$"]>>>;
+
+/**
+ * Where `target` sits among the matches of `selector`: `{count, position}` with
+ * position -1 if absent. A selector that fails to parse counts as matching nothing.
+ */
+async function locate(
+  page: Page,
+  selector: string,
+  target: ElementHandle
+): Promise<{ count: number; position: number }> {
+  try {
+    return await page
+      .locator(selector)
+      .evaluateAll((els, t) => ({ count: els.length, position: els.indexOf(t as HTMLElement) }), target);
+  } catch {
+    return { count: 0, position: -1 };
+  }
+}
+
+/**
+ * Pick the first selector (data-testid > #id > role+name > role+name >> nth) that
+ * resolves to exactly `target` and nothing else. Every candidate is checked against
+ * the live page by element identity, so a quoting/escaping mistake or hostile page
+ * content can only cause a fall-through, never a selector that hits another element.
+ * Returns undefined if nothing verifies (element vanished); caller drops it.
+ */
+async function buildSelector(
+  page: Page,
+  raw: RawElement,
+  handles: ElementHandle[],
+  sharedRoleMatches: Map<string, number[]>
+): Promise<string | undefined> {
+  const target = handles[raw.index];
+  const isOnlyTarget = async (selector: string) => {
+    const hit = await locate(page, selector, target);
+    return hit.count === 1 && hit.position === 0;
+  };
+
+  if (raw.testId) {
+    const candidate = `[data-testid=${quoteSelectorString(raw.testId)}]`;
+    if (await isOnlyTarget(candidate)) return candidate;
+  }
+  if (raw.id) {
+    const candidate = `#${cssEscapeIdent(raw.id)}`;
+    if (await isOnlyTarget(candidate)) return candidate;
+  }
+  // The role comes from a page attribute; only plain tokens are put in a selector.
+  if (/^[a-z][a-z0-9-]*$/i.test(raw.role)) {
+    const candidate = `role=${raw.role}[name=${quoteSelectorString(raw.name)}]`;
+    // Elements sharing a role+name (e.g. 500 identical buttons) are resolved with one
+    // page round-trip: `shared` maps every interactive element to its position in
+    // this candidate's matches (-1 if absent), and is reused by the later ones.
+    let shared = sharedRoleMatches.get(candidate);
+    let hit: { count: number; position: number };
+    if (shared) {
+      hit = { count: shared.filter((p) => p >= 0).length, position: shared[raw.index] };
+    } else {
+      hit = await locate(page, candidate, target);
+      if (hit.count > 1) {
+        shared = await page
+          .locator(candidate)
+          .evaluateAll((els, all) => (all as HTMLElement[]).map((h) => els.indexOf(h)), handles);
+        sharedRoleMatches.set(candidate, shared);
+      }
+    }
+    if (hit.count === 1 && hit.position === 0) return candidate;
+    if (hit.position >= 0 && hit.count > 1) {
+      const positional = `${candidate} >> nth=${hit.position}`;
+      if (await isOnlyTarget(positional)) return positional;
+    }
+  }
+  // Role matching missed (e.g. Chromium computes a different accessible name).
+  const positional = `${INTERACTIVE_SELECTOR} >> nth=${raw.index}`;
+  return (await isOnlyTarget(positional)) ? positional : undefined;
+}
 
 /**
  * Return structured page state (URL, title, visible interactive elements,
@@ -221,77 +351,101 @@ const MESSAGE_SELECTOR = '[role="alert"], [role="status"], [aria-live]:not([aria
  * Name precedence (T017): aria-label > aria-labelledby > <label> > text content
  * > placeholder > title (> value, for button-type inputs only). A trimmed
  * empty string counts as missing at every step.
+ *
+ * Selector (T018): each element carries a Playwright selector for ui_click /
+ * ui_fill, first unique of `[data-testid]` > `#id` > `role=…[name=…]` >
+ * `role=… >> nth=i`, built in Node and verified against the live page.
  */
 export async function getPageState(page: Page | undefined): Promise<PageState> {
   if (!page) {
     return { ok: false, error: "No active page — call ui_navigate first" };
   }
+  // Handles pin the exact elements so selectors can be verified by identity.
+  let handles: ElementHandle[] = [];
   try {
+    handles = await page.$$(INTERACTIVE_SELECTOR);
     // NOTE: no named inner functions/consts in these callbacks — tsx/esbuild wraps
     // them in a `__name` helper that does not exist in the browser context.
-    const elements = await page.$$eval(INTERACTIVE_SELECTOR, (nodes) =>
-      nodes
-        .filter((el) => {
-          const rect = el.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        })
-        .map((el) => {
-          const explicitRole = el.getAttribute("role");
-          const tag = el.tagName.toLowerCase();
-          const input = el as HTMLInputElement;
-          const inputRoles: Record<string, string> = {
-            checkbox: "checkbox",
-            radio: "radio",
-            submit: "button",
-            button: "button",
-            reset: "button",
-            image: "button",
-            range: "slider",
-          };
-          const role =
-            explicitRole ??
-            (tag === "a"
-              ? "link"
-              : tag === "button"
-                ? "button"
-                : tag === "input"
-                  ? (inputRoles[input.type] ?? "textbox")
-                  : tag === "textarea"
-                    ? "textbox"
-                    : tag === "select"
-                      ? "combobox"
-                      : tag);
-          // `labels` resolves <label for> (by id, no CSS escaping) and wrapping labels.
-          const labelText = input.labels
-            ? Array.from(input.labels, (l) => l.innerText).join(" ")
-            : "";
-          const labelledByText = (el.getAttribute("aria-labelledby") ?? "")
-            .split(/\s+/)
-            .map((id) => (id ? (document.getElementById(id)?.textContent ?? "") : ""))
-            .join(" ");
-          // Only button-type inputs are named by value; never text/password values.
-          const buttonValue =
-            tag === "input" && ["submit", "button", "reset"].includes(input.type)
-              ? input.value
+    const found: RawElement[] = await page.evaluate(
+      (nodes) =>
+        nodes
+          .map((el, index) => ({ el, index }))
+          .filter(({ el }) => {
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          })
+          .map(({ el, index }) => {
+            const explicitRole = el.getAttribute("role");
+            const tag = el.tagName.toLowerCase();
+            const input = el as HTMLInputElement;
+            const inputRoles: Record<string, string> = {
+              checkbox: "checkbox",
+              radio: "radio",
+              submit: "button",
+              button: "button",
+              reset: "button",
+              image: "button",
+              range: "slider",
+            };
+            const role =
+              explicitRole ??
+              (tag === "a"
+                ? "link"
+                : tag === "button"
+                  ? "button"
+                  : tag === "input"
+                    ? (inputRoles[input.type] ?? "textbox")
+                    : tag === "textarea"
+                      ? "textbox"
+                      : tag === "select"
+                        ? "combobox"
+                        : tag);
+            // `labels` resolves <label for> (by id, no CSS escaping) and wrapping labels.
+            const labelText = input.labels
+              ? Array.from(input.labels, (l) => l.innerText).join(" ")
               : "";
-          // Precedence: aria-label > aria-labelledby > label > text > placeholder > title > value.
-          // A whitespace-only string counts as missing.
-          const name = [
-            el.getAttribute("aria-label"),
-            labelledByText,
-            labelText,
-            (el as HTMLElement).innerText,
-            input.placeholder,
-            el.getAttribute("title"),
-            buttonValue,
-          ]
-            .map((t) => (t ?? "").replace(/\s+/g, " ").trim())
-            .find((t) => t.length > 0) ?? "";
-          return { role, name: name.length > 80 ? `${name.slice(0, 80)}…` : name };
-        })
-        // Alerts/status regions are reported in `messages`, not as elements.
-        .filter((e) => e.name.length > 0 && e.role !== "alert" && e.role !== "status")
+            const labelledByText = (el.getAttribute("aria-labelledby") ?? "")
+              .split(/\s+/)
+              .map((id) => (id ? (document.getElementById(id)?.textContent ?? "") : ""))
+              .join(" ");
+            // Only button-type inputs are named by value; never text/password values.
+            const buttonValue =
+              tag === "input" && ["submit", "button", "reset"].includes(input.type)
+                ? input.value
+                : "";
+            // Precedence: aria-label > aria-labelledby > label > text > placeholder > title > value.
+            // A whitespace-only string counts as missing.
+            const name = [
+              el.getAttribute("aria-label"),
+              labelledByText,
+              labelText,
+              (el as HTMLElement).innerText,
+              input.placeholder,
+              el.getAttribute("title"),
+              buttonValue,
+            ]
+              .map((t) => (t ?? "").replace(/\s+/g, " ").trim())
+              .find((t) => t.length > 0) ?? "";
+            return {
+              index,
+              role,
+              name: name.length > 80 ? `${name.slice(0, 80)}…` : name,
+              testId: el.getAttribute("data-testid") ?? "",
+              id: el.id,
+            };
+          })
+          // Alerts/status regions are reported in `messages`, not as elements.
+          .filter((e) => e.name.length > 0 && e.role !== "alert" && e.role !== "status"),
+      handles
     );
+    const shown = found.slice(0, MAX_PAGE_ELEMENTS);
+    const elements: PageElement[] = [];
+    const sharedRoleMatches = new Map<string, number[]>();
+    for (const r of shown) {
+      const selector = await buildSelector(page, r, handles, sharedRoleMatches);
+      // Unverifiable means the element vanished mid-read; omit rather than guess.
+      if (selector) elements.push({ role: r.role, name: r.name, selector });
+    }
     const messages = await page.$$eval(MESSAGE_SELECTOR, (nodes) => {
       const seen = new Set<string>();
       for (const el of nodes) {
@@ -302,10 +456,22 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
       }
       return Array.from(seen);
     });
-    return { ok: true, url: page.url(), title: await page.title(), elements, messages };
+    const result: PageState = {
+      ok: true,
+      url: page.url(),
+      title: await page.title(),
+      elements,
+      messages,
+    };
+    if (found.length > shown.length) {
+      result.note = `Showing first ${shown.length} of ${found.length} elements; use a CSS selector for the rest`;
+    }
+    return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };
+  } finally {
+    await Promise.all(handles.map((h) => h.dispose().catch(() => undefined)));
   }
 }
 

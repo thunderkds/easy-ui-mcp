@@ -222,8 +222,14 @@ function buildMcpServer(): McpServer {
     "ui_click",
     {
       title: "ui_click",
-      description: "Click the single element matching the given selector.",
-      inputSchema: { selector: z.string().describe("CSS selector of the element to click") },
+      description:
+        "Click the single element matching the given selector. The selector may be a CSS selector or the `selector` value from ui_get_page_state, passed unchanged." +
+        ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.',
+      inputSchema: {
+        selector: z
+          .string()
+          .describe("CSS selector, or the `selector` value of an element from ui_get_page_state"),
+      },
     },
     async ({ selector }) => {
       const target = resolvePageForRead();
@@ -244,9 +250,13 @@ function buildMcpServer(): McpServer {
     "ui_fill",
     {
       title: "ui_fill",
-      description: "Fill the single input element matching the given selector with a value.",
+      description:
+        "Fill the single input element matching the given selector with a value. The selector may be a CSS selector or the `selector` value from ui_get_page_state, passed unchanged." +
+        ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.',
       inputSchema: {
-        selector: z.string().describe("CSS selector of the input element to fill"),
+        selector: z
+          .string()
+          .describe("CSS selector, or the `selector` value of an input element from ui_get_page_state"),
         value: z.string().describe("The value to fill into the input"),
       },
     },
@@ -383,7 +393,8 @@ function buildMcpServer(): McpServer {
     "ui_get_page_state",
     {
       title: "ui_get_page_state",
-      description: "Return the current page's URL, title, and visible interactive elements.",
+      description:
+        "Return the current page's URL, title, visible interactive elements ({role, name, selector}; pass `selector` unchanged to ui_click/ui_fill, at most 200 elements) and visible alert/status messages.",
       inputSchema: {},
     },
     async () => {
