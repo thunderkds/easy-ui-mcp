@@ -33,8 +33,16 @@
 > **before any implementation commit exists**; if it does not (docs, templates, skill-instruction
 > text), BEFORE is the **verbatim prior content** of what changed — a quoted excerpt, not a command.
 
-**BEFORE**: [pasted timestamped command output showing the thing absent/failing, captured before the
-first implementation commit] OR [verbatim excerpt of the prior content, for non-executable changes]
+**BEFORE** (captured before any implementation commit; unmodified code at HEAD fac59b2):
+
+```
+$ date -u
+Fri Oct 30 07:21:18 AM UTC 2026
+$ node --import tsx demo.mts   # setContent(2x Delete, data-testid=save, input#a:b placeholder=Name, link Help "me"); console.log(JSON.stringify(await getPageState(page)))
+{"ok":true,"url":"about:blank","title":"","elements":[{"role":"button","name":"Delete"},{"role":"button","name":"Delete"},{"role":"button","name":"Save"},{"role":"textbox","name":"Name"},{"role":"link","name":"Help \"me\""}],"messages":[]}
+```
+
+No element has a `selector` field, and the two `Delete` buttons are indistinguishable.
 
 **AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
 
