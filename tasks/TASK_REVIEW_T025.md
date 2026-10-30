@@ -33,8 +33,16 @@
 > **before any implementation commit exists**; if it does not (docs, templates, skill-instruction
 > text), BEFORE is the **verbatim prior content** of what changed — a quoted excerpt, not a command.
 
-**BEFORE**: [pasted timestamped command output showing the thing absent/failing, captured before the
-first implementation commit] OR [verbatim excerpt of the prior content, for non-executable changes]
+**BEFORE** (captured before the first implementation commit):
+```
+$ date -u; ls site vercel.json requirements.txt 2>&1; head -3 requirements.txt
+Fri Oct 30 10:35:17 AM UTC 2026
+ls: cannot access 'site': No such file or directory
+ls: cannot access 'vercel.json': No such file or directory
+requirements.txt
+Refined Goal
+Create a unified UI Testing MCP Server that: 
+```
 
 **AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
 
