@@ -33,8 +33,42 @@
 > **before any implementation commit exists**; if it does not (docs, templates, skill-instruction
 > text), BEFORE is the **verbatim prior content** of what changed — a quoted excerpt, not a command.
 
-**BEFORE**: [pasted timestamped command output showing the thing absent/failing, captured before the
-first implementation commit] OR [verbatim excerpt of the prior content, for non-executable changes]
+**BEFORE** (captured 2026-10-30 07:59:51 UTC against unchanged code, port 8765 free beforehand, branch `task/T022-test-teardown` before any implementation commit):
+
+```
+$ date -u; timeout 60 node --import tsx --test test/health.test.ts; echo exit=$?
+Fri Oct 30 07:59:51 AM UTC 2026
+✔ GET /health returns 200 with a readiness payload (822.454285ms)
+✔ MCP initialize handshake succeeds and advertises ui_navigate (37.67848ms)
+
+Interrupted while running:
+
+⚠ test/health.test.ts (test/health.test.ts:1:1)
+✖ test/health.test.ts (59978.488377ms)
+ℹ tests 3
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 1
+ℹ duration_ms 59982.730679
+  'Promise resolution is still pending but the event loop has already resolved'
+exit=124
+```
+
+Both tests pass, then the file never finishes; only `timeout` ends it (exit 124). An earlier identical run (07:58:43 UTC) gave the same result.
+
+Process evidence sampled 20 s into the run (all tests had already passed), `ss -ltnp | grep 8765` and `ps`:
+
+```
+LISTEN 0 511 *:8765 *:* users:(("node-MainThread",pid=491490,fd=23))
+
+PID     PPID    ARGS
+491448  491447  node --import tsx --test test/health.test.ts            (test runner)
+491454  491448  node ... --import tsx test/health.test.ts               (the test file process, still alive)
+491479  2022    node .../node_modules/.bin/tsx src/server.ts            (tsx wrapper, ORPHANED: ppid 2022, not the test process)
+491490  491479  node --require .../tsx/preflight.cjs --import .../tsx/loader.mjs src/server.ts   (real server, the 8765 listener)
+```
+
+The `npx` wrapper that the test spawned is already gone, and its `tsx` child and the real server grandchild survive it. So `server.kill("SIGTERM")` hit only the `npx` process, and the server kept listening on 8765.
 
 **AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
 
