@@ -4,3 +4,4 @@ reports/*
 !reports/.gitkeep
 .claude/worktrees/
 __pycache__/
+.claude/hooks/.state/
