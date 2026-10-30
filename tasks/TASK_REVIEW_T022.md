@@ -17,12 +17,12 @@
 | **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/health.test.ts` and `test/api-run-test.test.ts` are the changed tests. Run alone: health 2/2 pass, api-run-test 4/4 pass, each finishing in a few seconds with 8765 free afterwards (AC 3, 4). Full `npm test` 119/119, exit 0, 8765 free (AC 1, 2), three consecutive runs plus five more after the `--test-concurrency=1` amendment. AC 5 (SIGKILL fallback) checked with a scratch child that ignores SIGTERM and the same teardown code, fallback shortened to 1 s: `ignored SIGTERM; terminated after 1005ms, signal=SIGKILL`; an already-exited child returns at once. |
 | Verification command run | ☑ pass | 2026-10-30 08:01:37-08:01:46 UTC. `ℹ tests 119 / ℹ pass 119 / ℹ fail 0 / ℹ cancelled 0 / ℹ duration_ms 8596.727674`, then `exit=0`, then `8765 free`. No stray `src/server.ts` processes afterwards. After the `--test-concurrency=1` amendment, three consecutive runs (see AFTER) were each exit=0, fail 0, 8765 free. |
 | Negative cases hold | ☑ pass | Child that ignores SIGTERM is SIGKILLed after the bound; child already exited does not hang teardown (scratch check above). |
-| verify | ☐ pass / ☐ fail / ☐ N/A | [what was observed — must literally state "pass" or "fail" here too, e.g. "skill run, feature confirmed working — pass": the merge gate scans this Notes column for the word "pass", not just the Result column] |
-| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☐ pass / ☐ fail | [what was reviewed vs. skipped, and why] |
+| verify | ☑ pass | **Supervisor 2026-10-30, independent of the implementer, at 7f94c07, user container stopped:** ran `npm test` three times back to back. Run 1 08:06:24Z: exit=0, 119/119, fail 0, 8765 free. Run 2 08:06:44Z: same. Run 3 08:07:01Z: same — pass. Before the concurrency fix, the Supervisor's own second run (08:02:32Z, ce3d7c0) failed 3 `api-run-test` tests (`other side closed` / `ECONNREFUSED`), which is what found the parallel-port race. |
+| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☑ pass | Reviewed the `test.before`/`test.after` blocks of `test/health.test.ts` and `test/api-run-test.test.ts`, the `package.json` `test` script, and `src/server.ts:482` (the SIGTERM handler the fix relies on, unchanged). No `src/` change. |
 | Full smoke suite still green (no regression) | ☑ pass | Full `npm test` 119/119 pass, 0 fail, 0 cancelled, in 8 of 8 runs after the amendment. |
-| **UI: Visual regression (diff or verdict pasted)** | ☐ pass / ☐ fail / ☐ N/A | [screenshot path or LLM verdict — required for UI tasks, Hard-Stop Gate 6] |
-| **UI: Design-system compliance (tokens/colors/typography verified)** | ☐ pass / ☐ fail / ☐ N/A | [method used + output] |
-| **UI: Responsiveness at target viewports** | ☐ pass / ☐ fail / ☐ N/A | [viewports tested, any overflow findings] |
+| **UI: Visual regression** | ☑ N/A | Test-infrastructure task, no UI surface |
+| **UI: Design-system compliance** | ☑ N/A | Test-infrastructure task, no UI surface |
+| **UI: Responsiveness** | ☑ N/A | Test-infrastructure task, no UI surface |
 
 ---
 
@@ -113,5 +113,31 @@ Five further runs (extra runs 4 to 8) were each exit=0 with 8765 free. Total tim
 
 **DELTA**: `npm test` now runs all test files, exits by itself with code 0 in about 9 s and leaves nothing listening on 8765, so the Stage 5 merge gate can get one clean completed run.
 
-**WITNESS**: [who ran it and when — derived from `memory/event-trace/Txxx.jsonl`, never the
-implementing agent alone]
+**WITNESS**: Supervisor, 2026-10-30 08:06–08:07Z: three independent `npm test` runs at 7f94c07, all exit=0, 119/119, 8765 free (see verify row).
+
+
+---
+
+## Code Review (Stage 4 — Supervisor, 2026-10-30)
+
+Scope: `36e0ab2..7f94c07`. Personas: correctness, testing, maintainability, standards. Security and performance are not activated: test-only change, Low risk.
+
+Entry-point reachability: the `npm test` script is in `package.json`, so it is reachable.
+
+Pre-review round (fixed in 7f94c07): **P1** parallel test files raced on the hard-coded port 8765, so `npm test` was flaky (2 failures in about 5 runs).
+
+### P0 — Must Fix
+None.
+
+### P1 — Should Fix
+None remaining.
+
+### P2 — Recommended
+None.
+
+### P3 — Optional (follow-ups, not blocking)
+| File | Finding | Confidence | Action |
+|---|---|---|---|
+| `test/health.test.ts`, `test/api-run-test.test.ts` | The spawned server's stdout/stderr pipes are never read; a chatty server could block on a full pipe | 75 | Use `stdio: "ignore"` (or drain the pipes) |
+| `src/server.ts` | The hard-coded port is the root of both the race and the Docker conflict | 100 | Already logged as a deferred enhancement (configurable port) |
+| tests | The SIGKILL fallback (AC5) is verified only by a scratch script, not a committed test | 75 | Accepted; adding one would need the shared helper that is on the cut list |
