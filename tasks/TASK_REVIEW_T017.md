@@ -14,15 +14,15 @@
 
 | Check | Result | Notes / output snippet |
 |-------|--------|------------------------|
-| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | [test file path(s) — required before Done] |
-| Verification command run | ☐ pass / ☐ fail | [paste actual output] |
-| Negative cases hold | ☐ pass / ☐ fail | |
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | pass | `test/web.test.ts` — 9 new getPageState tests (T017 AC1-AC7 + edge cases); red before the fix (9 fail), green after |
+| Verification command run | pass | `node --import tsx --test test/web.test.ts && npx tsc --noEmit` at 2026-10-30 ~06:35Z: `ℹ tests 25 / ℹ pass 25 / ℹ fail 0`; tsc exit 0 (no output) |
+| Negative cases hold | pass | empty / `display:none` / zero-size alerts -> `messages: []`; `aria-live=off` ignored; password `value` never used as name; unnamed + invisible elements excluded; `getPageState(undefined)` still `No active page` error |
 | verify | ☐ pass / ☐ fail / ☐ N/A | [what was observed — must literally state "pass" or "fail" here too, e.g. "skill run, feature confirmed working — pass": the merge gate scans this Notes column for the word "pass", not just the Result column] |
 | Review scope bounded to the change's blast radius (affected set, not whole repo) | ☐ pass / ☐ fail | [what was reviewed vs. skipped, and why] |
 | Full smoke suite still green (no regression) | ☐ pass / ☐ fail | |
-| **UI: Visual regression (diff or verdict pasted)** | ☐ pass / ☐ fail / ☐ N/A | [screenshot path or LLM verdict — required for UI tasks, Hard-Stop Gate 6] |
-| **UI: Design-system compliance (tokens/colors/typography verified)** | ☐ pass / ☐ fail / ☐ N/A | [method used + output] |
-| **UI: Responsiveness at target viewports** | ☐ pass / ☐ fail / ☐ N/A | [viewports tested, any overflow findings] |
+| **UI: Visual regression (diff or verdict pasted)** | N/A | backend-only task, no UI surface |
+| **UI: Design-system compliance (tokens/colors/typography verified)** | N/A | backend-only task, no UI surface |
+| **UI: Responsiveness at target viewports** | N/A | backend-only task, no UI surface |
 
 ---
 
@@ -44,9 +44,16 @@ $ node --import tsx scratchpad/demo.mts   # setContent(Requirement fixture); con
 
 Both text inputs (Email, Search) are missing and there is no `messages` field, so "Password too short" is not reported.
 
-**AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
+**AFTER** (same script, same fixture, after commit d7bb169):
 
-**DELTA**: [one sentence — what a user can now do that they could not before]
+```
+$ date -u
+Fri Oct 30 06:35:27 AM UTC 2026
+$ node --import tsx scratchpad/demo.mts
+{"ok":true,"url":"about:blank","title":"","elements":[{"role":"textbox","name":"Email"},{"role":"textbox","name":"Search"},{"role":"combobox","name":"A"},{"role":"button","name":"Save"}],"messages":["Password too short"]}
+```
+
+**DELTA**: An agent calling `ui_get_page_state` now sees label-/placeholder-named inputs (`Email`, `Search`) and the visible validation text (`messages: ["Password too short"]`), so it can plan which fields to fill and react to errors.
 
 **WITNESS**: [who ran it and when — derived from `memory/event-trace/Txxx.jsonl`, never the
 implementing agent alone]
