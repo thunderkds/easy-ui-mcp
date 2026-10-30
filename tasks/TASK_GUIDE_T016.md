@@ -33,7 +33,7 @@ repeated conflicts; start a new task if repository work is required.
 **Out of scope**:
 - Modifying the shared `/home/hungnguyenhuu/.supervisor` installation
 - Changing application runtime code under `src/`
-- Pushing the resulting commit or merging it into `main`
+- Pushing or merging the local reference into `main`
 - Automatically synchronizing future shared-harness releases
 
 **Requirement Refs**:
@@ -105,7 +105,7 @@ repository-level agent contract without coupling it to application runtime code.
 **Cut list**:
 - No automatic lock regeneration command
 - No changes to the shared `.supervisor` source
-- No task-branch rebase or remote push while `.git` metadata is read-only
+- No remote push, merge into `main`, or task-branch rebase
 
 Treat the already-installed project snapshot as the candidate implementation. Add a strict,
 portable integrity oracle; refresh only the stale `AGENTS.md` digest caused by the accepted T015
@@ -166,4 +166,4 @@ modes and scan the vendored text for credential-like material before review.
 - [x] Tests written and pass — output pasted into `tasks/TASK_REVIEW_T016.md`
 - [x] Verification command passes
 - [x] KANBAN updated to the verified state
-- [ ] Local commit created without pushing
+- [x] Local reference retained at `2bbf1e3`; remote T016 branch intentionally removed by user direction

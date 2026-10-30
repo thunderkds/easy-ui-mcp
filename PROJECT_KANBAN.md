@@ -1,5 +1,5 @@
 # PROJECT_KANBAN.md
-**Last updated**: 2026-08-25
+**Last updated**: 2026-10-30
 
 > Compact task board. Full context lives in `PROJECT_SPEC.md`. Update this file whenever a task status changes.
 
@@ -20,13 +20,13 @@
 ### In Progress
 
 ### Ready for Review
-- [ ] **T016** — Vendor the current Supervisor harness snapshot with integrity verification | common-infrastructure | C2 | Risk: Medium | P1 | Focused integrity + T015 mapping tests and build pass; 0 credential signatures; full runtime suite remains sandbox-blocked; branch/stage/commit blocked because `.git` metadata is read-only
-- [ ] **T014** — Human-readable reports: `ui_step` + grouped renderer + durations + console/network capture | backend-developer | C2 | Risk: Low | P1 | Implemented 2026-08-17; 46 focused tests pass; full suite 66/68 with 2 pre-existing API report-path failures; live drive rendered 3 labelled steps + captured console/network issues without changing the verdict
-- [ ] **T013** — Truthful verdicts: `ui_check` + `ui_wait_for` + screenshot dedupe/budget | backend-developer | C2 | Risk: Medium | P0 | Implemented 2026-08-17; 19/19 tests, live drive passed both soft and hard paths. Note for T007: `session.ts` gained `soft` on `LoggedAction` + 2 record fields — merge with the `kind` discriminant carefully
+- [ ] **T014** — Human-readable reports: `ui_step` + grouped renderer + durations + console/network capture | backend-developer | C2 | Risk: Low | P1 | Implemented 2026-08-17; 46 focused tests pass; full suite 66/68 with 2 pre-existing API report-path failures; live drive rendered 3 labelled steps + captured console/network issues without changing the verdict | **Still blocked from Done (2026-10-30)**: (1) user before/after readability judgement pending; (2) Evidence row "UI: Responsiveness" is blank — Hard-Stop Gate 6. Code merged to main via PR #3
 
 
 ### Done
+- [x] **T016** — Vendor the current Supervisor harness snapshot with integrity verification | common-infrastructure | C2 | Risk: Medium | P1 | Local reference only: focused integrity + T015 mapping tests and build pass; credential scan clean; remote T016 branch intentionally removed 2026-08-27
 - [x] **T015** — Codex mapping reference for the current Claude Code kit | common-infrastructure | C1 | Risk: Low | P1 | Completed: 2026-08-25; focused test and build pass; environment-blocked full-suite result disclosed in `tasks/TASK_REVIEW_T015.md` and accepted by user direction
+- [x] **T013** — Truthful verdicts: `ui_check` + `ui_wait_for` + screenshot dedupe/budget | backend-developer | C2 | Risk: Medium | P0 | Completed: 2026-08-17 (PR #2); 19/19 tests + Supervisor live re-verify (soft→passed, hard→failed), evidence in `reports/evidence/T013/`; api-run-test 2/4 failures pre-existing (port 8765). Note for T007: `session.ts` gained `soft` on `LoggedAction` + 2 record fields — merge with the `kind` discriminant carefully
 - [x] **T001** — Docker + MCP server skeleton + ui_navigate tracer bullet | C2 | Completed: 2026-07-01
 - [x] **T002** — Remaining primitive Playwright tools | C1 | Completed: 2026-07-01
 - [x] **T003** — Session lifecycle + JSON/HTML report generation | C2 | Completed: 2026-07-01
@@ -64,6 +64,6 @@ None.
 | 1 Environment Setup | ✅ Done (reuses v1 setup) |
 | 1.5 Sub-Agent Architecture | ✅ Done (reuses v1 team) |
 | 2 Planning (/plan) | ✅ Done — T006–T012 generated |
-| 3 Execution | 🔄 In progress — T006 done, T007 next |
-| 4 Review | 🔄 T006 reviewed (0 P0/P1, 1 P2 carried into T007) |
-| 5 Integration & Verify | 🔄 T006 merged to main |
+| 3 Execution | ⏸ Paused — T006 done; T007 not started (worktree has zero commits) |
+| 4 Review | ✅ T006 reviewed (0 P0/P1, 1 P2 carried into T007); nothing awaiting review for v2 |
+| 5 Integration & Verify | ✅ T006 merged to main; T007–T012 pending |

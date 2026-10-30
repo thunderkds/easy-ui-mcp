@@ -3,3 +3,4 @@ dist/
 reports/*
 !reports/.gitkeep
 .claude/worktrees/
+__pycache__/
