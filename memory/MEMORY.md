@@ -46,4 +46,5 @@
 - [Event-trace hook now wired](learnings.md#gotchas) — `post_tool_trace.py` registered 2026-10-30; records truncate at 300 chars, so keep test commands short (`cd <dir> && npm test`), set active_task in a separate call
 - [Reports index uses Graphite Mint (T024)](decisions.md#architecture) — Easy Kit family design system (https://claude.ai/artifact/7DkuKJzMN6tJ9S8v2fNE8b); tokens inlined on `:root`, tests forbid raw hex outside it; per-session report not yet restyled
 - [Doc-drift test guards tool lists (T023)](../test/docs-tools.test.ts) — every `registerTool` name must appear in README + RUNBOOK and RUNBOOK's "all N tools" must match; adding a tool means updating both docs
+- [Vercel = static docs page only (T025)](decisions.md#architecture) — `vercel.json` serves `site/` with no install/build; root `requirements.txt` (prose) moved to `docs/original-plan.md` because Vercel read it as Python deps
 - [`npm test` needs port 8765 free](learnings.md#gotchas) — stop the Docker container first; tests spawn their own server on the hard-coded port

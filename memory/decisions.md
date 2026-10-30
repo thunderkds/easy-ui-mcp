@@ -4,6 +4,12 @@
 
 ## Architecture
 
+### 2026-10-30 — Vercel hosts a static docs page only; `requirements.txt` renamed (T025)
+**Decision**: Vercel serves `site/index.html` (one self-contained Graphite Mint docs page, no JS) via `vercel.json` with `framework: null`, empty install/build commands and `outputDirectory: "site"`. The planning prose that sat at `requirements.txt` is now `docs/original-plan.md`. `test/site.test.ts` pins the config, the tool list, the tokens and self-containment.
+**Why**: the user's Vercel deploy failed because Vercel treats a root `requirements.txt` as Python deps and ran `uv pip install` on prose. The MCP server itself can't run on Vercel (long-lived process holding Chromium, Docker image, local `reports/` disk), so the user chose a docs page like https://personal-agentic-claude.vercel.app/. Serving only `site/` keeps `reports/`, `src/` and `memory/` off the public site.
+**Trade-off**: the docs page restates README/RUNBOOK by hand; only the tool list is drift-tested. Never add a root `requirements.txt` again.
+**Files**: `vercel.json`, `site/index.html`, `test/site.test.ts`, `docs/original-plan.md`, `README.md`
+
 ### 2026-10-30 — `reports/index.html` follows the Graphite Mint design system (T024)
 **Decision**: The report index uses Graphite Mint, the Easy Kit family's dark design system (https://claude.ai/artifact/7DkuKJzMN6tJ9S8v2fNE8b). It follows the system's StatStrip and DataTable patterns: exact token values are inlined as CSS custom properties on `:root`, and component rules are copied from its `bundle.css`. Neon is used only on the eyebrow and the key number, and status is a plain mono word (`failed` in `warn`).
 **Why**: the user asked for the page to match the Easy Kit family. Inlining keeps the report self-contained (FR-005). Tests forbid raw colours outside `:root` and pin each token to its design-system value, so the look can't drift silently.
