@@ -15,10 +15,10 @@
 ### In Progress
 
 ### Ready for Review
-- [ ] **T024** — Restyle `reports/index.html` in the Graphite Mint design system (Easy Kit family) | frontend-developer | C1 | Risk: Low | P1 | Requested by user 2026-10-30 (design system https://claude.ai/artifact/7DkuKJzMN6tJ9S8v2fNE8b). Guide: `tasks/TASK_GUIDE_T024.md` | **Stage 4 passed 2026-10-30**: 0 P0–P2, 3 P3; npm test 131/131; on-brand per screenshot review. Evidence: `tasks/TASK_REVIEW_T024.md`
 
 
 ### Done
+- [x] **T024** — Restyle `reports/index.html` in the Graphite Mint design system (Easy Kit family) | frontend-developer | C1 | Risk: Low | P1 | Requested by user 2026-10-30 (design system https://claude.ai/artifact/7DkuKJzMN6tJ9S8v2fNE8b). Guide: `tasks/TASK_GUIDE_T024.md` | **Completed 2026-10-30**: in `main` @ 6cc9e1b; npm test 131/131. Evidence: `tasks/TASK_REVIEW_T024.md`
 - [x] **T023** — Bring docs in line with T017–T022 (RUNBOOK tool count + stale npm-test advice, README selectors/report index, HARNESS example, PRD FRs) + doc-drift test | backend-developer | C0 | Risk: Low | P1 | Requested by user 2026-10-30. Guide: `tasks/TASK_GUIDE_T023.md` | **Completed 2026-10-30**: in `main` @ 9f4a909; npm test 120/120. Evidence: `tasks/TASK_REVIEW_T023.md`
 - [x] **T022** — `npm test` never exits: spawned test servers outlive their tests | backend-developer | C1 | Risk: Low | P0 | Found 2026-10-30 at Stage 5 for T017–T021; pre-existing on `main` (2e61df7); blocks the merge gate, which needs one clean `npm test`. Branch `task/T022-test-teardown` (on top of `integ/T017-T021-web-ergonomics`). Guide: `tasks/TASK_GUIDE_T022.md` | **Completed 2026-10-30**: in `main` @ 33aada7, pushed to origin 2026-10-30; live MCP check on the rebuilt container passed (session e2ec2b98, report `session-20261030-082528-live-check-t017-t022-e2ec2b98.html`). Evidence: `tasks/TASK_REVIEW_T022.md`
 - [x] **T021** — Findable reports: `reports/index.html` (dated session list) + readable filenames `session-<label>-<date>`; clean up 803 loose screenshots in `reports/` | backend-developer | C1 | Risk: Low | P1 | Independent of T017–T019 — can run in parallel | **Completed 2026-10-30**: in `main` @ 33aada7, pushed to origin 2026-10-30; live MCP check on the rebuilt container passed (session e2ec2b98, report `session-20261030-082528-live-check-t017-t022-e2ec2b98.html`). Evidence: `tasks/TASK_REVIEW_T021.md`

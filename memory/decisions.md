@@ -4,6 +4,13 @@
 
 ## Architecture
 
+### 2026-10-30 — `reports/index.html` follows the Graphite Mint design system (T024)
+**Decision**: The report index uses Graphite Mint, the Easy Kit family's dark design system (https://claude.ai/artifact/7DkuKJzMN6tJ9S8v2fNE8b). It follows the system's StatStrip and DataTable patterns: exact token values are inlined as CSS custom properties on `:root`, and component rules are copied from its `bundle.css`. Neon is used only on the eyebrow and the key number, and status is a plain mono word (`failed` in `warn`).
+**Why**: the user asked for the page to match the Easy Kit family. Inlining keeps the report self-contained (FR-005). Tests forbid raw colours outside `:root` and pin each token to its design-system value, so the look can't drift silently.
+**Trade-off**: IBM Plex is not bundled, so pages render in system fallback fonts.
+**Not yet**: the per-session report (`renderHtml`) is still in the T014 light style.
+**Files**: `src/reports/index.ts` (`renderIndex`, `INDEX_CSS`), `test/reports.test.ts`
+
 ### 2026-10-30 — Web agent ergonomics: page state carries verified selectors; one tool per interaction verb (T017–T022)
 **Decision**: `ui_get_page_state` returns `{role, name, selector}` per element, plus `messages` (alert/status text). Names use an ordered accessible-name lookup: aria-label > aria-labelledby > label > text > placeholder > title > value (button inputs only). Every `selector` is chosen from `[data-testid]` > `#id` > `role=…[name=…]` > `… >> nth=i` and **verified by element identity** on the live page before it is returned. Five new primitives exist, each a separate tool: `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`. Reports are named `session-<UTC stamp>-<slug>-<id8>`, and `reports/index.html` is rewritten after every report (best effort, never fails the report). `npm test` runs files sequentially (`--test-concurrency=1`), because two test files bind the hard-coded port 8765.
 **Why**: the user's goals (2026-10-30) were "executable, simple as is, easy for the agent to drive, readable results". Agents were guessing CSS selectors, and could not see inputs or error messages. Identity verification means hostile page text can only cause a fall-through, never a wrong click. One tool per verb (not a multiplexer) matches the existing vocabulary.
