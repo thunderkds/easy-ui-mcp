@@ -63,6 +63,36 @@ test("describe falls back to the tool name for an unknown action, and never thro
   assert.equal(describe(action({ action: "ui_navigate" })), "Opened the page");
 });
 
+test("describe renders a readable sentence for each T019 interaction (AC7)", () => {
+  assert.equal(
+    describe(action({ action: "ui_select_option", args: { selector: "#country", value: "Vietnam" } })),
+    'Selected "Vietnam" in #country'
+  );
+  assert.equal(
+    describe(action({ action: "ui_press_key", args: { key: "Enter", selector: "#q" } })),
+    "Pressed Enter in #q"
+  );
+  assert.equal(describe(action({ action: "ui_press_key", args: { key: "Escape" } })), "Pressed Escape");
+  assert.equal(describe(action({ action: "ui_hover", args: { selector: "#menu" } })), "Hovered over #menu");
+  assert.equal(
+    describe(action({ action: "ui_set_checked", args: { selector: "#terms", checked: true } })),
+    "Set #terms to checked"
+  );
+  assert.equal(
+    describe(action({ action: "ui_set_checked", args: { selector: "#terms", checked: false } })),
+    "Set #terms to unchecked"
+  );
+  assert.equal(describe(action({ action: "ui_scroll", args: { selector: "#footer" } })), "Scrolled #footer into view");
+  assert.equal(describe(action({ action: "ui_scroll" })), "Scrolled down one page");
+});
+
+test("describe truncates long values in the T019 sentences and keeps them to one line (AC7)", () => {
+  const long = "x".repeat(500);
+  const text = describe(action({ action: "ui_select_option", args: { selector: "#s", value: long } }));
+  assert.ok(text.length < 250, `expected a bounded sentence, got ${text.length} chars`);
+  assert.match(text, /500 chars/);
+});
+
 // --- groupIntoSteps() ---
 
 test("actions are grouped under the step label in force when they were recorded", () => {
@@ -202,6 +232,21 @@ test("step labels and details are HTML-escaped", async () => {
 
   assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
+test("T019 action sentences are HTML-escaped in the rendered report (AC7)", async () => {
+  const { htmlPath } = await writeReports(
+    record({
+      actions: [
+        action({ action: "ui_select_option", args: { selector: "#s", value: "<img src=x onerror=alert(1)>" } }),
+      ],
+    }),
+    TMP_REPORTS_DIR
+  );
+  const html = readFileSync(htmlPath, "utf8");
+
+  assert.doesNotMatch(html, /<img src=x/);
+  assert.match(html, /Selected &quot;&lt;img src=x onerror=alert\(1\)&gt;&quot; in #s/);
 });
 
 test("browser problems are listed and explicitly do not change the verdict", async () => {

@@ -132,6 +132,18 @@ export function describe(action: LoggedAction): string {
       return `Checked ${condition ?? "a condition"}`;
     case "ui_wait_for":
       return `Waited for ${condition ?? "a condition"}`;
+    case "ui_select_option":
+      return `Selected "${arg(action, "value") ?? "an option"}" in ${selector ?? "a select"}`;
+    case "ui_press_key": {
+      const key = arg(action, "key") ?? "a key";
+      return selector ? `Pressed ${key} in ${selector}` : `Pressed ${key}`;
+    }
+    case "ui_hover":
+      return `Hovered over ${selector ?? "an element"}`;
+    case "ui_set_checked":
+      return `Set ${selector ?? "a checkbox"} to ${action.args?.checked === false ? "unchecked" : "checked"}`;
+    case "ui_scroll":
+      return selector ? `Scrolled ${selector} into view` : "Scrolled down one page";
     case "ui_get_page_state":
       return "Read the page state";
     case "ui_take_screenshot":

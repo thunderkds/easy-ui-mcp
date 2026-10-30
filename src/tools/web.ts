@@ -87,6 +87,115 @@ export async function fill(page: Page, selector: string, value: string): Promise
   }
 }
 
+/**
+ * T019 shared shape: require exactly one match for `selector`, run `act` on it,
+ * and turn any Playwright failure into `{ ok: false, error }` — never throws.
+ */
+async function onUniqueLocator(
+  page: Page,
+  selector: string,
+  act: (locator: ReturnType<Page["locator"]>) => Promise<ActionResult | void>
+): Promise<ActionResult> {
+  const resolved = await resolveUniqueLocator(page, selector);
+  if (!resolved.ok) return { ok: false, error: resolved.error };
+  try {
+    return (await act(resolved.locator)) ?? { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * Choose the option of the single `<select>` matching `selector` whose value or
+ * visible label equals `value`. A `<select multiple>` ends with exactly that one
+ * option selected. An unknown option fails fast and lists what exists.
+ */
+export async function selectOption(
+  page: Page,
+  selector: string,
+  value: string
+): Promise<ActionResult> {
+  return onUniqueLocator(page, selector, async (locator) => {
+    // [tag, [value, label][]] — read in one round trip so the failure can name the choices.
+    const info = await locator.evaluate((el) => [
+      el.tagName,
+      Array.from((el as HTMLSelectElement).options ?? []).map((o) => [o.value, o.label.trim()]),
+    ]);
+    const [tag, options] = info as [string, [string, string][]];
+    if (tag !== "SELECT") {
+      return { ok: false, error: `Element matched by "${selector}" is not a <select> (it is <${tag.toLowerCase()}>)` };
+    }
+    if (!options.some(([v, l]) => v === value || l === value)) {
+      const labels = options.map(([v, l]) => `"${l || v}"`).join(", ");
+      return { ok: false, error: `No option "${value}" in "${selector}"; available: ${labels || "(none)"}` };
+    }
+    await locator.selectOption(value, { timeout: 5_000 });
+  });
+}
+
+/**
+ * Press a Playwright key name (`Enter`, `Tab`, `Escape`, `ArrowDown`, `Control+a`…).
+ * With `selector`, presses on that single element (focusing it first); without,
+ * presses on whatever has focus — the page body when nothing does. An unknown key
+ * name fails with Playwright's `Unknown key` error.
+ */
+export async function pressKey(page: Page, key: string, selector?: string): Promise<ActionResult> {
+  if (selector === undefined) {
+    try {
+      await page.keyboard.press(key);
+      return { ok: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: message };
+    }
+  }
+  return onUniqueLocator(page, selector, async (locator) => {
+    await locator.press(key, { timeout: 5_000 });
+  });
+}
+
+/** Move the pointer over the single element matching `selector` (reveals :hover / mouseenter content). */
+export async function hover(page: Page, selector: string): Promise<ActionResult> {
+  return onUniqueLocator(page, selector, async (locator) => {
+    await locator.hover({ timeout: 5_000 });
+  });
+}
+
+/**
+ * Put the single checkbox/radio matching `selector` into the `checked` state.
+ * Idempotent: already in that state is a successful no-op. Playwright rejects a
+ * non-checkbox and unchecking a radio, and that message is passed through.
+ */
+export async function setChecked(
+  page: Page,
+  selector: string,
+  checked: boolean
+): Promise<ActionResult> {
+  return onUniqueLocator(page, selector, async (locator) => {
+    await locator.setChecked(checked, { timeout: 5_000 });
+  });
+}
+
+/**
+ * Scroll the single element matching `selector` into view, or — with no selector —
+ * the page down by one viewport. A page that cannot scroll is not an error.
+ */
+export async function scroll(page: Page, selector?: string): Promise<ActionResult> {
+  if (selector === undefined) {
+    try {
+      await page.evaluate("window.scrollBy(0, window.innerHeight)");
+      return { ok: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: message };
+    }
+  }
+  return onUniqueLocator(page, selector, async (locator) => {
+    await locator.scrollIntoViewIfNeeded({ timeout: 5_000 });
+  });
+}
+
 export interface AssertResult {
   ok: boolean;
   passed?: boolean;

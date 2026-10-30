@@ -22,6 +22,11 @@ import {
   waitForCondition,
   getPageState,
   takeScreenshot,
+  selectOption,
+  pressKey,
+  hover,
+  setChecked,
+  scroll,
   MAX_WAIT_MS,
 } from "./tools/web.js";
 import {
@@ -40,6 +45,21 @@ import { writeReports } from "./reports/index.js";
 import { handleRunTest } from "./api/run-test.js";
 
 const PORT = 8765;
+
+/** T019 tool names — the only place they are spelled in this file (describe() in
+ * src/reports/index.ts keys its sentences on the same strings). */
+const TOOL = {
+  selectOption: "ui_select_option",
+  pressKey: "ui_press_key",
+  hover: "ui_hover",
+  setChecked: "ui_set_checked",
+  scroll: "ui_scroll",
+} as const;
+
+const SELECTOR_DESCRIPTION =
+  "CSS selector, or the `selector` value of an element from ui_get_page_state, passed unchanged";
+const NTH_NOTE =
+  ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.';
 const REPORTS_DIR = path.join(process.cwd(), "reports");
 
 const app = express();
@@ -129,6 +149,30 @@ function buildMcpServer(): McpServer {
       return;
     }
     markFailed(activeSessionId);
+  }
+
+  /**
+   * Shared body of the T019 interaction tools, identical in shape to ui_click:
+   * fail clearly with no active page, run the action, record it (a failure is hard),
+   * and answer with `isError` on failure.
+   */
+  async function runInteraction(
+    name: string,
+    args: Record<string, unknown>,
+    act: (target: Page) => Promise<{ ok: boolean; error?: string }>,
+    successText: string
+  ) {
+    const target = resolvePageForRead();
+    if (!target) {
+      await recordAction(name, args, false, "No active page");
+      return { isError: true, content: [{ type: "text" as const, text: "No active page — call ui_navigate first" }] };
+    }
+    const result = await act(target);
+    await recordAction(name, args, result.ok, result.error);
+    if (!result.ok) {
+      return { isError: true, content: [{ type: "text" as const, text: result.error ?? `${name} failed` }] };
+    }
+    return { content: [{ type: "text" as const, text: successText }] };
   }
 
   server.registerTool(
@@ -273,6 +317,102 @@ function buildMcpServer(): McpServer {
       }
       return { content: [{ type: "text", text: `Filled "${selector}" with "${value}"` }] };
     }
+  );
+
+  server.registerTool(
+    TOOL.selectOption,
+    {
+      title: TOOL.selectOption,
+      description:
+        "Choose an option of the single <select> matching the selector, by option value or visible label. For a <select multiple> this selects exactly that one option. Use the `selector` from ui_get_page_state." +
+        NTH_NOTE,
+      inputSchema: {
+        selector: z.string().describe(SELECTOR_DESCRIPTION),
+        value: z.string().describe("The option's value attribute or its visible label"),
+      },
+    },
+    async ({ selector, value }) =>
+      runInteraction(
+        TOOL.selectOption,
+        { selector, value },
+        (target) => selectOption(target, selector, value),
+        `Selected "${value}" in "${selector}"`
+      )
+  );
+
+  server.registerTool(
+    TOOL.pressKey,
+    {
+      title: TOOL.pressKey,
+      description:
+        "Press a key (Playwright key name such as Enter, Tab, Escape, ArrowDown, or a combo like Control+a). With `selector` it presses on that element; without, on whatever has focus. Enter in a text input submits its form." +
+        NTH_NOTE,
+      inputSchema: {
+        key: z.string().describe("Playwright key name, e.g. Enter, Tab, Escape, ArrowDown"),
+        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; omit to press on the focused element"),
+      },
+    },
+    async ({ key, selector }) =>
+      runInteraction(
+        TOOL.pressKey,
+        selector === undefined ? { key } : { key, selector },
+        (target) => pressKey(target, key, selector),
+        selector === undefined ? `Pressed ${key}` : `Pressed ${key} in "${selector}"`
+      )
+  );
+
+  server.registerTool(
+    TOOL.hover,
+    {
+      title: TOOL.hover,
+      description:
+        "Move the pointer over the single element matching the selector, to reveal :hover or mouseenter content such as dropdown menus. Use the `selector` from ui_get_page_state." +
+        NTH_NOTE,
+      inputSchema: { selector: z.string().describe(SELECTOR_DESCRIPTION) },
+    },
+    async ({ selector }) =>
+      runInteraction(TOOL.hover, { selector }, (target) => hover(target, selector), `Hovered over "${selector}"`)
+  );
+
+  server.registerTool(
+    TOOL.setChecked,
+    {
+      title: TOOL.setChecked,
+      description:
+        "Set the single checkbox or radio button matching the selector to checked or unchecked. Idempotent: already in that state is fine. A radio cannot be unchecked directly. Use the `selector` from ui_get_page_state." +
+        NTH_NOTE,
+      inputSchema: {
+        selector: z.string().describe(SELECTOR_DESCRIPTION),
+        checked: z.boolean().describe("true to check, false to uncheck"),
+      },
+    },
+    async ({ selector, checked }) =>
+      runInteraction(
+        TOOL.setChecked,
+        { selector, checked },
+        (target) => setChecked(target, selector, checked),
+        `Set "${selector}" to ${checked ? "checked" : "unchecked"}`
+      )
+  );
+
+  server.registerTool(
+    TOOL.scroll,
+    {
+      title: TOOL.scroll,
+      description:
+        "Scroll the single element matching the selector into view; with no selector, scroll the page down by one viewport (call repeatedly to load lazy lists)." +
+        NTH_NOTE,
+      inputSchema: {
+        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; omit to scroll the page down one viewport"),
+      },
+    },
+    async ({ selector }) =>
+      runInteraction(
+        TOOL.scroll,
+        selector === undefined ? {} : { selector },
+        (target) => scroll(target, selector),
+        selector === undefined ? "Scrolled down one page" : `Scrolled "${selector}" into view`
+      )
   );
 
   server.registerTool(

@@ -10,6 +10,11 @@ import {
   assertCondition,
   getPageState,
   takeScreenshot,
+  selectOption,
+  pressKey,
+  hover,
+  setChecked,
+  scroll,
 } from "../src/tools/web.js";
 
 const FIXTURE_HTML = `
@@ -474,6 +479,181 @@ test("getPageState caps elements at 200 with a truncation note and stays fast (T
 });
 
 // --- ui_take_screenshot ---
+
+// --- T019: interaction primitives ---
+
+const INTERACT_HTML = `
+<!doctype html>
+<html>
+  <body style="margin:0">
+    <select id="country">
+      <option value="us">United States</option>
+      <option value="vn">Vietnam</option>
+    </select>
+    <select id="multi" multiple>
+      <option value="a">Alpha</option>
+      <option value="b">Beta</option>
+    </select>
+    <select class="dup"><option value="1">One</option></select>
+    <select class="dup"><option value="1">One</option></select>
+    <form id="f" onsubmit="event.preventDefault(); document.getElementById('submitted').textContent = 'submitted:' + this.q.value">
+      <input id="q" name="q" type="text" />
+    </form>
+    <input id="keys" type="text" onkeydown="document.getElementById('lastkey').textContent = event.key" />
+    <span id="lastkey"></span>
+    <p id="submitted"></p>
+    <style>
+      #menu .sub { display: none; }
+      #menu:hover .sub { display: block; }
+    </style>
+    <div id="menu">Menu<div class="sub" id="sub">Submenu item</div></div>
+    <input id="terms" type="checkbox" />
+    <input id="agreed" type="checkbox" checked />
+    <input id="r1" type="radio" name="g" />
+    <input id="r2" type="radio" name="g" />
+    <button id="not-a-box">Not a box</button>
+    <div style="height:3000px"></div>
+    <div id="footer">Footer</div>
+  </body>
+</html>`;
+
+async function interactPage(): Promise<Page> {
+  await fixturePage.setContent(INTERACT_HTML, { waitUntil: "domcontentloaded" });
+  return fixturePage;
+}
+
+test("selectOption selects by option value and by visible label (T019 AC1)", async () => {
+  const p = await interactPage();
+  assert.deepEqual(await selectOption(p, "#country", "vn"), { ok: true });
+  assert.equal(await p.inputValue("#country"), "vn");
+  assert.deepEqual(await selectOption(p, "#country", "United States"), { ok: true });
+  assert.equal(await p.inputValue("#country"), "us");
+});
+
+test("selectOption fails clearly on an unknown option, naming it and listing the choices (T019 AC8)", async () => {
+  const p = await interactPage();
+  const result = await selectOption(p, "#country", "Atlantis");
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /Atlantis/);
+  assert.match(result.error ?? "", /Vietnam/);
+  assert.equal(await p.inputValue("#country"), "us", "selection unchanged");
+});
+
+test("selectOption fails clearly on a non-select element (T019 AC8)", async () => {
+  const p = await interactPage();
+  const result = await selectOption(p, "#not-a-box", "x");
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /not a <select>/);
+});
+
+test("selectOption on a <select multiple> selects exactly the one value (T019 edge)", async () => {
+  const p = await interactPage();
+  await selectOption(p, "#multi", "a");
+  await selectOption(p, "#multi", "b");
+  assert.deepEqual(await p.locator("#multi").evaluate((el) => Array.from((el as HTMLSelectElement).selectedOptions).map((o) => o.value)), ["b"]);
+});
+
+test("selectOption/pressKey/hover/setChecked/scroll require exactly one match (T019 AC6)", async () => {
+  const p = await interactPage();
+  for (const result of [
+    await selectOption(p, ".dup", "1"),
+    await pressKey(p, "Enter", ".dup"),
+    await hover(p, ".dup"),
+    await setChecked(p, ".dup", true),
+    await scroll(p, ".dup"),
+  ]) {
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /matched 2 elements/);
+  }
+  for (const result of [
+    await selectOption(p, "#nope", "1"),
+    await pressKey(p, "Enter", "#nope"),
+    await hover(p, "#nope"),
+    await setChecked(p, "#nope", true),
+    await scroll(p, "#nope"),
+  ]) {
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /No element matched selector "#nope"/);
+  }
+});
+
+test("pressKey Enter in a text input submits its form (T019 AC2)", async () => {
+  const p = await interactPage();
+  await fill(p, "#q", "hello");
+  assert.deepEqual(await pressKey(p, "Enter", "#q"), { ok: true });
+  assert.equal(await p.textContent("#submitted"), "submitted:hello");
+});
+
+test("pressKey without a selector presses on the focused element (T019 AC2)", async () => {
+  const p = await interactPage();
+  await p.focus("#keys");
+  assert.deepEqual(await pressKey(p, "ArrowDown"), { ok: true });
+  assert.equal(await p.textContent("#lastkey"), "ArrowDown");
+});
+
+test("pressKey with nothing focused presses on body and does not fail (T019 edge)", async () => {
+  const p = await interactPage();
+  await p.evaluate("document.activeElement && document.activeElement.blur()");
+  assert.deepEqual(await pressKey(p, "Escape"), { ok: true });
+});
+
+test("pressKey fails clearly on an unknown key name, with or without a selector (T019 AC8)", async () => {
+  const p = await interactPage();
+  for (const result of [await pressKey(p, "Enterr"), await pressKey(p, "Enterr", "#q")]) {
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /Unknown key.*Enterr/);
+  }
+});
+
+test("hover reveals :hover content (T019 AC3)", async () => {
+  const p = await interactPage();
+  assert.equal(await p.locator("#sub").isVisible(), false);
+  assert.deepEqual(await hover(p, "#menu"), { ok: true });
+  assert.equal(await p.locator("#sub").isVisible(), true);
+});
+
+test("setChecked checks, unchecks and is idempotent (T019 AC4 / edge)", async () => {
+  const p = await interactPage();
+  assert.deepEqual(await setChecked(p, "#terms", true), { ok: true });
+  assert.equal(await p.isChecked("#terms"), true);
+  assert.deepEqual(await setChecked(p, "#terms", true), { ok: true });
+  assert.equal(await p.isChecked("#terms"), true);
+  assert.deepEqual(await setChecked(p, "#terms", false), { ok: true });
+  assert.equal(await p.isChecked("#terms"), false);
+  assert.deepEqual(await setChecked(p, "#terms", false), { ok: true });
+  assert.equal(await p.isChecked("#terms"), false);
+  assert.deepEqual(await setChecked(p, "#agreed", false), { ok: true });
+  assert.equal(await p.isChecked("#agreed"), false);
+  assert.deepEqual(await setChecked(p, "#r1", true), { ok: true });
+  assert.equal(await p.isChecked("#r1"), true);
+});
+
+test("setChecked fails clearly on a non-checkbox and on unchecking a radio (T019 AC8)", async () => {
+  const p = await interactPage();
+  const notBox = await setChecked(p, "#not-a-box", true);
+  assert.equal(notBox.ok, false);
+  assert.match(notBox.error ?? "", /not a checkbox or radio/i);
+  await setChecked(p, "#r1", true);
+  const radio = await setChecked(p, "#r1", false);
+  assert.equal(radio.ok, false);
+  assert.match(radio.error ?? "", /radio/i);
+});
+
+test("scroll brings an element into view, or pages down one viewport when omitted (T019 AC5)", async () => {
+  const p = await interactPage();
+  assert.equal(await p.evaluate("window.scrollY"), 0);
+  assert.deepEqual(await scroll(p), { ok: true });
+  const afterPage = (await p.evaluate("window.scrollY")) as number;
+  assert.ok(afterPage > 0, `expected scrollY > 0, got ${afterPage}`);
+  assert.deepEqual(await scroll(p, "#footer"), { ok: true });
+  assert.equal(await p.evaluate("(() => { const r = document.getElementById('footer').getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; })()"), true);
+});
+
+test("scroll on a non-scrollable page is ok (T019 edge)", async () => {
+  await fixturePage.setContent("<p>short</p>", { waitUntil: "domcontentloaded" });
+  assert.deepEqual(await scroll(fixturePage), { ok: true });
+  assert.equal(await fixturePage.evaluate("window.scrollY"), 0);
+});
 
 test("takeScreenshot writes a PNG file to the output dir and returns its path", async () => {
   await fixturePage.setContent(FIXTURE_HTML, { waitUntil: "domcontentloaded" });
