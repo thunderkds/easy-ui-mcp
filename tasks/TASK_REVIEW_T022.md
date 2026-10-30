@@ -14,12 +14,12 @@
 
 | Check | Result | Notes / output snippet |
 |-------|--------|------------------------|
-| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/health.test.ts` and `test/api-run-test.test.ts` are the changed tests. Run alone: health 2/2 pass, api-run-test 4/4 pass, each finishing in a few seconds with 8765 free afterwards (AC 3, 4). Full `npm test` 119/119, exit 0, 8765 free (AC 1, 2). AC 5 (SIGKILL fallback) checked with a scratch child that ignores SIGTERM and the same teardown code, fallback shortened to 1 s: `ignored SIGTERM; terminated after 1005ms, signal=SIGKILL`; an already-exited child returns at once. |
-| Verification command run | ☑ pass | 2026-10-30 08:01:37-08:01:46 UTC. `ℹ tests 119 / ℹ pass 119 / ℹ fail 0 / ℹ cancelled 0 / ℹ duration_ms 8596.727674`, then `exit=0`, then `8765 free`. No stray `src/server.ts` processes afterwards. |
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/health.test.ts` and `test/api-run-test.test.ts` are the changed tests. Run alone: health 2/2 pass, api-run-test 4/4 pass, each finishing in a few seconds with 8765 free afterwards (AC 3, 4). Full `npm test` 119/119, exit 0, 8765 free (AC 1, 2), three consecutive runs plus five more after the `--test-concurrency=1` amendment. AC 5 (SIGKILL fallback) checked with a scratch child that ignores SIGTERM and the same teardown code, fallback shortened to 1 s: `ignored SIGTERM; terminated after 1005ms, signal=SIGKILL`; an already-exited child returns at once. |
+| Verification command run | ☑ pass | 2026-10-30 08:01:37-08:01:46 UTC. `ℹ tests 119 / ℹ pass 119 / ℹ fail 0 / ℹ cancelled 0 / ℹ duration_ms 8596.727674`, then `exit=0`, then `8765 free`. No stray `src/server.ts` processes afterwards. After the `--test-concurrency=1` amendment, three consecutive runs (see AFTER) were each exit=0, fail 0, 8765 free. |
 | Negative cases hold | ☑ pass | Child that ignores SIGTERM is SIGKILLed after the bound; child already exited does not hang teardown (scratch check above). |
 | verify | ☐ pass / ☐ fail / ☐ N/A | [what was observed — must literally state "pass" or "fail" here too, e.g. "skill run, feature confirmed working — pass": the merge gate scans this Notes column for the word "pass", not just the Result column] |
 | Review scope bounded to the change's blast radius (affected set, not whole repo) | ☐ pass / ☐ fail | [what was reviewed vs. skipped, and why] |
-| Full smoke suite still green (no regression) | ☑ pass | Full `npm test` 119/119 pass, 0 fail, 0 cancelled. |
+| Full smoke suite still green (no regression) | ☑ pass | Full `npm test` 119/119 pass, 0 fail, 0 cancelled, in 8 of 8 runs after the amendment. |
 | **UI: Visual regression (diff or verdict pasted)** | ☐ pass / ☐ fail / ☐ N/A | [screenshot path or LLM verdict — required for UI tasks, Hard-Stop Gate 6] |
 | **UI: Design-system compliance (tokens/colors/typography verified)** | ☐ pass / ☐ fail / ☐ N/A | [method used + output] |
 | **UI: Responsiveness at target viewports** | ☐ pass / ☐ fail / ☐ N/A | [viewports tested, any overflow findings] |
@@ -56,6 +56,19 @@ exit=124
 
 Both tests pass, then the file never finishes; only `timeout` ends it (exit 124). An earlier identical run (07:58:43 UTC) gave the same result.
 
+Extra BEFORE note, second defect (concurrency race), reproduced 2026-10-30 08:03:24 UTC on the code at ce3d7c0 (teardown fix, no `--test-concurrency=1`), run 3 of a loop of `npm test` (runs 1 and 2 at 08:03:06 and 08:03:15 were 119/119, exit 0):
+
+```
+run 3 exit=1
+ℹ pass 116 ℹ fail 3
+✖ POST /api/run-test with a valid body runs a smoke check and returns a real report (30.6ms)
+✖ POST /api/run-test missing app_url_or_package returns a clear 4xx error (9.7ms)
+✖ POST /api/run-test with an unreachable URL returns a failed status, not a crash (6.5ms)
+    [cause]: Error: connect ECONNREFUSED 127.0.0.1:8765
+```
+
+The Supervisor's own run at 08:02:32 UTC failed the same way (`SocketError: other side closed`, then `ECONNREFUSED`). Cause: `node --test` runs the files concurrently, `health.test.ts` and `api-run-test.test.ts` both start a server on the hard-coded port 8765, and when one file's teardown kills its server the other file loses the one it was talking to. Observed failure rate about 2 in 5 across the runs above, always in `api-run-test`.
+
 Process evidence sampled 20 s into the run (all tests had already passed), `ss -ltnp | grep 8765` and `ps`:
 
 ```
@@ -70,7 +83,7 @@ PID     PPID    ARGS
 
 The `npx` wrapper that the test spawned is already gone, and its `tsx` child and the real server grandchild survive it. So `server.kill("SIGTERM")` hit only the `npx` process, and the server kept listening on 8765.
 
-**AFTER** (2026-10-30 08:01:37 UTC, same tree plus the two-file test change):
+**AFTER** (2026-10-30 08:01:37 UTC, same tree plus the two-file test change; first run, before the concurrency race was found):
 
 ```
 $ npm test; echo "exit=$?"; ss -ltn | grep 8765 || echo "8765 free"
@@ -85,6 +98,16 @@ $ npm test; echo "exit=$?"; ss -ltn | grep 8765 || echo "8765 free"
 exit=0
 8765 free
 ```
+
+Amendment (package.json `test` script: `node --import tsx --test --test-concurrency=1 test/**/*.test.ts`), Verification Command run three times in a row:
+
+```
+run 1 (08:03:44 UTC): ℹ tests 119  ℹ pass 119  ℹ fail 0  ℹ cancelled 0  ℹ duration_ms 15866.03  exit=0  8765 free
+run 2 (08:04:00 UTC): ℹ tests 119  ℹ pass 119  ℹ fail 0  ℹ cancelled 0  ℹ duration_ms 15371.51  exit=0  8765 free
+run 3 (08:04:16 UTC): ℹ tests 119  ℹ pass 119  ℹ fail 0  ℹ cancelled 0  ℹ duration_ms 16514.95  exit=0  8765 free
+```
+
+Five further runs (extra runs 4 to 8) were each exit=0 with 8765 free. Total time per run is about 16 s instead of about 9 s because the files no longer overlap.
 
 `test/health.test.ts` alone now finishes in about 2 s (2/2 pass, `8765 free`) where it was cut off at 60 s with exit 124.
 

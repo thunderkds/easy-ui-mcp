@@ -124,13 +124,14 @@ Use the `diagnose` skill first: reproduce the hang, prove which process stays al
 |------|--------|
 | `test/health.test.ts` | direct spawn + awaited teardown |
 | `test/api-run-test.test.ts` | same |
+| `package.json` (`test` script only) | add `--test-concurrency=1`. Scope amendment authorised by the Supervisor on 2026-10-30: both files bind the hard-coded port 8765, and `node --test` runs files concurrently, so once teardown really kills servers one file's teardown can kill the server the other file is using. Sequential files fix the race without a configurable port or shared helper. |
 
 ## Files Must NOT Touch
 
 | File | Reason |
 |------|--------|
 | `src/**` | out of scope |
-| `package.json` test script | the glob itself is fine |
+| `package.json` (anything other than the `test` script's `--test-concurrency=1` flag) | the glob itself is fine |
 
 ---
 
