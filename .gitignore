@@ -5,3 +5,4 @@ reports/*
 .claude/worktrees/
 __pycache__/
 .claude/hooks/.state/
+memory/event-trace/_untagged.jsonl
