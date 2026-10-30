@@ -218,8 +218,8 @@ const MESSAGE_SELECTOR = '[role="alert"], [role="status"], [aria-live]:not([aria
  * role/name for each — cheaper for the calling agent to reason over than a raw
  * HTML dump (per BRAINSTORMING_LOG.md).
  *
- * Name precedence (T017): aria-label > aria-labelledby > <label> > placeholder
- * > title > text content (> value, for button-type inputs only). A trimmed
+ * Name precedence (T017): aria-label > aria-labelledby > <label> > text content
+ * > placeholder > title (> value, for button-type inputs only). A trimmed
  * empty string counts as missing at every step.
  */
 export async function getPageState(page: Page | undefined): Promise<PageState> {
@@ -238,18 +238,29 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
         .map((el) => {
           const explicitRole = el.getAttribute("role");
           const tag = el.tagName.toLowerCase();
+          const input = el as HTMLInputElement;
+          const inputRoles: Record<string, string> = {
+            checkbox: "checkbox",
+            radio: "radio",
+            submit: "button",
+            button: "button",
+            reset: "button",
+            image: "button",
+            range: "slider",
+          };
           const role =
             explicitRole ??
             (tag === "a"
               ? "link"
               : tag === "button"
                 ? "button"
-                : tag === "input" || tag === "textarea"
-                  ? "textbox"
-                  : tag === "select"
-                    ? "combobox"
-                    : tag);
-          const input = el as HTMLInputElement;
+                : tag === "input"
+                  ? (inputRoles[input.type] ?? "textbox")
+                  : tag === "textarea"
+                    ? "textbox"
+                    : tag === "select"
+                      ? "combobox"
+                      : tag);
           // `labels` resolves <label for> (by id, no CSS escaping) and wrapping labels.
           const labelText = input.labels
             ? Array.from(input.labels, (l) => l.innerText).join(" ")
@@ -263,15 +274,15 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
             tag === "input" && ["submit", "button", "reset"].includes(input.type)
               ? input.value
               : "";
-          // Precedence: aria-label > aria-labelledby > label > placeholder > title > text > value.
+          // Precedence: aria-label > aria-labelledby > label > text > placeholder > title > value.
           // A whitespace-only string counts as missing.
           const name = [
             el.getAttribute("aria-label"),
             labelledByText,
             labelText,
+            (el as HTMLElement).innerText,
             input.placeholder,
             el.getAttribute("title"),
-            (el as HTMLElement).innerText,
             buttonValue,
           ]
             .map((t) => (t ?? "").replace(/\s+/g, " ").trim())

@@ -57,3 +57,10 @@ $ node --import tsx scratchpad/demo.mts
 
 **WITNESS**: [who ran it and when — derived from `memory/event-trace/Txxx.jsonl`, never the
 implementing agent alone]
+
+---
+
+## Notes
+
+- **Name precedence (Stage 4 pre-review change)**: final order is aria-label > aria-labelledby > label > text content (innerText) > placeholder > title > value (button-type inputs only). The guide's original AC4 had `title` above text content; the Supervisor corrected it so a button with visible text is not renamed by its tooltip.
+- **Role mapping (Stage 4 pre-review change)**: an explicit `role` attribute wins; otherwise `input[type=checkbox]` -> `checkbox`, `radio` -> `radio`, `submit|button|reset|image` -> `button`, `range` -> `slider`, any other input and `textarea` -> `textbox`, `select` -> `combobox`. Needed so T018 `role=<role>[name=...]` selectors and T019 `ui_set_checked` see correct roles.

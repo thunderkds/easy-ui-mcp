@@ -179,7 +179,7 @@ test("getPageState resolves label-for ids that are not valid CSS selectors (T017
   assert.ok(result.elements?.some((e) => e.name === "Odd id"));
 });
 
-test("getPageState name precedence: aria-label > aria-labelledby > label > placeholder > title > text (T017 AC4)", async () => {
+test("getPageState name precedence: aria-label > aria-labelledby > label > text > placeholder > title (T017 AC4)", async () => {
   const result = await pageStateOf(`
     <span id=l1>Via</span><span id=l2>Labelledby</span>
     <label for=a>Label A</label><input id=a aria-label="Aria" aria-labelledby="l1 l2" placeholder="PH" title="T">
@@ -197,10 +197,45 @@ test("getPageState name precedence: aria-label > aria-labelledby > label > place
     "Label C",
     "PH D",
     "Only title",
-    "T", // title outranks text content per AC4
+    "Button text", // visible text outranks title
     "Falls back",
     "Blank aria-label ignored",
   ]);
+});
+
+test("getPageState falls back to title when it is the only name source (T017 AC4)", async () => {
+  const result = await pageStateOf(
+    '<button title="Close dialog"><svg width=10 height=10></svg></button><input title="Zip code">'
+  );
+  assert.deepEqual(
+    (result.elements ?? []).map((e) => `${e.role}:${e.name}`),
+    ["button:Close dialog", "textbox:Zip code"]
+  );
+});
+
+test("getPageState maps input types to roles, explicit role attribute wins (T017 role mapping)", async () => {
+  const result = await pageStateOf(`
+    <input type=checkbox aria-label="c"><input type=radio aria-label="r">
+    <input type=submit value="s"><input type=button value="b"><input type=reset value="x">
+    <input type=image alt="i" aria-label="img" width=10 height=10>
+    <input type=range aria-label="slide"><input type=text aria-label="t"><input type=email aria-label="e">
+    <input type=checkbox role=switch aria-label="sw"><textarea aria-label="ta"></textarea>`);
+  assert.deepEqual(
+    (result.elements ?? []).map((e) => `${e.role}:${e.name}`),
+    [
+      "checkbox:c",
+      "radio:r",
+      "button:s",
+      "button:b",
+      "button:x",
+      "button:img",
+      "slider:slide",
+      "textbox:t",
+      "textbox:e",
+      "switch:sw",
+      "textbox:ta",
+    ]
+  );
 });
 
 test("getPageState never names a password input from its value (T017 edge)", async () => {
@@ -222,10 +257,9 @@ test("getPageState keeps submit-button values and text-named buttons/links, drop
     '<input type=submit value="Go"><a href="#">Home</a><button></button><button style="display:none">Hidden</button><input style="display:none" placeholder="Nope">'
   );
   assert.deepEqual(
-    (result.elements ?? []).map((e) => e.name),
-    ["Go", "Home"]
+    (result.elements ?? []).map((e) => `${e.role}:${e.name}`),
+    ["button:Go", "link:Home"]
   );
-  assert.equal(result.elements?.[1]?.role, "link");
 });
 
 test("getPageState reports status and aria-live messages but not empty, hidden or aria-live=off ones (T017 AC5,7)", async () => {
