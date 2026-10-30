@@ -16,7 +16,7 @@
 |-------|--------|------------------------|
 | **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/docs-tools.test.ts` (AC 7; red before, green after, output in Demonstration). AC 1-6 are doc content, checked by diff review |
 | Verification command run | ☑ pass | `node --import tsx --test test/docs-tools.test.ts` pass 1 fail 0; `npx tsc --noEmit` exit 0. Full `npm test` NOT run by implementer (port 8765 owned by container) |
-| Negative cases hold | ☐ pass / ☐ fail | |
+| Negative cases hold | ☑ pass | The drift test fails when a registered tool is missing from either doc. Proven by the BEFORE run, which failed on `RUNBOOK.md does not mention `ui_select_option``. The RUNBOOK count is derived from the code, not hard-coded. |
 | verify | ☑ pass | **Supervisor 2026-10-30**, user container stopped, branch at 4375a32: full `npm test` → `ℹ tests 120 / ℹ pass 120 / ℹ fail 0` (119 existing + the new doc-drift test) — pass. Each doc claim was checked against the code: 16 `registerTool` names, `MAX_PAGE_ELEMENTS`=200, `MAX_INDEX_ENTRIES`=500, the `reportBaseName` format, and the T022 port/concurrency facts. |
 | Review scope bounded to the change's blast radius (affected set, not whole repo) | ☑ pass | Reviewed the diffs of `RUNBOOK.md`, `README.md`, `HARNESS.md`, `PRD.md`, `test/docs-tools.test.ts` only. No `src/` change. |
 | Full smoke suite still green (no regression) | ☑ pass | `npm test` 120/120, exit 0 (see verify row). |
