@@ -1,5 +1,5 @@
 # PRD — UI Testing MCP Server (easy-ui-mcp)
-**Last updated**: 2026-07-01
+**Last updated**: 2026-10-30
 **Status**: Approved
 **Owner**: hungnh1110
 
@@ -49,7 +49,7 @@ Each FR must trace to at least one User Story.
 | FR-002 | The system must provide primitive Playwright action tools (`ui_navigate`, `ui_click`, `ui_fill`, `ui_assert`, etc.) so the calling agent (Claude Code) can reason step-by-step and interpret a natural-language flow description itself — no LLM call happens inside the server. | US-002 |
 | FR-002a | The system must provide `ui_start_session(target)` and `ui_end_session()` tools to bracket a test run; all primitive actions between them are logged server-side into one report. | US-002, US-005 |
 | FR-003 | The system must provide a `ui_take_screenshot` tool that captures the current browser viewport and saves it to the reports output. | US-004 |
-| FR-004 | The system must provide a `ui_get_page_state` tool that returns the current page's DOM/accessibility-relevant state (e.g. URL, title, visible elements) to inform the next step. | US-004 |
+| FR-004 | The system must provide a `ui_get_page_state` tool that returns the current page's DOM/accessibility-relevant state (e.g. URL, title, visible elements) to inform the next step. Each interactive element is returned as `{role, name, selector}`, where `selector` is verified against the live page and accepted unchanged by the interaction tools; visible alert/status text is returned as `messages`. | US-004 |
 | FR-005 | The system must generate a JSON report and a self-contained HTML report (with embedded/linked screenshots) for every session between `ui_start_session` and `ui_end_session`. | US-005 |
 | FR-006 | The system must start fully via `docker-compose up -d` with no manual browser install steps. | US-003 |
 | FR-007 | The system must expose a `/health` HTTP endpoint reporting readiness. | US-006 |
@@ -65,6 +65,8 @@ Each FR must trace to at least one User Story.
 | FR-016 | The system must provide a `ui_step(label)` tool that attaches a caller-supplied intent label to all subsequent actions until the next `ui_step`, so the report can describe the run in the caller's own words. | US-005 |
 | FR-017 | The HTML report must present a session as a verdict summary plus labelled steps with per-step outcomes and elapsed time; the raw action log must remain available but must not be the primary view. | US-005 |
 | FR-018 | The system must capture browser console errors, uncaught page errors, and failed network requests during a session and surface them in the report. These are informational and must not change session status. | US-005 |
+| FR-019 | The system must provide a separate primitive tool for each of these interactions: `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, each recorded in the session report like the other primitives. | US-002 |
+| FR-020 | Report files must be named `session-<YYYYMMDD-HHMMSS>-<slug>-<id8>` so they say when and what, and the system must rewrite `reports/index.html` (newest first, capped at 500) after every report; a failure to write the index must not fail the report. | US-005 |
 
 ---
 

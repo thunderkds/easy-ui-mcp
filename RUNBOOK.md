@@ -45,7 +45,7 @@ Ordered steps to ship a release. Commands copy-pasteable.
 | Check | Command / URL | Pass condition |
 |-------|---------------|----------------|
 | Liveness | `curl -fsS http://localhost:8765/health` | HTTP 200, `{"status":"ok"}` |
-| MCP tool discovery | `tools/list` JSON-RPC call to `/mcp` | Response lists all 11 tools (`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot`) |
+| MCP tool discovery | `tools/list` JSON-RPC call to `/mcp` | Response lists all 16 tools (`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot`) |
 | REST smoke check | `POST /api/run-test` with a valid `app_url_or_package` | HTTP 200, `status: "passed"`; `report_url` is a container path whose basename exists under the host's mounted `./reports/` directory |
 
 - **Dashboards**: none (local-only tool) — check `docker compose logs -f easy-ui-mcp` for live logs.
@@ -58,7 +58,7 @@ Ordered steps to ship a release. Commands copy-pasteable.
 |---------|-------------|-------------|
 | `docker compose up` fails with "port is already allocated" | A stale container from a previous session/worktree still holds port 8765 | `docker ps -a \| grep 8765`, then `docker stop <id> && docker rm <id>` before retrying |
 | `docker compose up -d` succeeds but `PORTS` column is empty in `docker compose ps` | Observed transient Docker Compose quirk in this environment | `docker compose down` then `docker compose up -d` again (full cycle, not just `up`) |
-| `npm test` appears to hang indefinitely | Sandbox-specific `node:test` multi-file process-isolation quirk, not a code bug (see `memory/learnings.md`) | Kill the process, verify the live endpoint directly via `curl`, then run test files individually: `node --import tsx --test test/<file>.test.ts` |
+| `npm test` appears to hang or fails with `EADDRINUSE` | Port 8765 is held (usually by the running Docker container): two test files start their own server on that hard-coded port | `docker compose stop`, run `npm test`, then `docker compose up -d`. A single file can be run alone: `node --import tsx --test test/<file>.test.ts` |
 | Malformed JSON POST to `/mcp` returns a raw stack trace | Missing JSON-parse error handler (fixed in T001, watch for regression if `src/server.ts`'s middleware order changes) | Confirm the JSON-parse error middleware is registered immediately after `express.json()` |
 
 ---

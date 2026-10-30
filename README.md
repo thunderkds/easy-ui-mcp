@@ -56,6 +56,15 @@ ui_end_session
 
 Sessions with no `ui_step` calls still render correctly, under a single implicit group.
 
+### Use the selector from page state
+
+`ui_get_page_state` returns the URL, title, up to 200 visible interactive elements as `{role, name, selector}`, and `messages` (visible alert/status text such as validation errors). Each `selector` is checked against the live page before it is returned, so pass it **unchanged** to `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked` and `ui_scroll` rather than guessing a CSS selector. A selector containing `nth=` is positional: call `ui_get_page_state` again after the page changes before reusing it.
+
+```
+{"role": "button", "name": "Sign in", "selector": "[data-testid=\"signin\"]"}
+ui_click  selector: [data-testid="signin"]
+```
+
 ### Verifying vs waiting — pick the right one
 
 A session is marked `failed` if any hard action fails, so *how* you verify decides whether the report tells the truth.
@@ -77,6 +86,8 @@ Auto-failure screenshots are budgeted per session (`FAILURE_SCREENSHOT_BUDGET`, 
 A verdict box (status, target, step/action/failure counts, duration), then the run as labelled steps with per-step outcomes and elapsed time, then any browser problems, and finally the raw action log collapsed behind a disclosure.
 
 Console errors, uncaught page errors, and network-level request failures are captured automatically and listed under **Browser problems** — a flow that passes while the console throws is a false green worth seeing. HTTP error responses such as 404 or 500 do not trigger Playwright's `requestfailed` event and are not listed automatically. Captured problems are informational and never change the verdict. Up to 50 are retained per session; past that the report says the rest were dropped.
+
+Reports are named `session-<YYYYMMDD-HHMMSS>-<slug>-<id8>.{json,html}`: the UTC start time, a readable slug of the session target, and the first 8 characters of the session id. `reports/index.html` lists the sessions (newest first, capped at 500 — older reports stay on disk, unlisted) and is rewritten after every report.
 
 See [AGENTS.md](AGENTS.md) for the architecture and full MCP connection guide, and [HARNESS.md](HARNESS.md) for the REST API reference. Deploy/rollback procedures are in [RUNBOOK.md](RUNBOOK.md).
 
