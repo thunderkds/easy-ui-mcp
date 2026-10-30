@@ -42,6 +42,6 @@
 - [tsx `__name` breaks in-page callbacks](learnings.md#gotchas) — no named inner functions in Playwright `$$eval`/`evaluate` callbacks when run via tsx (T017)
 - [Gate hook matches the word "merge" in any Bash command](learnings.md#gotchas) — even `git merge-base` or a heredoc; trial-combine via cherry-pick in a throwaway worktree, write memory with Edit
 - [MCP drive on a spare port](learnings.md#gotchas) — 8765 is hard-coded and owned by the user's container; verify with a temp server copy on 18766 + SDK client
-- [Web agent ergonomics T017–T022 done (2026-10-30)](decisions.md#architecture) — page state has verified selectors + messages; 5 new primitives; readable report names + index.html; `npm test` sequential. In local `main`, not pushed
+- [Web agent ergonomics T017–T022 done (2026-10-30)](decisions.md#architecture) — page state has verified selectors + messages; 5 new primitives; readable report names + index.html; `npm test` sequential. Pushed to origin/main 2026-10-30 (99ad926)
 - [Event-trace hook now wired](learnings.md#gotchas) — `post_tool_trace.py` registered 2026-10-30; records truncate at 300 chars, so keep test commands short (`cd <dir> && npm test`), set active_task in a separate call
 - [`npm test` needs port 8765 free](learnings.md#gotchas) — stop the Docker container first; tests spawn their own server on the hard-coded port
