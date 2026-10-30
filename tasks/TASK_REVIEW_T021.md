@@ -33,8 +33,21 @@
 > **before any implementation commit exists**; if it does not (docs, templates, skill-instruction
 > text), BEFORE is the **verbatim prior content** of what changed — a quoted excerpt, not a command.
 
-**BEFORE**: [pasted timestamped command output showing the thing absent/failing, captured before the
-first implementation commit] OR [verbatim excerpt of the prior content, for non-executable changes]
+**BEFORE** (captured with the unmodified code, before any implementation commit; `npm ci` had been run first because the worktree had no node_modules):
+
+```
+$ date -u
+Fri Oct 30 06:33:53 AM UTC 2026
+$ node --import tsx before.mts <fresh-temp-dir>   # calls writeReports(sample record: target "Login flow / happy path", startedAt 2026-10-30T09:15:42Z)
+$ ls <fresh-temp-dir>
+session-3f2a9c1e-7b4d-4e8a-9a10-5d6c2b7e1f00.html
+session-3f2a9c1e-7b4d-4e8a-9a10-5d6c2b7e1f00.json
+```
+Bare `session-<uuid>.*` names, no `index.html`. Context (same session, `date -u` = Fri Oct 30 06:33:41 AM UTC 2026):
+```
+$ ls /home/hungnguyenhuu/workspace/pets/hungnguyen111/easy-ui-mcp/reports | grep -c '^session-'
+470
+```
 
 **AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
 
