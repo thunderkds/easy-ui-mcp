@@ -50,7 +50,7 @@ Content-Type: application/json
 
 {
   "status": "passed",
-  "report_url": "/app/reports/session-1b8a43f8-3e0d-4924-b108-e1342dbca060.html",
+  "report_url": "/app/reports/session-20260701-093015-http-localhost-3000-1b8a43f8.html",
   "screenshots": [
     "/app/reports/screenshot-1782898618440.png"
   ],
@@ -145,7 +145,7 @@ curl -s -X POST http://localhost:8765/api/run-test \
 ```json
 {
   "status": "passed",
-  "report_url": "/app/reports/session-abc123.html",
+  "report_url": "/app/reports/session-20260701-093015-http-localhost-3000-1b8a43f8.html",
   "screenshots": ["/app/reports/screenshot-xyz.png"],
   "logs": [...]
 }
@@ -157,12 +157,12 @@ The `report_url` is a path **inside the container**. To read it from the host, u
 
 ```bash
 # If running docker-compose, reports/ is volume-mounted to ./reports/ on the host
-cat ./reports/session-abc123.html
+cat ./reports/session-20260701-093015-http-localhost-3000-1b8a43f8.html
 ```
 
 Or, read the JSON report:
 ```bash
-cat ./reports/session-abc123.json | jq .
+cat ./reports/session-20260701-093015-http-localhost-3000-1b8a43f8.json | jq .
 ```
 
 ---
