@@ -125,6 +125,7 @@ Use the `diagnose` skill first: reproduce the hang, prove which process stays al
 | `test/health.test.ts` | direct spawn + awaited teardown |
 | `test/api-run-test.test.ts` | same |
 | `package.json` (`test` script only) | add `--test-concurrency=1`. Scope amendment authorised by the Supervisor on 2026-10-30: both files bind the hard-coded port 8765, and `node --test` runs files concurrently, so once teardown really kills servers one file's teardown can kill the server the other file is using. Sequential files fix the race without a configurable port or shared helper. |
+| `test/web.test.ts` (one assertion in `getPageState caps elements at 200 ... (T018 AC6)`) | relax the wall-clock bound from `< 4000` to `< 20_000` ms, with a comment. Scope amendment authorised by the Supervisor on 2026-10-30: the bound failed at 4277 ms with machine load average ~22 (`npm test` must be reliable to exit with the correct code). The functional assertions (200 elements, `200 of 500` note) are unchanged; no retry or skip logic. |
 
 ## Files Must NOT Touch
 

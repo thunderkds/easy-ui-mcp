@@ -141,3 +141,23 @@ None.
 | `test/health.test.ts`, `test/api-run-test.test.ts` | The spawned server's stdout/stderr pipes are never read; a chatty server could block on a full pipe | 75 | Use `stdio: "ignore"` (or drain the pipes) |
 | `src/server.ts` | The hard-coded port is the root of both the race and the Docker conflict | 100 | Already logged as a deferred enhancement (configurable port) |
 | tests | The SIGKILL fallback (AC5) is verified only by a scratch script, not a committed test | 75 | Accepted; adding one would need the shared helper that is on the cut list |
+
+
+---
+
+## Addendum — flaky timing assertion (Supervisor scope amendment, 2026-10-30)
+
+**Before**: with the trace hook active, a full `npm test` at eaacd16 failed 1 test, `getPageState caps elements at 200 with a truncation note and stays fast (T018 AC6)`, at 4277 ms against `assert.ok(elapsed < 4000)` (`test/web.test.ts`), with machine load average ~22. The same test alone took 3890 ms and 3957 ms. (Failure output as reported by the Supervisor; I did not reproduce the 4277 ms run myself.)
+
+**Change**: `test/web.test.ts`, that one assertion only: `elapsed < 4000` became `elapsed < 20_000`, with a comment saying the ceiling is loose on purpose (T018's target was ~2 s on an idle machine; wall-clock asserts flake under load). The `elements.length === 200` and `/200 of 500/` note assertions are untouched. No retries, no skip.
+
+**After**: Verification Command run twice at load average ~21-22 (`uptime`):
+
+```
+run 1 (08:18:41 UTC): ℹ tests 119  ℹ pass 119  ℹ fail 0  ℹ cancelled 0  ℹ duration_ms 23745.13  exit=0  8765 free
+      ✔ getPageState caps elements at 200 ... (T018 AC6) (3750.63ms)
+run 2 (08:19:05 UTC): ℹ tests 119  ℹ pass 119  ℹ fail 0  ℹ cancelled 0  ℹ duration_ms 23029.24  exit=0  8765 free
+      ✔ getPageState caps elements at 200 ... (T018 AC6) (5843.96ms)
+```
+
+Run 2's 5844 ms for that test would have failed the old 4000 ms bound; under the new ceiling it passes, which is the flake this amendment removes.
