@@ -14,12 +14,12 @@
 
 | Check | Result | Notes / output snippet |
 |-------|--------|------------------------|
-| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | [test file path(s) — required before Done] |
-| Verification command run | ☐ pass / ☐ fail | [paste actual output] |
-| Negative cases hold | ☐ pass / ☐ fail | |
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/health.test.ts` and `test/api-run-test.test.ts` are the changed tests. Run alone: health 2/2 pass, api-run-test 4/4 pass, each finishing in a few seconds with 8765 free afterwards (AC 3, 4). Full `npm test` 119/119, exit 0, 8765 free (AC 1, 2). AC 5 (SIGKILL fallback) checked with a scratch child that ignores SIGTERM and the same teardown code, fallback shortened to 1 s: `ignored SIGTERM; terminated after 1005ms, signal=SIGKILL`; an already-exited child returns at once. |
+| Verification command run | ☑ pass | 2026-10-30 08:01:37-08:01:46 UTC. `ℹ tests 119 / ℹ pass 119 / ℹ fail 0 / ℹ cancelled 0 / ℹ duration_ms 8596.727674`, then `exit=0`, then `8765 free`. No stray `src/server.ts` processes afterwards. |
+| Negative cases hold | ☑ pass | Child that ignores SIGTERM is SIGKILLed after the bound; child already exited does not hang teardown (scratch check above). |
 | verify | ☐ pass / ☐ fail / ☐ N/A | [what was observed — must literally state "pass" or "fail" here too, e.g. "skill run, feature confirmed working — pass": the merge gate scans this Notes column for the word "pass", not just the Result column] |
 | Review scope bounded to the change's blast radius (affected set, not whole repo) | ☐ pass / ☐ fail | [what was reviewed vs. skipped, and why] |
-| Full smoke suite still green (no regression) | ☐ pass / ☐ fail | |
+| Full smoke suite still green (no regression) | ☑ pass | Full `npm test` 119/119 pass, 0 fail, 0 cancelled. |
 | **UI: Visual regression (diff or verdict pasted)** | ☐ pass / ☐ fail / ☐ N/A | [screenshot path or LLM verdict — required for UI tasks, Hard-Stop Gate 6] |
 | **UI: Design-system compliance (tokens/colors/typography verified)** | ☐ pass / ☐ fail / ☐ N/A | [method used + output] |
 | **UI: Responsiveness at target viewports** | ☐ pass / ☐ fail / ☐ N/A | [viewports tested, any overflow findings] |
@@ -70,9 +70,25 @@ PID     PPID    ARGS
 
 The `npx` wrapper that the test spawned is already gone, and its `tsx` child and the real server grandchild survive it. So `server.kill("SIGTERM")` hit only the `npx` process, and the server kept listening on 8765.
 
-**AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
+**AFTER** (2026-10-30 08:01:37 UTC, same tree plus the two-file test change):
 
-**DELTA**: [one sentence — what a user can now do that they could not before]
+```
+$ npm test; echo "exit=$?"; ss -ltn | grep 8765 || echo "8765 free"
+ℹ tests 119
+ℹ suites 0
+ℹ pass 119
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8596.727674
+exit=0
+8765 free
+```
+
+`test/health.test.ts` alone now finishes in about 2 s (2/2 pass, `8765 free`) where it was cut off at 60 s with exit 124.
+
+**DELTA**: `npm test` now runs all test files, exits by itself with code 0 in about 9 s and leaves nothing listening on 8765, so the Stage 5 merge gate can get one clean completed run.
 
 **WITNESS**: [who ran it and when — derived from `memory/event-trace/Txxx.jsonl`, never the
 implementing agent alone]

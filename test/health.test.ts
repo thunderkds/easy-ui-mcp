@@ -1,3 +1,5 @@
+// Needs port 8765 free: the server port is hard-coded, so stop the Docker container (or any
+// other server on 8765) before running this file.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -25,12 +27,19 @@ function waitForServer(timeoutMs: number): Promise<void> {
 }
 
 test.before(async () => {
-  server = spawn("npx", ["tsx", "src/server.ts"], { stdio: "pipe" });
+  // Spawn node directly (not via npx/tsx wrappers) so SIGTERM reaches the server itself.
+  server = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], { stdio: "pipe" });
   await waitForServer(15_000);
 });
 
-test.after(() => {
+test.after(async () => {
+  // Wait for the server to actually exit so nothing outlives this file (port 8765, open pipes).
+  if (server.exitCode !== null || server.signalCode !== null) return;
+  const exited = new Promise<void>((resolve) => server.once("exit", () => resolve()));
   server.kill("SIGTERM");
+  const killTimer = setTimeout(() => server.kill("SIGKILL"), 5_000);
+  await exited;
+  clearTimeout(killTimer);
 });
 
 test("GET /health returns 200 with a readiness payload", async () => {
