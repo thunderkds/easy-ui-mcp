@@ -2,6 +2,8 @@
 
 A Dockerized MCP (Model Context Protocol) server for local UI testing. It exposes Playwright-based browser automation tools over HTTP/SSE so an AI agent (like Claude Code) can drive web UI flows step-by-step and get back a JSON + HTML report with screenshots — no server-side LLM, no test scripts to write.
 
+A static docs page for this project lives in [`site/index.html`](site/index.html); it deploys to Vercel as plain static files (no install, no build — see `vercel.json`).
+
 ## Quick Start
 
 ```bash

@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>easy-ui-mcp docs</title>
+<meta name="description" content="easy-ui-mcp: a Dockerized MCP server that lets Claude Code drive a real browser step by step and get back an HTML report." />
+<style>
+  /* Graphite Mint (Easy Kit family). Tokens are declared once here with the exact values from the
+     design system's tokens.json; every rule below uses var(--…) and carries no raw colour.
+     Fonts are the token families with system fallbacks: nothing is fetched. */
+  :root {
+    --bg: #121413;
+    --bg-sunken: #0E100F;
+    --bg-raised: #181B1A;
+    --line-subtle: #1F2321;
+    --line: #262B29;
+    --line-strong: #2C3230;
+    --line-header: #232826;
+    --text-strong: #EAEDEA;
+    --text: #DCE0DD;
+    --text-2: #ABB3AE;
+    --text-nav: #B5BCB7;
+    --text-muted: #8C9590;
+    --text-dim: #6E7772;
+    --accent: #7EDDB0;
+    --accent-hover: #B2EDCF;
+    --neon: #3CF5A8;
+    --on-neon: #0E100F;
+    --glow-text: 0 0 12px rgba(60, 245, 168, 0.35);
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-6: 24px;
+    --space-7: 32px;
+    --space-8: 40px;
+    --space-9: 48px;
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --header-h: 64px;
+    --sidebar-w: 248px;
+    --content-max: 920px;
+    --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { background: var(--bg); color-scheme: dark; scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 400 15px/1.6 var(--font-sans); -webkit-font-smoothing: antialiased; overflow-wrap: break-word; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--accent-hover); text-decoration: underline; text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
+
+  .skip { position: absolute; left: var(--space-4); top: var(--space-2); transform: translateY(-300%); background: var(--bg-sunken); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-4); color: var(--text-strong); z-index: 20; }
+  .skip:focus-visible { transform: none; }
+
+  /* Header */
+  .topbar { position: sticky; top: 0; z-index: 10; height: var(--header-h); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: 0 var(--space-4); background: var(--bg); border-bottom: 1px solid var(--line-header); }
+  .brand { display: flex; align-items: center; gap: var(--space-3); color: var(--text-strong); font: 600 15px/1.4 var(--font-sans); }
+  .brand:hover { color: var(--text-strong); text-decoration: none; }
+  .brand__glyph { font: 500 15px/1 var(--font-mono); color: var(--neon); text-shadow: var(--glow-text); }
+  .brand__tag { font: 400 12px/1.4 var(--font-mono); color: var(--text-muted); }
+  .topbar__link { font: 400 14px/1.4 var(--font-sans); color: var(--text-2); padding: var(--space-2) 0; }
+
+  /* Shell */
+  .shell { max-width: calc(var(--sidebar-w) + var(--content-max) + 2 * var(--space-7)); margin: 0 auto; }
+  .sidenav { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line-subtle); font: 400 14px/1.4 var(--font-sans); }
+  .sidenav__group { display: flex; flex-wrap: wrap; gap: 0 var(--space-1); margin-bottom: var(--space-2); }
+  .sidenav__label { flex: 0 0 100%; margin: var(--space-2) 0 0; font: 400 11.5px/1.4 var(--font-mono); color: var(--text-muted); }
+  .sidenav__item { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--space-3); border-radius: var(--radius-sm); color: var(--text-nav); }
+  .sidenav__item:hover { background: var(--bg-raised); color: var(--text-strong); text-decoration: none; }
+
+  /* Main column */
+  .main { min-width: 0; padding: var(--space-9) var(--space-4); }
+  .main > * { max-width: var(--content-max); }
+  .eyebrow { margin: 0; font: 400 12.5px/1.4 var(--font-mono); color: var(--neon); text-shadow: var(--glow-text); }
+  h1 { margin: var(--space-2) 0; font: 600 28px/1.2 var(--font-sans); letter-spacing: -0.01em; color: var(--text-strong); }
+  .lede { max-width: 680px; margin: 0 0 var(--space-7); font: 400 17px/1.6 var(--font-sans); color: var(--text-2); }
+  h2 { margin: 0 0 var(--space-4); font: 600 20px/1.3 var(--font-sans); color: var(--text-strong); }
+  h3 { margin: var(--space-6) 0 var(--space-2); font: 600 15px/1.4 var(--font-sans); color: var(--text-strong); }
+  p { max-width: 72ch; margin: 0 0 var(--space-4); }
+  ul { max-width: 72ch; margin: 0 0 var(--space-4); padding-left: var(--space-6); }
+  li { margin-bottom: var(--space-1); }
+  strong { font-weight: 600; color: var(--text-strong); }
+  section { margin-top: var(--space-8); padding-top: var(--space-8); border-top: 1px solid var(--line); scroll-margin-top: calc(var(--header-h) + var(--space-4)); }
+  section:first-of-type { margin-top: 0; padding-top: 0; border-top: 0; }
+
+  code { font: 400 0.9em/1.4 var(--font-mono); background: var(--bg-sunken); border-radius: var(--radius-xs); padding: 1px 6px; color: var(--text); }
+  pre { margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); background: var(--bg-sunken); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow-x: auto; font: 400 14px/1.6 var(--font-mono); color: var(--text); }
+  pre code { background: none; padding: 0; font: inherit; color: inherit; }
+  .p { color: var(--neon); user-select: none; }
+  .c { color: var(--text-dim); }
+
+  /* Key facts strip */
+  .strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; margin: var(--space-6) 0 0; }
+  .strip > div { padding: 20px 22px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .strip > :nth-child(even) { border-left: 1px solid var(--line); }
+  .strip > :nth-child(n+3) { border-top: 1px solid var(--line); }
+  .strip__num { font: 500 28px/1.1 var(--font-mono); color: var(--text-strong); }
+  .strip__num--key { color: var(--neon); text-shadow: var(--glow-text); }
+  .strip__num--text { font-size: 17px; line-height: 31px; }
+  .strip__label { font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
+
+  /* Quick start steps */
+  .steps { list-style: none; margin: 0 0 var(--space-4); padding: 0; max-width: none; }
+  .steps li { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: var(--space-2); margin-bottom: var(--space-4); }
+  .steps__num { font: 400 11.5px/2.2 var(--font-mono); color: var(--neon); text-shadow: var(--glow-text); }
+  .steps p { margin-bottom: var(--space-2); }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-md); margin: 0 0 var(--space-4); }
+  table { width: 100%; border-collapse: collapse; font: 400 14px/1.5 var(--font-sans); }
+  th { text-align: left; font: 500 12px/1.4 var(--font-mono); color: var(--text-muted); padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--bg-sunken); white-space: nowrap; }
+  td { padding: 12px 16px; border-bottom: 1px solid var(--line-subtle); color: var(--text); vertical-align: top; min-width: 160px; }
+  .names td:first-child { white-space: nowrap; min-width: 0; }
+  tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: var(--bg-raised); }
+  td code { background: none; padding: 0; }
+
+  .foot { margin-top: var(--space-9); padding-top: var(--space-6); border-top: 1px solid var(--line); font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
+
+  @media (min-width: 720px) {
+    .topbar { padding: 0 var(--space-7); }
+    .shell { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); }
+    .sidenav { position: sticky; top: var(--header-h); align-self: start; height: calc(100vh - var(--header-h)); overflow-y: auto; padding: var(--space-6) var(--space-4) var(--space-6) var(--space-7); border-bottom: 0; border-right: 1px solid var(--line-subtle); }
+    .sidenav__group { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; margin-bottom: 28px; }
+    .sidenav__label { flex: none; margin: 0; padding: 0 12px var(--space-2); }
+    .sidenav__item { display: flex; min-height: 0; padding: 7px 12px; }
+    .main { padding: var(--space-9) var(--space-7); }
+  }
+  @media (min-width: 1024px) {
+    .strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .strip > :nth-child(n) { border-left: 1px solid var(--line); border-top: 0; }
+    .strip > :first-child { border-left: 0; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="#overview">
+    <span class="brand__glyph" aria-hidden="true">&gt;_</span>
+    <span>easy-ui-mcp</span>
+    <span class="brand__tag">docs</span>
+  </a>
+  <a class="topbar__link" href="https://github.com/thunderkds/easy-ui-mcp">GitHub</a>
+</header>
+
+<div class="shell">
+  <nav class="sidenav" aria-label="Documentation">
+    <div class="sidenav__group">
+      <p class="sidenav__label">// getting started</p>
+      <a class="sidenav__item" href="#overview">Overview</a>
+      <a class="sidenav__item" href="#quick-start">Quick start</a>
+      <a class="sidenav__item" href="#another-repo">Use from another repo</a>
+      <a class="sidenav__item" href="#networking">Networking</a>
+    </div>
+    <div class="sidenav__group">
+      <p class="sidenav__label">// reference</p>
+      <a class="sidenav__item" href="#tools">Tools</a>
+      <a class="sidenav__item" href="#writing-a-flow">Writing a flow</a>
+      <a class="sidenav__item" href="#reports">Reports</a>
+      <a class="sidenav__item" href="#rest-wrapper">REST wrapper</a>
+    </div>
+    <div class="sidenav__group">
+      <p class="sidenav__label">// operating</p>
+      <a class="sidenav__item" href="#troubleshooting">Troubleshooting</a>
+      <a class="sidenav__item" href="#development">Development</a>
+    </div>
+  </nav>
+
+  <main class="main" id="main">
+    <section id="overview">
+      <p class="eyebrow">&gt; local ui testing for claude code</p>
+      <h1>easy-ui-mcp</h1>
+      <p class="lede">A Dockerized MCP server that lets an AI agent such as Claude Code drive a real browser step by step and get back a JSON and HTML report with screenshots.</p>
+      <p>It exposes 16 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
+      <div class="strip">
+        <div><div class="strip__num strip__num--key">16</div><div class="strip__label">MCP tools</div></div>
+        <div><div class="strip__num">8765</div><div class="strip__label">port on localhost</div></div>
+        <div><div class="strip__num strip__num--text">Chromium</div><div class="strip__label">the only browser (v1)</div></div>
+        <div><div class="strip__num">0</div><div class="strip__label">LLM calls on the server</div></div>
+      </div>
+    </section>
+
+    <section id="quick-start">
+      <h2>Quick start</h2>
+      <ol class="steps">
+        <li>
+          <span class="steps__num">01</span>
+          <div>
+            <p>Build and start the container.</p>
+<pre><code><span class="p">$</span> docker compose up -d --build</code></pre>
+          </div>
+        </li>
+        <li>
+          <span class="steps__num">02</span>
+          <div>
+            <p>Check that it is alive.</p>
+<pre><code><span class="p">$</span> curl http://localhost:8765/health
+<span class="c"># {"status":"ok"}</span></code></pre>
+          </div>
+        </li>
+        <li>
+          <span class="steps__num">03</span>
+          <div>
+            <p>Connect Claude Code.</p>
+<pre><code><span class="p">$</span> claude mcp add --transport http easy-ui-mcp http://localhost:8765/mcp</code></pre>
+          </div>
+        </li>
+      </ol>
+      <p>Then ask Claude Code to navigate to a page and take a screenshot. It will call the tools below and report back.</p>
+    </section>
+
+    <section id="another-repo">
+      <h2>Use from another repo</h2>
+      <p>MCP registration is per project: run <code>claude mcp add</code> from that repo's root too. The container only needs to run once and is shared across repos.</p>
+<pre><code><span class="p">$</span> cd /path/to/your-app
+<span class="p">$</span> claude mcp add --transport http easy-ui-mcp http://localhost:8765/mcp</code></pre>
+    </section>
+
+    <section id="networking">
+      <h2>Networking</h2>
+      <p>The container runs with <code>network_mode: host</code> in <code>docker-compose.yml</code>, not a published port on a bridge network. This is required: the browser Playwright drives inside the container must reach <code>localhost:&lt;port&gt;</code> on your host machine, where the dev server of the app you are testing runs. On a default bridge network the container has no route back to the host, so targets such as <code>http://localhost:8766</code> hang or fail with <code>ERR_CONNECTION_REFUSED</code>.</p>
+      <p>Where <code>network_mode: host</code> is not available (for example Docker Desktop on macOS or Windows), use <code>host.docker.internal</code> as the hostname instead of <code>localhost</code> when calling <code>ui_navigate</code>, and add this to <code>docker-compose.yml</code>:</p>
+<pre><code>extra_hosts:
+  - "host.docker.internal:host-gateway"</code></pre>
+    </section>
+
+    <section id="tools">
+      <h2>Tools</h2>
+      <p>All 16 tools. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
+      <div class="table-wrap">
+        <table class="names">
+          <thead><tr><th scope="col">tool</th><th scope="col">purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>ui_start_session</code></td><td>Open a fresh browser context and start logging into a report.</td></tr>
+            <tr><td><code>ui_end_session</code></td><td>Write the JSON and HTML report and return their paths.</td></tr>
+            <tr><td><code>ui_step</code></td><td>Label what you are about to do; following actions are grouped under it in the report.</td></tr>
+            <tr><td><code>ui_navigate</code></td><td>Navigate the browser to a URL.</td></tr>
+            <tr><td><code>ui_get_page_state</code></td><td>Return URL, title, up to 200 visible interactive elements with ready-to-use selectors, and visible alert messages.</td></tr>
+            <tr><td><code>ui_take_screenshot</code></td><td>Capture the current viewport as a PNG in the reports output.</td></tr>
+            <tr><td><code>ui_click</code></td><td>Click the single element matching a selector.</td></tr>
+            <tr><td><code>ui_fill</code></td><td>Fill the single input matching a selector with a value.</td></tr>
+            <tr><td><code>ui_select_option</code></td><td>Choose an option of a <code>&lt;select&gt;</code> by value or visible label.</td></tr>
+            <tr><td><code>ui_press_key</code></td><td>Press a key or combo such as Enter, Tab, Escape or Control+a, on an element or on whatever has focus.</td></tr>
+            <tr><td><code>ui_hover</code></td><td>Move the pointer over an element to reveal hover content such as dropdown menus.</td></tr>
+            <tr><td><code>ui_set_checked</code></td><td>Set a checkbox or radio button to checked or unchecked.</td></tr>
+            <tr><td><code>ui_scroll</code></td><td>Scroll an element into view, or the page down by one viewport when no selector is given.</td></tr>
+            <tr><td><code>ui_assert</code></td><td>Hard check of a JS expression: false fails the whole session.</td></tr>
+            <tr><td><code>ui_check</code></td><td>Soft check of a JS expression: recorded in the report, the run continues.</td></tr>
+            <tr><td><code>ui_wait_for</code></td><td>Poll a JS expression until it is true; a timeout fails the session.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="writing-a-flow">
+      <h2>Writing a flow</h2>
+      <h3>Label your steps</h3>
+      <p><code>ui_step(label)</code> groups everything that follows under a plain-language heading until the next <code>ui_step</code>. The label is the report's only caller-authored statement of intent. A session with no <code>ui_step</code> calls still renders, under one implicit group.</p>
+<pre><code>ui_start_session  target: "Account Access toggle smoke"
+ui_step           label:  "Open the Settings page"
+ui_navigate       ...
+ui_wait_for       ...
+ui_step           label:  "Turn Manual Invoice access on"
+ui_click          ...
+ui_assert         ...
+ui_end_session</code></pre>
+
+      <h3>Use the selector from page state</h3>
+      <p><code>ui_get_page_state</code> returns each visible interactive element as <code>{role, name, selector}</code>. Every selector is checked against the live page before it is returned, so pass it unchanged to the interaction tools instead of guessing a CSS selector. A selector containing <code>nth=</code> is positional: call <code>ui_get_page_state</code> again after the page changes before reusing it.</p>
+<pre><code>{"role": "button", "name": "Sign in", "selector": "[data-testid=\"signin\"]"}
+ui_click  selector: [data-testid="signin"]</code></pre>
+
+      <h3>Verifying vs waiting</h3>
+      <p>A session is marked failed if any hard action fails, so how you verify decides whether the report tells the truth.</p>
+      <div class="table-wrap">
+        <table class="names">
+          <thead><tr><th scope="col">tool</th><th scope="col">condition false means</th><th scope="col">use it for</th></tr></thead>
+          <tbody>
+            <tr><td><code>ui_assert</code></td><td>The session fails.</td><td>A claim about the app: "the toggle is now on".</td></tr>
+            <tr><td><code>ui_check</code></td><td>Recorded and shown; the run continues.</td><td>An observation for the report that should not condemn the run.</td></tr>
+            <tr><td><code>ui_wait_for</code></td><td>Keeps polling; timing out fails the session.</td><td>Waiting for the page to render or settle.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Never</strong> call <code>ui_assert</code> in a retry loop to wait for something: the first false result permanently fails the run even if the app is fine. That is what <code>ui_wait_for</code> is for. For <code>ui_check</code> and <code>ui_wait_for</code>, a condition that cannot run at all (no page open, or the expression throws) is always a hard failure.</p>
+    </section>
+
+    <section id="reports">
+      <h2>Reports</h2>
+      <p>Reports are written to <code>./reports/</code> on the host (the directory is volume-mounted) and named:</p>
+<pre><code>session-&lt;YYYYMMDD-HHMMSS&gt;-&lt;slug&gt;-&lt;id8&gt;.{json,html}</code></pre>
+      <p>That is the UTC start time, a readable slug of the session target, and the first 8 characters of the session id. <code>reports/index.html</code> lists the sessions, newest first and capped at 500 (older reports stay on disk, unlisted), and is rewritten after every report.</p>
+      <p>An HTML report shows:</p>
+      <ul>
+        <li>a verdict box: status, target, step, action and failure counts, and duration;</li>
+        <li>the run as labelled steps, with per-step outcomes and elapsed time;</li>
+        <li>browser problems: console errors, uncaught page errors and network-level request failures, captured automatically and never changing the verdict (up to 50 per session);</li>
+        <li>the raw action log, collapsed behind a disclosure.</li>
+      </ul>
+      <p>HTTP error responses such as 404 or 500 do not trigger Playwright's <code>requestfailed</code> event and are not listed automatically. Auto-failure screenshots are budgeted per session (<code>FAILURE_SCREENSHOT_BUDGET</code>, default 3), and identical screenshot content is embedded only once.</p>
+    </section>
+
+    <section id="rest-wrapper">
+      <h2>REST wrapper</h2>
+      <p>For callers that cannot speak MCP, <code>POST /api/run-test</code> runs one navigate-and-screenshot test and returns a report. For multi-step flows, drive the MCP tools from Claude Code instead.</p>
+<pre><code><span class="p">$</span> curl -s -X POST http://localhost:8765/api/run-test \
+    -H "Content-Type: application/json" \
+    -d '{"app_url_or_package": "https://example.com", "flow_description": "Smoke test", "platform": "web"}'</code></pre>
+      <div class="table-wrap">
+        <table class="names">
+          <thead><tr><th scope="col">field</th><th scope="col">required</th><th scope="col">description</th></tr></thead>
+          <tbody>
+            <tr><td><code>app_url_or_package</code></td><td>yes</td><td>URL to navigate to. Non-empty string, else 400.</td></tr>
+            <tr><td><code>flow_description</code></td><td>no</td><td>Label for the run in reports. Defaults to the URL.</td></tr>
+            <tr><td><code>platform</code></td><td>no</td><td>Only <code>"web"</code> is supported in v1; anything else returns 400.</td></tr>
+            <tr><td><code>timeout</code></td><td>no</td><td>Milliseconds, a positive number. Default 30000.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The response is JSON with <code>status</code> (<code>passed</code>, <code>failed</code> or <code>timeout</code>), <code>report_url</code>, <code>screenshots</code> and <code>logs</code>. <code>report_url</code> is a path inside the container: read the report from the host under <code>./reports/</code> using its basename. <code>GET /health</code> returns <code>{"status":"ok"}</code>.</p>
+    </section>
+
+    <section id="troubleshooting">
+      <h2>Troubleshooting</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">symptom</th><th scope="col">likely cause</th><th scope="col">remediation</th></tr></thead>
+          <tbody>
+            <tr><td>"port is already allocated" on <code>docker compose up</code></td><td>A stale container from a previous session or worktree holds port 8765.</td><td><code>docker ps -a | grep 8765</code>, then <code>docker stop &lt;id&gt; &amp;&amp; docker rm &lt;id&gt;</code> and retry.</td></tr>
+            <tr><td><code>PORTS</code> column empty in <code>docker compose ps</code> though <code>up -d</code> succeeded</td><td>A transient Docker Compose quirk seen in this environment.</td><td><code>docker compose down</code>, then <code>docker compose up -d</code> again (a full cycle, not just <code>up</code>).</td></tr>
+            <tr><td><code>npm test</code> hangs or fails with <code>EADDRINUSE</code></td><td>Port 8765 is held, usually by the running container: two test files start their own server on that port.</td><td><code>docker compose stop</code>, run <code>npm test</code>, then <code>docker compose up -d</code>.</td></tr>
+            <tr><td>Target <code>localhost</code> URLs hang or give <code>ERR_CONNECTION_REFUSED</code></td><td>The container is not on the host network, so it cannot reach your dev server.</td><td>Keep <code>network_mode: host</code>, or use <code>host.docker.internal</code> as described under Networking.</td></tr>
+            <tr><td>Malformed JSON POST to <code>/mcp</code> returns a raw stack trace</td><td>The JSON-parse error handler is missing (fixed in T001).</td><td>Check the JSON-parse error middleware is registered immediately after <code>express.json()</code> in <code>src/server.ts</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="development">
+      <h2>Development</h2>
+      <p>Install dependencies and run the tests locally. <code>npm test</code> needs port 8765 free: stop the Docker container first, because the tests start their own server on that port.</p>
+<pre><code><span class="p">$</span> npm ci
+<span class="p">$</span> docker compose stop
+<span class="p">$</span> npm test
+<span class="p">$</span> docker compose up -d</code></pre>
+      <p>A single test file can be run on its own:</p>
+<pre><code><span class="p">$</span> node --import tsx --test test/&lt;file&gt;.test.ts</code></pre>
+      <p>This page is plain static HTML in <code>site/index.html</code>. Vercel serves the <code>site/</code> directory as-is, with no install and no build (see <code>vercel.json</code>).</p>
+    </section>
+
+    <p class="foot">easy-ui-mcp v0.1.0. Source and issues on <a href="https://github.com/thunderkds/easy-ui-mcp">GitHub</a>.</p>
+  </main>
+</div>
+</body>
+</html>
