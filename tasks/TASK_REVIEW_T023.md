@@ -33,8 +33,26 @@
 > **before any implementation commit exists**; if it does not (docs, templates, skill-instruction
 > text), BEFORE is the **verbatim prior content** of what changed — a quoted excerpt, not a command.
 
-**BEFORE**: [pasted timestamped command output showing the thing absent/failing, captured before the
-first implementation commit] OR [verbatim excerpt of the prior content, for non-executable changes]
+**BEFORE**: (executable change: new test run against the CURRENT, unedited docs)
+
+```
+$ date -u; node --import tsx --test test/docs-tools.test.ts
+Fri Oct 30 08:42:53 AM UTC 2026
+✖ README and RUNBOOK name every registered tool, and RUNBOOK states the count (11.201095ms)
+ℹ tests 1
+ℹ pass 0
+ℹ fail 1
+  AssertionError [ERR_ASSERTION]: RUNBOOK.md does not mention `ui_select_option`
+      at TestContext.<anonymous> (test/docs-tools.test.ts:34:14)
+```
+
+Prior `RUNBOOK.md` line 48 (verbatim):
+
+> | MCP tool discovery | `tools/list` JSON-RPC call to `/mcp` | Response lists all 11 tools (`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot`) |
+
+Prior `RUNBOOK.md` line 61 (verbatim):
+
+> | `npm test` appears to hang indefinitely | Sandbox-specific `node:test` multi-file process-isolation quirk, not a code bug (see `memory/learnings.md`) | Kill the process, verify the live endpoint directly via `curl`, then run test files individually: `node --import tsx --test test/<file>.test.ts` |
 
 **AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
 
