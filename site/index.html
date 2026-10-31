@@ -143,7 +143,7 @@
   .foot { margin-top: var(--space-9); padding-top: var(--space-6); border-top: 1px solid var(--line); font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
 
   @media (min-width: 720px) {
-    .topbar { padding: 0 var(--space-7); }
+    .topbar { padding-left: max(calc(var(--space-7) + 12px), calc((100% - (calc(var(--sidebar-w) + var(--content-max) + 2 * var(--space-7)))) / 2 + var(--space-7) + 12px)); padding-right: max(var(--space-7), calc((100% - (calc(var(--sidebar-w) + var(--content-max) + 2 * var(--space-7)))) / 2 + var(--space-7))); }
     .shell { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); }
     .sidenav { position: sticky; top: var(--header-h); align-self: start; height: calc(100vh - var(--header-h)); overflow-y: auto; padding: var(--space-6) var(--space-4) var(--space-6) var(--space-7); border-bottom: 0; border-right: 1px solid var(--line-subtle); }
     .sidenav__group { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; margin-bottom: 28px; }

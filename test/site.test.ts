@@ -261,3 +261,21 @@ test('phones: a Menu button collapses the sidebar below 720px; without script th
   assert.match(script, /classList\.add\('js'\)/, 'inline script marks the page as scripted');
   assert.match(script, /aria-expanded/, 'the script keeps aria-expanded in step');
 });
+
+test('desktop: the header lines up with the centered page column instead of the window edges', () => {
+  const html = page();
+  const shell = html.match(/\.shell \{ max-width: ([^;]+);/)?.[1];
+  assert.ok(shell, '.shell has a max-width');
+  const wide = html.match(/@media \(min-width: 720px\) \{([\s\S]*?)\n  \}/)?.[1] ?? '';
+  const rule = wide.match(/\.topbar \{([^}]*)\}/)?.[1] ?? '';
+  // Left: over the sidebar link text (shell edge + sidebar padding + item padding).
+  assert.ok(
+    rule.includes(`padding-left: max(calc(var(--space-7) + 12px), calc((100% - (${shell})) / 2 + var(--space-7) + 12px));`),
+    `header left edge must follow the shell: ${rule}`,
+  );
+  // Right: over the content's right edge (shell edge + main padding).
+  assert.ok(
+    rule.includes(`padding-right: max(var(--space-7), calc((100% - (${shell})) / 2 + var(--space-7)));`),
+    `header right edge must follow the shell: ${rule}`,
+  );
+});
