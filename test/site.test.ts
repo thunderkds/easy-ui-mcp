@@ -242,3 +242,22 @@ test('family nav: header and drawer list the five Easy Kit sites in order, Easy 
   }
   assert.doesNotMatch(html, /easy-ui\.vercel\.app/, 'never link the unrelated easy-ui.vercel.app');
 });
+
+test('phones: a Menu button collapses the sidebar below 720px; without script the sidebar stays open', () => {
+  const html = page();
+  const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+  assert.match(
+    header,
+    /<button class="nav-toggle" type="button" aria-expanded="false" aria-controls="sidenav">Menu<\/button>/,
+    'the header has a Menu button that controls #sidenav',
+  );
+  assert.match(html, /<nav class="sidenav" id="sidenav" aria-label="Documentation">/, 'the sidebar has id="sidenav"');
+  // Collapsing applies only with script (.js) and only on phones, so no link is ever unreachable.
+  const phone = html.match(/@media \(max-width: 719px\) \{([\s\S]*?)\n  \}/)?.[1] ?? '';
+  assert.match(phone, /\.js \.nav-toggle \{[^}]*display: inline-flex/, 'Menu shows on phones when script runs');
+  assert.match(phone, /\.js \.sidenav:not\(\.is-open\) \{ display: none; \}/, 'sidebar collapses on phones unless open');
+  assert.match(html, /\.nav-toggle \{ display: none;/, 'Menu is hidden by default (desktop, no script)');
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? '';
+  assert.match(script, /classList\.add\('js'\)/, 'inline script marks the page as scripted');
+  assert.match(script, /aria-expanded/, 'the script keeps aria-expanded in step');
+});

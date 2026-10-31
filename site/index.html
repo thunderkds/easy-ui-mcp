@@ -83,6 +83,15 @@
   .sidenav__label { flex: 0 0 100%; margin: var(--space-2) 0 0; font: 400 11.5px/1.4 var(--font-mono); color: var(--text-muted); }
   .sidenav__item { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--space-3); border-radius: var(--radius-sm); color: var(--text-nav); }
   .sidenav__item:hover { background: var(--bg-raised); color: var(--text-strong); text-decoration: none; }
+  .nav-toggle { display: none; align-items: center; min-height: 44px; padding: 0 var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: transparent; color: var(--text-2); font: 400 14px/1.4 var(--font-sans); cursor: pointer; }
+  .nav-toggle:hover { color: var(--text-strong); }
+
+  /* Phones: with script the sidebar folds behind the Menu button; without script it stays open. */
+  @media (max-width: 719px) {
+    .topbar__end { gap: var(--space-4); }
+    .js .nav-toggle { display: inline-flex; }
+    .js .sidenav:not(.is-open) { display: none; }
+  }
 
   /* Main column */
   .main { min-width: 0; padding: var(--space-9) var(--space-4); }
@@ -172,11 +181,12 @@
       <a href="https://easy-personal.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Personal</a>
     </nav>
     <a class="topbar__link" href="https://github.com/thunderkds/easy-ui-mcp">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="sidenav">Menu</button>
   </div>
 </header>
 
 <div class="shell">
-  <nav class="sidenav" aria-label="Documentation">
+  <nav class="sidenav" id="sidenav" aria-label="Documentation">
     <nav class="family-nav family-nav-drawer sidenav__group" aria-label="Easy Kit family (menu)">
       <p class="sidenav__label">// easy kit family</p>
       <a class="sidenav__item" href="https://personal-agentic-claude.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Kit</a>
@@ -391,5 +401,18 @@ ui_click  selector: [data-testid="signin"]</code></pre>
     <p class="foot">easy-ui-mcp v0.1.0. Source and issues on <a href="https://github.com/thunderkds/easy-ui-mcp">GitHub</a>.</p>
   </main>
 </div>
+<script>
+  document.documentElement.classList.add('js');
+  (function () {
+    var toggle = document.querySelector('.nav-toggle');
+    var nav = document.getElementById('sidenav');
+    function setOpen(open) {
+      nav.classList.toggle('is-open', open);
+      toggle.setAttribute('aria-expanded', String(open));
+    }
+    toggle.addEventListener('click', function () { setOpen(!nav.classList.contains('is-open')); });
+    nav.addEventListener('click', function (e) { if (e.target.closest('a')) setOpen(false); });
+  })();
+</script>
 </body>
 </html>
