@@ -65,6 +65,16 @@
   .brand__glyph { font: 500 15px/1 var(--font-mono); color: var(--neon); text-shadow: var(--glow-text); }
   .brand__tag { font: 400 12px/1.4 var(--font-mono); color: var(--text-muted); }
   .topbar__link { font: 400 14px/1.4 var(--font-sans); color: var(--text-2); padding: var(--space-2) 0; }
+  .topbar__end { display: flex; align-items: center; gap: var(--space-7); }
+
+  /* Easy Kit family nav: in the header from 900px, in the sidebar (the mobile nav) below that */
+  .topbar .family-nav { display: none; align-items: center; gap: var(--space-4); font: 400 14px/1.4 var(--font-sans); }
+  .topbar .family-nav a { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-2); white-space: nowrap; }
+  .topbar .family-nav a:hover { color: var(--text-strong); text-decoration: none; }
+  .family-nav-drawer .sidenav__item { gap: var(--space-2); }
+  .family-nav a[aria-current="page"] { color: var(--text-strong); }
+  .family-nav .dot { flex: none; width: 7px; height: 7px; background: var(--line-strong); }
+  .family-nav a[aria-current="page"] .dot { background: var(--neon); }
 
   /* Shell */
   .shell { max-width: calc(var(--sidebar-w) + var(--content-max) + 2 * var(--space-7)); margin: 0 auto; }
@@ -132,7 +142,12 @@
     .sidenav__item { display: flex; min-height: 0; padding: 7px 12px; }
     .main { padding: var(--space-9) var(--space-7); }
   }
+  @media (min-width: 900px) {
+    .topbar .family-nav { display: flex; }
+    .sidenav .family-nav-drawer { display: none; }
+  }
   @media (min-width: 1024px) {
+    .topbar .family-nav { gap: var(--space-6); }
     .strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .strip > :nth-child(n) { border-left: 1px solid var(--line); border-top: 0; }
     .strip > :first-child { border-left: 0; }
@@ -148,11 +163,28 @@
     <span>easy-ui-mcp</span>
     <span class="brand__tag">docs</span>
   </a>
-  <a class="topbar__link" href="https://github.com/thunderkds/easy-ui-mcp">GitHub</a>
+  <div class="topbar__end">
+    <nav class="family-nav" aria-label="Easy Kit family">
+      <a href="https://personal-agentic-claude.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Kit</a>
+      <a href="https://easy-verifier.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Verifier</a>
+      <a href="https://easy-ui-mcp.vercel.app/" aria-current="page"><span class="dot" aria-hidden="true"></span>Easy UI</a>
+      <a href="https://easy-memory.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Memory</a>
+      <a href="https://easy-personal.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Personal</a>
+    </nav>
+    <a class="topbar__link" href="https://github.com/thunderkds/easy-ui-mcp">GitHub</a>
+  </div>
 </header>
 
 <div class="shell">
   <nav class="sidenav" aria-label="Documentation">
+    <nav class="family-nav family-nav-drawer sidenav__group" aria-label="Easy Kit family (menu)">
+      <p class="sidenav__label">// easy kit family</p>
+      <a class="sidenav__item" href="https://personal-agentic-claude.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Kit</a>
+      <a class="sidenav__item" href="https://easy-verifier.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Verifier</a>
+      <a class="sidenav__item" href="https://easy-ui-mcp.vercel.app/" aria-current="page"><span class="dot" aria-hidden="true"></span>Easy UI</a>
+      <a class="sidenav__item" href="https://easy-memory.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Memory</a>
+      <a class="sidenav__item" href="https://easy-personal.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Personal</a>
+    </nav>
     <div class="sidenav__group">
       <p class="sidenav__label">// getting started</p>
       <a class="sidenav__item" href="#overview">Overview</a>

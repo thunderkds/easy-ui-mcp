@@ -216,3 +216,29 @@ test('T025 facts: key commands and numbers match README/RUNBOOK', () => {
 test('T025 AC10: README links to the docs site source', () => {
   assert.match(read('README.md'), /site\/index\.html/);
 });
+
+/** The Easy Kit family, in the order every sibling site lists it. */
+const FAMILY = [
+  ['Easy Kit', 'https://personal-agentic-claude.vercel.app/'],
+  ['Easy Verifier', 'https://easy-verifier.vercel.app/'],
+  ['Easy UI', 'https://easy-ui-mcp.vercel.app/'],
+  ['Easy Memory', 'https://easy-memory.vercel.app/'],
+  ['Easy Personal', 'https://easy-personal.vercel.app/'],
+];
+
+test('family nav: header and drawer list the five Easy Kit sites in order, Easy UI is the current page', () => {
+  const html = page();
+  const navs = [...html.matchAll(/<nav class="family-nav[^"]*"[^>]*>([\s\S]*?)<\/nav>/g)];
+  assert.equal(navs.length, 2, 'one family nav in the header and one copy in the sidebar drawer');
+  assert.ok(html.indexOf('<nav class="family-nav"') < html.indexOf('</header>'), 'first family nav sits in the header');
+  for (const [, body] of navs) {
+    const links = [...body.matchAll(/<a ([^>]*)><span class="dot" aria-hidden="true"><\/span>([^<]+)<\/a>/g)];
+    assert.deepEqual(
+      links.map((m) => [m[2], m[1].match(/href="([^"]+)"/)?.[1]]),
+      FAMILY,
+    );
+    const current = links.filter((m) => /aria-current="page"/.test(m[1])).map((m) => m[2]);
+    assert.deepEqual(current, ['Easy UI'], 'only Easy UI carries aria-current="page"');
+  }
+  assert.doesNotMatch(html, /easy-ui\.vercel\.app/, 'never link the unrelated easy-ui.vercel.app');
+});
