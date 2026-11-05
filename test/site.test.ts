@@ -219,7 +219,7 @@ test('T025 AC10: README links to the docs site source', () => {
 
 /** The Easy Kit family, in the order every sibling site lists it. */
 const FAMILY = [
-  ['Easy Kit', 'https://personal-agentic-claude.vercel.app/'],
+  ['Easy Kit', 'https://easy-kits.vercel.app/'],
   ['Easy Verifier', 'https://easy-verifier.vercel.app/'],
   ['Easy UI', 'https://easy-ui-mcp.vercel.app/'],
   ['Easy Memory', 'https://easy-memory.vercel.app/'],
