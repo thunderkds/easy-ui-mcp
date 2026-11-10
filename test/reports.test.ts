@@ -95,6 +95,39 @@ test("describe renders a readable sentence for each T019 interaction (AC7)", () 
   assert.equal(describe(action({ action: "ui_scroll" })), "Scrolled down one page");
 });
 
+test("describe renders the T033 actions as readable sentences (AC9)", () => {
+  assert.equal(
+    describe(action({ action: "ui_upload_file", args: { selector: "#f", file: "default_draft.png", size: 79 } })),
+    "Uploaded default_draft.png (79 bytes) to #f"
+  );
+  assert.equal(describe(action({ action: "ui_drag", args: { from: "#a", to: "#c" } })), "Dragged #a onto #c");
+  assert.equal(describe(action({ action: "ui_get_logs", args: { since: "start" } })), "Read all browser logs");
+  assert.equal(describe(action({ action: "ui_get_logs", args: { since: "last" } })), "Read new browser logs");
+  assert.equal(describe(action({ action: "ui_tabs", args: { action: "list" } })), "Listed the open tabs");
+  assert.equal(describe(action({ action: "ui_tabs", args: { action: "switch", index: 2 } })), "Switched to tab 2");
+  assert.equal(describe(action({ action: "ui_tabs", args: { action: "close" } })), "Closed the current tab");
+  assert.equal(
+    describe(action({ action: "ui_download", args: { file: "export.csv", size: 8 } })),
+    "Downloaded export.csv (8 bytes)"
+  );
+});
+
+test("T033 action sentences and httperror issues are HTML-escaped in the rendered report (AC9)", async () => {
+  const { htmlPath } = await writeReports(
+    record({
+      actions: [action({ action: "ui_drag", args: { from: "<img src=x onerror=alert(1)>", to: "#c" } })],
+      issues: [{ timestamp: "2026-08-17T10:00:01.000Z", kind: "httperror", text: "500 GET http://x/<b>api" }],
+    }),
+    TMP_REPORTS_DIR
+  );
+  const html = readFileSync(htmlPath, "utf8");
+
+  assert.doesNotMatch(html, /<img src=x/);
+  assert.match(html, /Dragged &lt;img src=x onerror=alert\(1\)&gt; onto #c/);
+  assert.match(html, /httperror/);
+  assert.match(html, /500 GET http:\/\/x\/&lt;b&gt;api/);
+});
+
 test("describe truncates long values in the T019 sentences and keeps them to one line (AC7)", () => {
   const long = "x".repeat(500);
   const text = describe(action({ action: "ui_select_option", args: { selector: "#s", value: long } }));
