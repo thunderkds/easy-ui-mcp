@@ -407,17 +407,50 @@ function describeAction(action: LoggedAction): string {
       return `Hovered over ${selector ?? "an element"}`;
     case "ui_set_checked":
       return `Set ${selector ?? "a checkbox"} to ${action.args?.checked === false ? "unchecked" : "checked"}`;
-    case "ui_scroll":
-      return selector ? `Scrolled ${selector} into view` : "Scrolled down one page";
+    case "ui_scroll": {
+      if (selector) return `Scrolled ${selector} into view`;
+      const container = arg(action, "container");
+      const direction = arg(action, "direction") ?? "down";
+      if (container) return `Scrolled ${container} ${direction}`;
+      return direction === "down" ? "Scrolled down one page" : `Scrolled the page ${direction}`;
+    }
+    case "ui_set_viewport":
+      return `Resized the viewport to ${arg(action, "width") ?? "?"}×${arg(action, "height") ?? "?"}`;
+    case "ui_type": {
+      // Like ui_fill, never repeat the typed text (secrets, OTPs, card numbers): only how much.
+      // The server stores "••••" when the target is sensitive, so no count is shown then.
+      const text = action.args?.["text"];
+      const where = selector ?? "an input";
+      if (typeof text !== "string" || text === "••••") return `Typed into ${where}`;
+      return `Typed ${text.length} ${text.length === 1 ? "character" : "characters"} into ${where}`;
+    }
+    case "ui_navigate_history": {
+      const how = arg(action, "action");
+      return how === "back" ? "Went back" : how === "forward" ? "Went forward" : "Reloaded the page";
+    }
     case "ui_get_page_state":
       return "Read the page state";
     case "ui_get_text":
       return selector ? `Read text of "${selector}"` : "Read the page text";
     case "ui_take_screenshot":
-      return "Took a screenshot";
+      if (selector) return `Took a screenshot of ${selector}`;
+      return action.args?.["fullPage"] === true ? "Took a full-page screenshot" : "Took a screenshot";
     default:
       return action.action;
   }
+}
+
+/** One line for the report header naming the context settings the session ran with (T032), or "" when none. */
+function describeSettings(settings: SessionRecord["settings"]): string {
+  if (!settings) return "";
+  const parts = [
+    settings.device && `device ${settings.device}`,
+    settings.viewport && `viewport ${settings.viewport.width}×${settings.viewport.height}`,
+    settings.colorScheme && `${settings.colorScheme} colour scheme`,
+    settings.locale && `locale ${settings.locale}`,
+    settings.timezoneId && `timezone ${settings.timezoneId}`,
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 export interface StepGroup {
@@ -554,6 +587,7 @@ async function renderHtml(record: SessionRecord): Promise<string> {
   </table>`;
 
   const duration = formatDuration(record.startedAt, record.endedAt) ?? "unknown";
+  const settingsLine = describeSettings(record.settings);
 
   return `<!doctype html>
 <html>
@@ -617,6 +651,7 @@ ${embedder.styles()}
     <p class="meta"><strong>${escapeHtml(record.target)}</strong></p>
     <p class="meta">${groups.length} step(s) · ${record.actions.length} actions · ${failCount} failed · ${softCount} non-fatal check(s) false · ${issues.length} browser problem(s) · took ${duration}</p>
     <p class="meta">${escapeHtml(record.startedAt)} → ${escapeHtml(record.endedAt ?? "(never ended)")} · id ${escapeHtml(record.id)}</p>
+    ${settingsLine ? `<p class="meta settings">${escapeHtml(settingsLine)}</p>` : ""}
     ${record.screenshotBudgetReached ? `<p class="note">Screenshot budget reached — further failure screenshots were not captured.</p>` : ""}
   </div>
 

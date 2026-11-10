@@ -289,23 +289,189 @@ export async function setChecked(
   });
 }
 
+/** Result with a sentence for the agent (T032): what happened, beyond ok/error. */
+export interface MessageResult extends ActionResult {
+  message?: string;
+}
+
+/** Allowed `ui_set_viewport` / session `viewport` range (T032 AC3). */
+export const MIN_VIEWPORT_WIDTH = 320;
+export const MAX_VIEWPORT_WIDTH = 3840;
+export const MIN_VIEWPORT_HEIGHT = 320;
+export const MAX_VIEWPORT_HEIGHT = 2160;
+
 /**
- * Scroll the single element matching `selector` into view, or — with no selector —
- * the page down by one viewport. A page that cannot scroll is not an error.
+ * Resize the current page's viewport. Selectors from an earlier `ui_get_page_state`
+ * may point at different elements after a resize (responsive layouts), so the
+ * message says to read the state again.
  */
-export async function scroll(page: Page, selector?: string): Promise<ActionResult> {
-  if (selector === undefined) {
-    try {
-      await page.evaluate("window.scrollBy(0, window.innerHeight)");
-      return { ok: true };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { ok: false, error: message };
-    }
+export async function setViewport(page: Page, width: number, height: number): Promise<MessageResult> {
+  const inRange = (n: number, min: number, max: number) => Number.isInteger(n) && n >= min && n <= max;
+  if (
+    !inRange(width, MIN_VIEWPORT_WIDTH, MAX_VIEWPORT_WIDTH) ||
+    !inRange(height, MIN_VIEWPORT_HEIGHT, MAX_VIEWPORT_HEIGHT)
+  ) {
+    return {
+      ok: false,
+      error: `Viewport must be whole pixels, ${MIN_VIEWPORT_WIDTH}-${MAX_VIEWPORT_WIDTH} wide and ${MIN_VIEWPORT_HEIGHT}-${MAX_VIEWPORT_HEIGHT} high (got ${width}x${height})`,
+    };
   }
-  return onUniqueLocator(page, selector, async (locator) => {
-    await locator.scrollIntoViewIfNeeded({ timeout: 5_000 });
+  try {
+    await page.setViewportSize({ width, height });
+    return {
+      ok: true,
+      message: `Viewport set to ${width}x${height}. The layout may have changed: call ui_get_page_state again (selectors containing "nth=" may be stale).`,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: message };
+  }
+}
+
+/** Longest per-keystroke pause `ui_type` accepts. */
+export const MAX_TYPE_DELAY_MS = 500;
+
+export interface TypeResult extends ActionResult {
+  /** True unless the target was positively a non-secret field: the caller must then
+   * keep the typed text out of the report (a password, one-time-code, card-number or
+   * text-security field, or a target we could not check). */
+  masked: boolean;
+}
+
+/**
+ * Type `text` into the single editable element matching `selector`, one key at a time
+ * (`keydown`/`input`/`keyup` per character), appending to what is already there.
+ * Unlike `fill` this triggers autocomplete, masked inputs and OTP boxes.
+ */
+export async function typeText(
+  page: Page,
+  selector: string,
+  text: string,
+  delayMs: number = 0
+): Promise<TypeResult> {
+  let masked = true;
+  const result = await onUniqueLocator(page, selector, async (locator) => {
+    masked = (await locator.evaluate((el) => {
+      const input = el as HTMLInputElement;
+      const autocomplete = (input.getAttribute("autocomplete") ?? "").toLowerCase();
+      return (
+        input.type === "password" ||
+        autocomplete.includes("one-time-code") ||
+        autocomplete.includes("cc-") ||
+        autocomplete.includes("password") ||
+        !["", "none"].includes(getComputedStyle(el).getPropertyValue("-webkit-text-security"))
+      );
+    })) as boolean;
+    // Throws for a non-input element such as a <div>; false for a disabled or read-only one.
+    if (!(await locator.isEditable({ timeout: 5_000 }))) {
+      return { ok: false, error: `Element matched by "${selector}" is not editable (disabled or read-only)` };
+    }
+    await locator.pressSequentially(text, { delay: delayMs, timeout: 5_000 + text.length * delayMs });
   });
+  return { ...result, masked };
+}
+
+/**
+ * Go back, forward or reload on the current page. Chromium keeps the initial blank
+ * page as history entry 0, so "back" from the first real page would land on
+ * about:blank; that, and a missing forward entry, are reported instead of followed.
+ */
+export async function navigateHistory(
+  page: Page,
+  action: "back" | "forward" | "reload"
+): Promise<NavigateResult> {
+  try {
+    if (action !== "reload") {
+      const cdp = await page.context().newCDPSession(page);
+      let history: { currentIndex: number; entries: { url: string }[] };
+      try {
+        history = await cdp.send("Page.getNavigationHistory");
+      } finally {
+        await cdp.detach().catch(() => undefined);
+      }
+      const target = history.entries[history.currentIndex + (action === "back" ? -1 : 1)];
+      const initialBlank = action === "back" && history.currentIndex === 1 && target?.url === "about:blank";
+      if (!target || initialBlank) {
+        return {
+          ok: false,
+          url: page.url(),
+          error: `No ${action === "back" ? "earlier" : "later"} history entry: cannot go ${action} from ${page.url()}`,
+        };
+      }
+    }
+    const options = { waitUntil: "load", timeout: 15_000 } as const;
+    if (action === "back") await page.goBack(options);
+    else if (action === "forward") await page.goForward(options);
+    else await page.reload(options);
+    return { ok: true, url: page.url(), title: await page.title() };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, url: page.url(), error: message };
+  }
+}
+
+export type ScrollDirection = "down" | "up" | "left" | "right" | "top" | "bottom";
+
+export interface ScrollResult extends MessageResult {
+  /** False when the scroll position did not change (already at that edge, or nothing to scroll). */
+  moved?: boolean;
+  /** True when, after this call, the area is at the edge in `direction`: stop looping. */
+  atEnd?: boolean;
+}
+
+/**
+ * Scroll one step. Three modes:
+ *  - `selector`: bring that element into view (`container` / `direction` do not apply);
+ *  - `container`: scroll that element by one of its own heights (or widths) in `direction`;
+ *  - neither: scroll the page by one viewport in `direction` (default down).
+ * `top` / `bottom` jump to that edge. The result says whether anything moved and whether
+ * the edge was reached, so a lazy-list loop knows when to stop. A scroll area with
+ * nothing to scroll is not an error.
+ */
+export async function scroll(
+  page: Page,
+  selector?: string,
+  options: { container?: string; direction?: ScrollDirection } = {}
+): Promise<ScrollResult> {
+  const { container, direction = "down" } = options;
+  if (selector !== undefined) {
+    if (container !== undefined || options.direction !== undefined) {
+      return { ok: false, error: "selector scrolls an element into view; do not combine it with container or direction" };
+    }
+    return onUniqueLocator(page, selector, async (locator) => {
+      await locator.scrollIntoViewIfNeeded({ timeout: 5_000 });
+    });
+  }
+  // The page itself scrolls through the document element (its scrollingElement).
+  const area = container === undefined ? "the page" : `"${container}"`;
+  const outcome = await onUniqueLocator(page, container ?? "html", async (locator) => {
+    // NOTE: no named inner functions here: tsx/esbuild adds a `__name` helper the browser lacks.
+    // `behavior: "instant"` overrides CSS `scroll-behavior: smooth`, which would otherwise
+    // leave the position unchanged when we read it back.
+    const read = (await locator.evaluate((el, dir) => {
+      const t = el === document.documentElement ? document.scrollingElement || el : el;
+      const vertical = dir === "down" || dir === "up" || dir === "top" || dir === "bottom";
+      const before = vertical ? t.scrollTop : t.scrollLeft;
+      const size = vertical ? t.clientHeight : t.clientWidth;
+      const max = (vertical ? t.scrollHeight - t.clientHeight : t.scrollWidth - t.clientWidth);
+      const to =
+        dir === "down" || dir === "right" ? before + size : dir === "up" || dir === "left" ? before - size : dir === "top" ? 0 : max;
+      t.scrollTo(vertical ? { top: to, behavior: "instant" } : { left: to, behavior: "instant" });
+      const after = vertical ? t.scrollTop : t.scrollLeft;
+      const towardStart = dir === "up" || dir === "left" || dir === "top";
+      return { moved: after !== before, atEnd: towardStart ? after <= 0 : after >= max - 1, scrollable: max > 0 };
+    }, direction)) as { moved: boolean; atEnd: boolean; scrollable: boolean };
+    const edge = { down: "bottom", up: "top", top: "top", bottom: "bottom", left: "left edge", right: "right edge" }[direction];
+    const message = !read.scrollable
+      ? `Nothing to scroll: ${area} does not overflow ${direction === "left" || direction === "right" ? "horizontally" : "vertically"} (end reached)`
+      : !read.moved
+        ? `Did not move: ${area} is already at the ${edge} (end reached)`
+        : read.atEnd
+          ? `Scrolled ${area} ${direction}; reached the ${edge} (end reached)`
+          : `Scrolled ${area} ${direction} one step`;
+    return { ok: true, moved: read.moved, atEnd: read.atEnd, message } as ScrollResult;
+  });
+  return outcome as ScrollResult;
 }
 
 export interface AssertResult {
@@ -987,26 +1153,137 @@ export async function getText(page: Page | undefined, selector?: string): Promis
 export interface ScreenshotResult {
   ok: boolean;
   path?: string;
+  /** Base64 PNG scaled to fit MAX_INLINE_WIDTH x MAX_INLINE_HEIGHT; only with `inline: true`. Never written to disk. */
+  imageBase64?: string;
+  /** Something the agent should know about the capture (e.g. a full page that was capped). */
+  note?: string;
   error?: string;
 }
 
+export interface ScreenshotOptions {
+  /** Capture just the single element matching this selector. */
+  selector?: string;
+  /** Capture the whole scrollable page (height capped at MAX_FULL_PAGE_HEIGHT). */
+  fullPage?: boolean;
+  /** Also return the PNG itself, scaled down, so the agent can look at it. */
+  inline?: boolean;
+}
+
+/** Widest inline image returned to the agent; wider captures are scaled down. */
+export const MAX_INLINE_WIDTH = 1280;
+/** Tallest inline image: the Claude API rejects images over 8000px on either side. */
+export const MAX_INLINE_HEIGHT = 8000;
+/** Tallest full-page capture, in device pixels, to keep the PNG (and the report that embeds it) small. */
+export const MAX_FULL_PAGE_HEIGHT = 16_000;
+/** Widest full-page capture, in CSS pixels (the widest viewport `ui_set_viewport` accepts). */
+export const MAX_FULL_PAGE_WIDTH = 3840;
+
 /**
- * Capture the current viewport and write it as a PNG under `outputDir`.
+ * Scale `png` down to fit within `maxWidth` x `maxHeight`, keeping the aspect ratio, by
+ * drawing it in a scratch context of the same browser (no image library needed; a
+ * separate context so the session's device emulation, cookies and pages are untouched).
+ * A PNG that already fits is returned as is, with `scaled: false`.
+ */
+async function scaleToFit(
+  page: Page,
+  png: Buffer,
+  maxWidth: number,
+  maxHeight: number
+): Promise<{ png: Buffer; scaled: boolean; width: number; height: number }> {
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  if (width <= maxWidth && height <= maxHeight) return { png, scaled: false, width, height };
+  const browser = page.context().browser();
+  if (!browser) throw new Error("no browser to scale with");
+  const ratio = Math.min(maxWidth / width, maxHeight / height);
+  const scaledWidth = Math.max(1, Math.min(maxWidth, Math.round(width * ratio)));
+  const scaledHeight = Math.max(1, Math.min(maxHeight, Math.round(height * ratio)));
+  const scratch = await browser.newContext({ viewport: { width: scaledWidth, height: scaledHeight } });
+  try {
+    const scratchPage = await scratch.newPage();
+    await scratchPage.setContent(
+      `<body style="margin:0"><img style="display:block;width:${scaledWidth}px;height:${scaledHeight}px" src="data:image/png;base64,${png.toString("base64")}"></body>`
+    );
+    return { png: await scratchPage.screenshot({ type: "png" }), scaled: true, width: scaledWidth, height: scaledHeight };
+  } finally {
+    await scratch.close().catch(() => undefined);
+  }
+}
+
+/**
+ * Capture the current viewport (or one element, or the full page) and write it as a
+ * PNG under `outputDir`. With `inline`, the PNG is also returned in memory, scaled to
+ * fit MAX_INLINE_WIDTH x MAX_INLINE_HEIGHT: it is not written a second time.
  * Write failures (disk full, permissions) return a clear error instead of
  * crashing the session (Edge Case Checklist).
  */
 export async function takeScreenshot(
   page: Page | undefined,
-  outputDir: string
+  outputDir: string,
+  options: ScreenshotOptions = {}
 ): Promise<ScreenshotResult> {
   if (!page) {
     return { ok: false, error: "No active page — call ui_navigate first" };
   }
+  const { selector, fullPage, inline } = options;
+  if (selector !== undefined && fullPage) {
+    return { ok: false, error: "Use either selector (one element) or fullPage (the whole page), not both" };
+  }
   try {
+    let locator: ReturnType<Page["locator"]> | undefined;
+    if (selector !== undefined) {
+      const resolved = await resolveUniqueLocator(page, selector);
+      if (!resolved.ok) return { ok: false, error: resolved.error };
+      locator = resolved.locator;
+    }
     await mkdir(outputDir, { recursive: true });
     const filePath = path.join(outputDir, `screenshot-${Date.now()}.png`);
-    await page.screenshot({ path: filePath });
-    return { ok: true, path: filePath };
+    let note: string | undefined;
+    let png: Buffer;
+    if (locator) {
+      png = await locator.screenshot({ path: filePath, timeout: 5_000 });
+    } else if (fullPage) {
+      const size = (await page.evaluate(
+        "({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight, ratio: window.devicePixelRatio || 1 })"
+      )) as { width: number; height: number; ratio: number };
+      // The height cap is in device pixels (a ratio-3 phone would otherwise write 48000px); clip is in CSS pixels.
+      const maxCssHeight = Math.floor(MAX_FULL_PAGE_HEIGHT / size.ratio);
+      const width = Math.min(size.width, MAX_FULL_PAGE_WIDTH);
+      const height = Math.min(size.height, maxCssHeight);
+      const notes: string[] = [];
+      if (size.height > maxCssHeight) {
+        notes.push(`Page is ${size.height}px tall; the capture was cut at ${MAX_FULL_PAGE_HEIGHT}px`);
+      }
+      if (size.width > MAX_FULL_PAGE_WIDTH) {
+        notes.push(`Page is ${size.width}px wide; the capture was cut at ${MAX_FULL_PAGE_WIDTH}px`);
+      }
+      if (notes.length > 0) {
+        note = notes.join(". ");
+        png = await page.screenshot({ path: filePath, fullPage: true, clip: { x: 0, y: 0, width, height } });
+      } else {
+        png = await page.screenshot({ path: filePath, fullPage: true });
+      }
+    } else {
+      png = await page.screenshot({ path: filePath });
+    }
+    const result: ScreenshotResult = { ok: true, path: filePath };
+    if (note) result.note = note;
+    if (inline) {
+      try {
+        const fitted = await scaleToFit(page, png, MAX_INLINE_WIDTH, MAX_INLINE_HEIGHT);
+        result.imageBase64 = fitted.png.toString("base64");
+        if (fitted.scaled) {
+          const from = `${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`;
+          const scaledNote = `Inline image scaled to ${fitted.width}x${fitted.height} (file is ${from}); the file on disk is full size`;
+          result.note = [note, scaledNote].filter(Boolean).join(". ");
+        }
+      } catch (err) {
+        // The capture itself succeeded and is on disk; only the inline copy is missing.
+        const reason = err instanceof Error ? err.message : String(err);
+        result.note = [note, `Inline image unavailable (${reason}); read the file instead`].filter(Boolean).join(". ");
+      }
+    }
+    return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };

@@ -19,7 +19,12 @@ import {
   textSelectorOrUndefined,
   clickOutside,
   describeClick,
+  setViewport,
+  typeText,
+  navigateHistory,
 } from "../src/tools/web.js";
+import { createServer, type Server } from "node:http";
+import { readFileSync, readdirSync } from "node:fs";
 
 const FIXTURE_HTML = `
 <!doctype html>
@@ -917,7 +922,7 @@ test("setChecked fails clearly on a non-checkbox and on unchecking a radio (T019
 test("scroll brings an element into view, or pages down one viewport when omitted (T019 AC5)", async () => {
   const p = await interactPage();
   assert.equal(await p.evaluate("window.scrollY"), 0);
-  assert.deepEqual(await scroll(p), { ok: true });
+  assert.equal((await scroll(p)).ok, true);
   const afterPage = (await p.evaluate("window.scrollY")) as number;
   assert.ok(afterPage > 0, `expected scrollY > 0, got ${afterPage}`);
   assert.deepEqual(await scroll(p, "#footer"), { ok: true });
@@ -926,7 +931,7 @@ test("scroll brings an element into view, or pages down one viewport when omitte
 
 test("scroll on a non-scrollable page is ok (T019 edge)", async () => {
   await fixturePage.setContent("<p>short</p>", { waitUntil: "domcontentloaded" });
-  assert.deepEqual(await scroll(fixturePage), { ok: true });
+  assert.equal((await scroll(fixturePage)).ok, true);
   assert.equal(await fixturePage.evaluate("window.scrollY"), 0);
 });
 
@@ -1067,4 +1072,414 @@ test("T031 AC6: describeClick builds the same sentence for every option", () => 
   assert.equal(describeClick("#x", { position: { x: 4, y: 4 } }), "Clicked #x at 4,4");
   assert.equal(describeClick("#x", { force: true }), "Clicked #x (forced)");
   assert.equal(describeClick("#x", { button: "left", clickCount: 1, force: false }), "Clicked #x");
+});
+
+// --- T032: real sizes, typing, history, panel scroll, screenshots ---
+
+/** A throwaway page, so size/scroll changes cannot leak into the shared fixturePage. */
+async function withPage<T>(fn: (p: Page) => Promise<T>, viewport?: { width: number; height: number }): Promise<T> {
+  const p = await browser.newPage(viewport ? { viewport } : undefined);
+  try {
+    return await fn(p);
+  } finally {
+    await p.close();
+  }
+}
+
+const pngSize = (buf: Buffer) => ({ width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) });
+
+test("setViewport resizes the page and says to re-read page state (T032 AC3)", async () => {
+  await withPage(async (p) => {
+    await p.setContent("<p>x</p>");
+    const result = await setViewport(p, 375, 812);
+    assert.equal(result.ok, true);
+    assert.equal(await p.evaluate("innerWidth"), 375);
+    assert.equal(await p.evaluate("innerHeight"), 812);
+    assert.match((result as { message?: string }).message ?? "", /ui_get_page_state/);
+  });
+});
+
+test("setViewport rejects sizes outside 320-3840 x 320-2160 and non-integers, leaving the size alone (T032 AC3)", async () => {
+  await withPage(async (p) => {
+    for (const [w, h] of [[319, 800], [3841, 800], [800, 319], [800, 2161], [800.5, 800], [Number.NaN, 800]]) {
+      const result = await setViewport(p, w, h);
+      assert.equal(result.ok, false, `${w}x${h} should be rejected`);
+      assert.match(result.error ?? "", /320/);
+    }
+    assert.equal(await p.evaluate("innerWidth"), 1280);
+    assert.equal((await setViewport(p, 320, 320)).ok, true);
+    assert.equal((await setViewport(p, 3840, 2160)).ok, true);
+  });
+});
+
+const TYPE_HTML = `<!doctype html><body>
+  <input id="q" type="text" /><input id="pw" type="password" /><input id="ro" readonly value="x" />
+  <input id="off" disabled /><div id="d">plain</div>
+  <script>
+    window.events = { input: 0, keydown: 0 };
+    for (const id of ["q", "pw"]) {
+      const el = document.getElementById(id);
+      el.addEventListener("input", () => events.input++);
+      el.addEventListener("keydown", () => events.keydown++);
+    }
+  </script></body>`;
+
+test("typeText fires keydown and input per character, unlike fill (T032 AC5)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(TYPE_HTML);
+    const typed = await typeText(p, "#q", "abc");
+    assert.equal(typed.ok, true);
+    assert.equal(typed.masked, false);
+    assert.deepEqual(await p.evaluate("events"), { input: 3, keydown: 3 });
+    assert.equal(await p.inputValue("#q"), "abc");
+
+    await p.evaluate("events.input = 0; events.keydown = 0; document.getElementById('q').value = ''");
+    await fill(p, "#q", "abc");
+    assert.deepEqual(await p.evaluate("events"), { input: 1, keydown: 0 });
+  });
+});
+
+test("typeText appends to the existing value like a user, and honours delayMs (T032 AC5)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(TYPE_HTML);
+    await fill(p, "#q", "x");
+    const started = Date.now();
+    await typeText(p, "#q", "abc", 60);
+    assert.ok(Date.now() - started >= 150, "3 characters at 60ms each take at least ~180ms");
+    assert.equal(await p.inputValue("#q"), "xabc");
+  });
+});
+
+test("typeText flags password targets and unresolved targets as masked, plain inputs as not (T032 AC5)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(TYPE_HTML);
+    assert.equal((await typeText(p, "#pw", "hunter2")).masked, true);
+    assert.equal(await p.inputValue("#pw"), "hunter2");
+    const missing = await typeText(p, "#nope", "secret");
+    assert.equal(missing.ok, false);
+    assert.equal(missing.masked, true);
+    assert.equal((await typeText(p, "#q", "visible")).masked, false);
+  });
+});
+
+test("typeText masks password-like targets: autocomplete one-time-code/cc-/password and text-security (T032 S-1)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(`<body>
+      <input id="otp" autocomplete="one-time-code" /><input id="cc" autocomplete="cc-number" />
+      <input id="np" autocomplete="new-password" /><input id="cp" autocomplete="CURRENT-PASSWORD" />
+      <input id="sec" style="-webkit-text-security: disc" /><input id="tel" autocomplete="tel" /><input id="off" autocomplete="off" />
+    </body>`);
+    for (const id of ["otp", "cc", "np", "cp", "sec"]) {
+      assert.equal((await typeText(p, `#${id}`, "OTPCODE-222")).masked, true, `#${id} must be masked`);
+    }
+    for (const id of ["tel", "off"]) {
+      assert.equal((await typeText(p, `#${id}`, "visible")).masked, false, `#${id} must not be masked`);
+    }
+  });
+});
+
+test("typeText passes errors through for read-only, disabled and non-editable targets (T032 edge)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(TYPE_HTML);
+    for (const selector of ["#ro", "#off", "#d"]) {
+      const result = await typeText(p, selector, "z");
+      assert.equal(result.ok, false, `${selector} should not accept typing`);
+      assert.ok((result.error ?? "").length > 0);
+    }
+    assert.equal(await p.inputValue("#ro"), "x");
+    assert.equal(await p.textContent("#d"), "plain");
+  });
+});
+
+let historyServer: Server;
+let historyBase = "";
+let aHits = 0;
+
+test.before(async () => {
+  historyServer = createServer((req, res) => {
+    res.setHeader("content-type", "text/html");
+    if (req.url === "/a") {
+      aHits++;
+      res.end(`<title>Page A</title><p id="hits">${aHits}</p>`);
+    } else {
+      res.end(`<title>Page B</title><p>b</p>`);
+    }
+  });
+  await new Promise<void>((resolve) => historyServer.listen(0, "127.0.0.1", resolve));
+  const address = historyServer.address();
+  historyBase = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+});
+
+test.after(() => {
+  historyServer.close();
+});
+
+test("navigateHistory goes back, forward and reload, reporting URL and title (T032 AC6)", async () => {
+  await withPage(async (p) => {
+    await navigate(p, `${historyBase}/a`);
+    await navigate(p, `${historyBase}/b`);
+
+    const back = await navigateHistory(p, "back");
+    assert.equal(back.ok, true);
+    assert.equal(back.url, `${historyBase}/a`);
+    assert.equal(back.title, "Page A");
+
+    const forward = await navigateHistory(p, "forward");
+    assert.equal(forward.ok, true);
+    assert.equal(forward.url, `${historyBase}/b`);
+    assert.equal(forward.title, "Page B");
+
+    await navigateHistory(p, "back");
+    const before = Number(await p.textContent("#hits"));
+    const reload = await navigateHistory(p, "reload");
+    assert.equal(reload.ok, true);
+    assert.equal(reload.url, `${historyBase}/a`);
+    assert.equal(Number(await p.textContent("#hits")), before + 1, "reload hit the server again");
+  });
+});
+
+test("navigateHistory keeps form state a re-navigate would lose: back restores the earlier page (T032 AC6)", async () => {
+  await withPage(async (p) => {
+    await navigate(p, `${historyBase}/a`);
+    await navigate(p, `${historyBase}/b`);
+    await navigateHistory(p, "back");
+    assert.equal(p.url(), `${historyBase}/a`);
+  });
+});
+
+test("navigateHistory says so when there is no entry to go back or forward to (T032 AC6)", async () => {
+  await withPage(async (p) => {
+    await navigate(p, `${historyBase}/a`);
+    const back = await navigateHistory(p, "back");
+    assert.equal(back.ok, false);
+    assert.match(back.error ?? "", /no (earlier|previous)/i);
+    assert.equal(p.url(), `${historyBase}/a`, "the page did not move to about:blank");
+
+    const forward = await navigateHistory(p, "forward");
+    assert.equal(forward.ok, false);
+    assert.match(forward.error ?? "", /no (later|next)/i);
+  });
+});
+
+const SCROLL_HTML = `<!doctype html><body style="margin:0">
+  <div id="panel" style="height:300px;width:300px;overflow:auto"><div style="height:1000px">tall</div></div>
+  <div id="carousel" style="width:300px;overflow-x:auto;white-space:nowrap"><div style="width:1000px;height:20px">wide</div></div>
+  <div id="static" style="height:100px;overflow:auto">short</div>
+  <div class="dup" style="height:50px;overflow:auto"></div><div class="dup" style="height:50px;overflow:auto"></div>
+  <div style="height:2000px">page filler</div></body>`;
+
+const metrics = (p: Page, sel: string) =>
+  p.locator(sel).evaluate((el) => ({ top: el.scrollTop, left: el.scrollLeft, h: el.clientHeight, w: el.clientWidth, sh: el.scrollHeight, sw: el.scrollWidth }));
+
+test("scroll moves a container one step per call down to the end, then says the end was reached (T032 AC7/AC8)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(SCROLL_HTML);
+    const first = await scroll(p, undefined, { container: "#panel" });
+    assert.equal(first.ok, true);
+    assert.equal(first.moved, true);
+    assert.equal(first.atEnd, false);
+    const m1 = await metrics(p, "#panel");
+    assert.equal(m1.top, m1.h, "one container height per call");
+
+    let last = first;
+    for (let i = 0; i < 10 && !last.atEnd; i++) last = await scroll(p, undefined, { container: "#panel" });
+    assert.equal(last.atEnd, true);
+    assert.match(last.message ?? "", /end/i);
+    const m2 = await metrics(p, "#panel");
+    assert.ok(m2.top + m2.h >= m2.sh - 1);
+
+    const again = await scroll(p, undefined, { container: "#panel", direction: "down" });
+    assert.equal(again.ok, true);
+    assert.equal(again.moved, false);
+    assert.match(again.message ?? "", /end/i);
+
+    const up = await scroll(p, undefined, { container: "#panel", direction: "up" });
+    assert.equal(up.moved, true);
+    assert.equal((await scroll(p, undefined, { container: "#panel", direction: "top" })).atEnd, true);
+    assert.equal((await metrics(p, "#panel")).top, 0);
+    assert.equal((await scroll(p, undefined, { container: "#panel", direction: "bottom" })).atEnd, true);
+    const m3 = await metrics(p, "#panel");
+    assert.ok(m3.top + m3.h >= m3.sh - 1);
+  });
+});
+
+test("scroll moves a horizontal carousel left and right (T032 AC7)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(SCROLL_HTML);
+    const right = await scroll(p, undefined, { container: "#carousel", direction: "right" });
+    assert.equal(right.moved, true);
+    assert.ok((await metrics(p, "#carousel")).left > 0);
+    const left = await scroll(p, undefined, { container: "#carousel", direction: "left" });
+    assert.equal(left.moved, true);
+    assert.equal((await metrics(p, "#carousel")).left, 0);
+  });
+});
+
+test("scroll on a container that does not overflow is ok and says there is nothing to scroll (T032 edge)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(SCROLL_HTML);
+    const result = await scroll(p, undefined, { container: "#static" });
+    assert.equal(result.ok, true);
+    assert.equal(result.moved, false);
+    assert.match(result.message ?? "", /nothing to scroll/i);
+  });
+});
+
+test("scroll takes page directions, and moves immediately even under CSS smooth scrolling (T032 AC7)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(SCROLL_HTML.replace("<body", `<style>html{scroll-behavior:smooth}</style><body`));
+    assert.equal((await scroll(p, undefined, { direction: "down" })).moved, true);
+    assert.ok(((await p.evaluate("window.scrollY")) as number) > 0, "moved before scroll() returned");
+    assert.equal((await scroll(p, undefined, { direction: "bottom" })).atEnd, true);
+    assert.equal((await scroll(p, undefined, { direction: "top" })).atEnd, true);
+    assert.equal(await p.evaluate("window.scrollY"), 0);
+  });
+});
+
+test("scroll rejects a selector combined with container/direction, and a container matching several elements (T032 AC7)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(SCROLL_HTML);
+    const mixed = await scroll(p, "#panel", { direction: "up" });
+    assert.equal(mixed.ok, false);
+    assert.match(mixed.error ?? "", /selector.*container|container.*selector|direction/i);
+    const dup = await scroll(p, undefined, { container: ".dup" });
+    assert.equal(dup.ok, false);
+    assert.match(dup.error ?? "", /matched 2 elements/);
+    assert.equal((await scroll(p, undefined, { container: "#nope" })).ok, false);
+  });
+});
+
+const SHOT_DIR = path.join(process.cwd(), "test", ".tmp-screenshots-t032");
+
+test("takeScreenshot of a selector captures just that element, no image content unless inline (T032 AC9)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(`<body style="margin:0"><div id="box" style="width:200px;height:100px;background:#c33"></div><div style="height:2000px"></div>`);
+    try {
+      const result = await takeScreenshot(p, SHOT_DIR, { selector: "#box" });
+      assert.equal(result.ok, true);
+      assert.deepEqual(pngSize(readFileSync(result.path!)), { width: 200, height: 100 });
+      assert.equal(result.imageBase64, undefined);
+      const missing = await takeScreenshot(p, SHOT_DIR, { selector: "#nope" });
+      assert.equal(missing.ok, false);
+      assert.match(missing.error ?? "", /No element matched/);
+    } finally {
+      rmSync(SHOT_DIR, { recursive: true, force: true });
+    }
+  });
+});
+
+test("takeScreenshot fullPage captures the whole page, and rejects selector + fullPage (T032 AC9)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(`<body style="margin:0"><div style="height:3000px;background:#369"></div>`);
+    try {
+      const viewport = await takeScreenshot(p, SHOT_DIR);
+      const full = await takeScreenshot(p, SHOT_DIR, { fullPage: true });
+      assert.equal(pngSize(readFileSync(viewport.path!)).height, 720);
+      assert.equal(pngSize(readFileSync(full.path!)).height, 3000);
+      const both = await takeScreenshot(p, SHOT_DIR, { selector: "div", fullPage: true });
+      assert.equal(both.ok, false);
+      assert.match(both.error ?? "", /selector.*fullPage|fullPage.*selector/);
+    } finally {
+      rmSync(SHOT_DIR, { recursive: true, force: true });
+    }
+  });
+});
+
+test("takeScreenshot fullPage caps a very tall page at 16000px and says so (T032 edge)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(`<body style="margin:0"><div style="height:20000px;background:#369"></div>`);
+    try {
+      const full = await takeScreenshot(p, SHOT_DIR, { fullPage: true });
+      assert.equal(full.ok, true);
+      assert.equal(pngSize(readFileSync(full.path!)).height, 16000);
+      assert.match(full.note ?? "", /16000/);
+    } finally {
+      rmSync(SHOT_DIR, { recursive: true, force: true });
+    }
+  });
+});
+
+test("takeScreenshot inline returns the PNG too, scaled to at most 1280px wide, written to disk once (T032 AC9/AC10)", async () => {
+  await withPage(
+    async (p) => {
+      await p.setContent(`<body style="margin:0"><div style="height:600px;background:#369"></div>`);
+      try {
+        const result = await takeScreenshot(p, SHOT_DIR, { inline: true });
+        assert.equal(result.ok, true);
+        assert.equal(pngSize(readFileSync(result.path!)).width, 2000, "the file on disk is unscaled");
+        const inline = Buffer.from(result.imageBase64!, "base64");
+        assert.equal(inline.subarray(1, 4).toString(), "PNG");
+        assert.equal(pngSize(inline).width, 1280);
+        assert.equal(pngSize(inline).height, 480, "aspect ratio kept (2000x750 -> 1280x480)");
+        assert.equal(readdirSync(SHOT_DIR).length, 1, "the inline copy is not written as a second file");
+      } finally {
+        rmSync(SHOT_DIR, { recursive: true, force: true });
+      }
+    },
+    { width: 2000, height: 750 }
+  );
+});
+
+test("takeScreenshot fullPage + inline on a very tall page: inline copy fits 1280x8000, ratio kept, and says so (T032 P1)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(`<body style="margin:0"><div style="height:40000px;background:#369"></div>`);
+    try {
+      const result = await takeScreenshot(p, SHOT_DIR, { fullPage: true, inline: true });
+      assert.equal(result.ok, true);
+      assert.deepEqual(pngSize(readFileSync(result.path!)), { width: 1280, height: 16000 });
+      assert.deepEqual(pngSize(Buffer.from(result.imageBase64!, "base64")), { width: 640, height: 8000 });
+      assert.match(result.note ?? "", /scaled/i);
+      assert.match(result.note ?? "", /640x8000/);
+      assert.equal(readdirSync(SHOT_DIR).length, 1, "the inline copy is not written as a second file");
+    } finally {
+      rmSync(SHOT_DIR, { recursive: true, force: true });
+    }
+  });
+});
+
+test("takeScreenshot fullPage on a very wide page clips the width to 3840 and scales the inline copy (T032 P2-1)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(`<body style="margin:0"><div style="width:30000px;height:500px;background:#369"></div>`);
+    try {
+      const result = await takeScreenshot(p, SHOT_DIR, { fullPage: true, inline: true });
+      assert.equal(result.ok, true);
+      assert.equal(pngSize(readFileSync(result.path!)).width, 3840);
+      assert.match(result.note ?? "", /3840/);
+      const inline = pngSize(Buffer.from(result.imageBase64!, "base64"));
+      assert.equal(inline.width, 1280);
+      assert.ok(inline.height <= 8000);
+    } finally {
+      rmSync(SHOT_DIR, { recursive: true, force: true });
+    }
+  });
+});
+
+test("takeScreenshot fullPage height cap counts device pixels, not CSS pixels (T032 P2-2)", async () => {
+  const p = await browser.newPage({ viewport: { width: 400, height: 800 }, deviceScaleFactor: 3 });
+  try {
+    await p.setContent(`<body style="margin:0"><div style="height:8000px;background:#369"></div>`);
+    const result = await takeScreenshot(p, SHOT_DIR, { fullPage: true, inline: true });
+    assert.equal(result.ok, true);
+    const file = pngSize(readFileSync(result.path!));
+    assert.equal(file.width, 1200, "400 CSS px at ratio 3");
+    assert.ok(file.height <= 16000 && file.height >= 15990, `file height ${file.height} is cut at 16000 device px`);
+    assert.match(result.note ?? "", /16000/);
+    const inline = pngSize(Buffer.from(result.imageBase64!, "base64"));
+    assert.ok(inline.width <= 1280 && inline.height <= 8000, `inline ${inline.width}x${inline.height}`);
+  } finally {
+    await p.close();
+    rmSync(SHOT_DIR, { recursive: true, force: true });
+  }
+});
+
+test("takeScreenshot inline leaves a small image unscaled, and works for an element (T032 AC9)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(`<body style="margin:0"><div id="box" style="width:200px;height:100px;background:#c33"></div>`);
+    try {
+      const result = await takeScreenshot(p, SHOT_DIR, { selector: "#box", inline: true });
+      assert.deepEqual(pngSize(Buffer.from(result.imageBase64!, "base64")), { width: 200, height: 100 });
+    } finally {
+      rmSync(SHOT_DIR, { recursive: true, force: true });
+    }
+  });
 });

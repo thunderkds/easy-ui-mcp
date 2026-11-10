@@ -7,7 +7,7 @@
 // of the MCP transport session. One MCP connection may hold several (T029); which
 // connection owns which id is tracked in connection-sessions.ts, not here.
 
-import { chromium, type Browser, type BrowserContext, type Dialog, type Page } from "playwright";
+import { chromium, devices, type Browser, type BrowserContext, type Dialog, type Page } from "playwright";
 import { randomUUID } from "node:crypto";
 import { truncate } from "../reports/index.js";
 
@@ -56,6 +56,55 @@ export function isFatalOutcome(entry: LoggedAction): boolean {
 /** `timed_out`: closed by the idle timer, not by ui_end_session (T029/D5). */
 export type SessionStatus = "running" | "passed" | "failed" | "timed_out";
 
+/** Browser-context settings a session can start with (T032/FR-024). All optional;
+ * with none, the context is Playwright's default (1280x720, desktop). */
+export interface SessionSettings {
+  /** A Playwright `devices` name, e.g. "iPhone 13": sets viewport, user agent, scale factor, mobile, touch. */
+  device?: string;
+  /** Explicit size; overrides the device's own viewport. */
+  viewport?: { width: number; height: number };
+  colorScheme?: "light" | "dark";
+  locale?: string;
+  timezoneId?: string;
+}
+
+/**
+ * Playwright `newContext` options for `settings`, or an error naming valid device
+ * names when `device` is unknown. Pure, so the merge rules are unit-testable.
+ */
+export function resolveContextOptions(
+  settings: SessionSettings = {}
+): { ok: true; options: Parameters<Browser["newContext"]>[0] } | { ok: false; error: string } {
+  const { device, viewport, colorScheme, locale, timezoneId } = settings;
+  let base = {};
+  if (device !== undefined) {
+    // Own keys only: "constructor" / "__proto__" are not devices.
+    const known = Object.hasOwn(devices, device) ? devices[device] : undefined;
+    if (!known) {
+      const names = Object.keys(devices);
+      const needle = device.toLowerCase();
+      const close = names.filter((n) => n.toLowerCase().includes(needle));
+      const fallback = ["iPhone 13", "Pixel 7", "iPad Pro 11", "Galaxy S9+"].filter((n) => n in devices);
+      const sample = (close.length > 0 ? close : fallback).slice(0, 5);
+      return {
+        ok: false,
+        error: `Unknown device "${device}". Valid names include: ${sample.map((n) => `"${n}"`).join(", ")} (${names.length} in total)`,
+      };
+    }
+    base = known;
+  }
+  return {
+    ok: true,
+    options: {
+      ...base,
+      ...(viewport && { viewport }),
+      ...(colorScheme && { colorScheme }),
+      ...(locale && { locale }),
+      ...(timezoneId && { timezoneId }),
+    },
+  };
+}
+
 export interface SessionRecord {
   id: string;
   target: string;
@@ -73,6 +122,8 @@ export interface SessionRecord {
   issues?: PageIssue[];
   /** Set once MAX_PAGE_ISSUES is hit, so the report says issues were dropped. */
   issuesTruncated?: boolean;
+  /** Context settings the session started with; absent when none were given. */
+  settings?: SessionSettings;
 }
 
 interface Session extends SessionRecord {
@@ -113,16 +164,30 @@ const sessions = new Map<string, Session>();
  * `holdDialogs` (T031, default false): hold native dialogs open for the agent to answer
  * with ui_dialog. Only callers that CAN answer (the MCP `ui_start_session`) set it; REST
  * /api/run-test cannot, so there a dialog is logged and dismissed at once, as before.
+ *
+ * `settings` (T032): browser-context options (viewport, device, colour scheme, locale,
+ * timezone); each session gets its own context, so two sessions can differ.
  */
 export async function startSession(
   target: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
   onIdle?: IdleCallback,
-  options: { holdDialogs?: boolean } = {}
+  options: { holdDialogs?: boolean; settings?: SessionSettings } = {}
 ): Promise<SessionRecord> {
+  const { settings } = options;
+  const resolved = resolveContextOptions(settings);
+  if (!resolved.ok) throw new Error(resolved.error);
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
-  const page = await context.newPage();
+  let context: BrowserContext;
+  let page: Page;
+  try {
+    context = await browser.newContext(resolved.options);
+    page = await context.newPage();
+  } catch (err) {
+    // e.g. an invalid locale or timezone id: do not leak the browser process.
+    await browser.close().catch(() => undefined);
+    throw err;
+  }
   const id = randomUUID();
 
   const session: Session = {
@@ -132,6 +197,7 @@ export async function startSession(
     startedAt: new Date().toISOString(),
     actions: [],
     issues: [],
+    ...(settings && Object.keys(settings).length > 0 && { settings: { ...settings } }),
     browser,
     context,
     page,

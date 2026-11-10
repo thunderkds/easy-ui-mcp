@@ -241,8 +241,9 @@ function argsFor(tool: { inputSchema: { properties?: Record<string, any>; requir
   for (const key of tool.inputSchema.required ?? []) {
     const prop = tool.inputSchema.properties?.[key];
     const type = prop?.type;
-    // An enum input (ui_dialog's `action`) only validates with one of its own values.
-    args[key] = prop?.enum?.[0] ?? (type === "boolean" ? true : type === "number" || type === "integer" ? 1 : "x");
+    // An enum input (ui_dialog's `action`) only validates with one of its own values, and a
+    // bounded number (ui_set_viewport's width/height) with one inside its range.
+    args[key] = prop?.enum?.[0] ?? (type === "boolean" ? true : type === "number" || type === "integer" ? (prop?.minimum ?? 1) : "x");
   }
   return args;
 }
@@ -354,6 +355,41 @@ describe("one connection, several sessions", () => {
     assert.equal(readsA[0].detail, undefined);
     const readsB = reportFor(b)!.json.actions.filter((x: any) => x.action === "ui_get_text");
     assert.equal(readsB.length, 2);
+  });
+
+  test("two sessions keep their own viewport; ui_set_viewport with a session_id resizes only that one (T032)", async () => {
+    const conn = await connect();
+    const startAt = async (target: string, viewport: { width: number; height: number }) => {
+      const r = await conn.call("ui_start_session", { target, viewport });
+      assert.equal(r.isError, false, r.text);
+      assert.match(r.text, new RegExp(`viewport ${viewport.width}x${viewport.height}`));
+      return /Session ([0-9a-f-]{36}) started/.exec(r.text)![1];
+    };
+    const phone = await startAt("viewport-phone", { width: 375, height: 812 });
+    const tablet = await startAt("viewport-tablet", { width: 768, height: 1024 });
+    for (const id of [phone, tablet]) {
+      assert.equal((await conn.call("ui_navigate", { url: PAGE_ONE, session_id: id })).isError, false);
+    }
+    const is = async (id: string, w: number) =>
+      (await conn.call("ui_assert", { condition: `innerWidth === ${w}`, session_id: id })).text;
+    assert.match(await is(phone, 375), /Assertion passed/);
+    assert.match(await is(tablet, 768), /Assertion passed/);
+
+    const resized = await conn.call("ui_set_viewport", { width: 1000, height: 700, session_id: phone });
+    assert.equal(resized.isError, false, resized.text);
+    assert.match(await is(phone, 1000), /Assertion passed/, "the targeted session resized");
+    assert.match(await is(tablet, 768), /Assertion passed/, "the other session kept its own size");
+
+    // an ambiguous call (two open, no id) is refused rather than resizing one of them
+    const ambiguous = await conn.call("ui_set_viewport", { width: 500, height: 600 });
+    assert.equal(ambiguous.isError, true);
+    assert.match(ambiguous.text, /session_id/);
+
+    for (const id of [phone, tablet]) assert.equal((await conn.call("ui_end_session", { session_id: id })).isError, false);
+    assert.equal(reportFor(phone)!.json.settings.viewport.width, 375, "the report keeps the size the session started with");
+    assert.equal(reportFor(tablet)!.json.settings.viewport.width, 768);
+    assert.ok(reportFor(phone)!.json.actions.some((x: any) => x.action === "ui_set_viewport"));
+    assert.ok(reportFor(tablet)!.json.actions.every((x: any) => x.action !== "ui_set_viewport"));
   });
 
   test("every tool advertises an optional session_id, apart from ui_start_session (AC2)", async () => {

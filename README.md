@@ -39,7 +39,7 @@ of `extra_hosts: ["host.docker.internal:host-gateway"]` to `docker-compose.yml`.
 
 ## Tools
 
-`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_click_outside`, `ui_dialog`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_get_text`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
+`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_set_viewport`, `ui_type`, `ui_navigate_history`, `ui_click_outside`, `ui_dialog`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_get_text`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
 
 ### Run several sessions side by side
 
@@ -99,6 +99,13 @@ Page state also tells you what the page looks like right now, so you do not have
 - `focused` is `{role, name, selector}` for the element holding focus. It is absent when focus is on the page body, in an iframe or in a shadow root.
 
 `ui_get_text` reads text: the trimmed visible text of one element (`selector`), or of the whole page body with no selector, cut at 4000 characters with a note of the real length. Use it to check a total, a heading or a field error. It fails on 0 or more than 1 match, like `ui_click`, and on an element that is not visible. The text it reads is returned to you but not stored in the report.
+### Test at real sizes, type like a user, see what you capture
+
+- **Sizes and settings.** `ui_start_session` takes optional `device` (a Playwright device name such as `"iPhone 13"`: mobile user agent, touch, pixel ratio, size), `viewport` `{width, height}` (overrides the device size), `colorScheme` (`light`/`dark`), `locale` and `timezoneId`. An unknown device is an error that lists valid names. With none of them the browser is a 1280x720 desktop. These apply to the session only (not to the shared page used without a session). `ui_set_viewport(width, height)` resizes mid-flow (320-3840 x 320-2160); layouts can change, so call `ui_get_page_state` again afterwards. The settings appear in the report header.
+- **Typing.** `ui_fill` sets the whole value at once. `ui_type(selector, text, delayMs?)` types key by key (`keydown`/`input`/`keyup` per character, appended to what is there), for autocomplete, search-as-you-type, masked inputs and OTP boxes. The report's step line only says how many characters were typed. The text itself is replaced by `••••` (in the reply and the stored step) when the target is a password, one-time-code or card-number (`autocomplete`) field, or uses `-webkit-text-security`.
+- **History.** `ui_navigate_history(action)` with `back`, `forward` or `reload` keeps the history and form state that a second `ui_navigate` would lose. With no entry to go to, it is an error that says so.
+- **Scrolling.** `ui_scroll` also takes `container` (the selector of a scroll area such as a chat panel, virtual table or carousel) and `direction` (`down`, `up`, `left`, `right`, `top`, `bottom`; default `down`). It moves one viewport (or container) step per call and says when the end was reached, so a loop over a lazy list knows when to stop.
+- **Screenshots.** `ui_take_screenshot` also takes `selector` (just that element), `fullPage` (the whole page, cut at 16000 device pixels tall and 3840px wide) and `inline: true`, which returns the PNG as image content (scaled to fit 1280x8000px) as well as writing it to `reports/`.
 
 ### Verifying vs waiting — pick the right one
 

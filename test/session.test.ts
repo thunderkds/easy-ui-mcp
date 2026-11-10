@@ -4,6 +4,7 @@ import { existsSync, rmSync, readFileSync, mkdirSync, copyFileSync } from "node:
 import path from "node:path";
 import {
   startSession,
+  type SessionSettings,
   endSession,
   getSessionPage,
   isSessionActive,
@@ -1070,4 +1071,126 @@ test("T031 P3: the soft detail of an interrupted call carries the cleaned error,
   assert.equal(logged?.detail, "Interrupted by a native dialog; outcome unknown (Timeout 5000ms exceeded.)");
   await answerDialog(page, "accept");
   await endSession(id);
+});
+
+// --- T032: context options (viewport, device, colour scheme, locale, timezone) ---
+
+/** startSession with only browser-context settings (T032); the rest keeps its defaults. */
+const startWithSettings = (label: string, settings: SessionSettings) =>
+  startSession(label, undefined, undefined, { settings });
+
+const MEDIA_DARK = "matchMedia('(prefers-color-scheme: dark)').matches";
+const MOBILE_PAGE = "data:text/html,<meta name=viewport content=\"width=device-width\"><p>m</p>"; // a mobile browser lays out at 980px without this tag
+
+test("T032 AC1: viewport and colorScheme apply to the session page", async () => {
+  const record = await startWithSettings("t032-viewport", {
+    viewport: { width: 375, height: 812 },
+    colorScheme: "dark",
+  });
+  try {
+    const page = getSessionPage(record.id)!;
+    assert.equal(await page.evaluate("innerWidth"), 375);
+    assert.equal(await page.evaluate("innerHeight"), 812);
+    assert.equal(await page.evaluate(MEDIA_DARK), true);
+  } finally {
+    await endSession(record.id);
+  }
+});
+
+test("T032 AC1: locale and timezoneId apply", async () => {
+  const record = await startWithSettings("t032-locale", { locale: "fr-FR", timezoneId: "Asia/Tokyo" });
+  try {
+    const page = getSessionPage(record.id)!;
+    assert.equal(await page.evaluate("navigator.language"), "fr-FR");
+    assert.equal(await page.evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone"), "Asia/Tokyo");
+  } finally {
+    await endSession(record.id);
+  }
+});
+
+test("T032 AC1: no options keeps today's behaviour (1280x720, light, no settings on the record)", async () => {
+  const record = await startSession("t032-default");
+  try {
+    const page = getSessionPage(record.id)!;
+    assert.equal(await page.evaluate("innerWidth"), 1280);
+    assert.equal(await page.evaluate(MEDIA_DARK), false);
+    assert.equal(record.settings, undefined);
+  } finally {
+    await endSession(record.id);
+  }
+});
+
+test("T032 AC2: device sets mobile user agent, touch and size; explicit viewport overrides the device size", async () => {
+  const phone = await startWithSettings("t032-device", { device: "iPhone 13" });
+  const wide = await startWithSettings("t032-device-override", {
+    device: "iPhone 13",
+    viewport: { width: 500, height: 900 },
+  });
+  try {
+    const page = getSessionPage(phone.id)!;
+    await page.goto(MOBILE_PAGE);
+    assert.match((await page.evaluate("navigator.userAgent")) as string, /iPhone/);
+    assert.equal(await page.evaluate("'ontouchstart' in window"), true);
+    assert.equal(await page.evaluate("innerWidth"), 390);
+    assert.equal(await page.evaluate("devicePixelRatio"), 3);
+
+    const overridden = getSessionPage(wide.id)!;
+    await overridden.goto(MOBILE_PAGE);
+    assert.equal(await overridden.evaluate("innerWidth"), 500);
+    assert.match((await overridden.evaluate("navigator.userAgent")) as string, /iPhone/);
+  } finally {
+    await endSession(phone.id);
+    await endSession(wide.id);
+  }
+});
+
+test("T032 AC1: an unknown device is an error that lists valid names", async () => {
+  await assert.rejects(
+    () => startWithSettings("t032-bad-device", { device: "iPhone 99" }),
+    (err: Error) => /Unknown device "iPhone 99"/.test(err.message) && /"iPhone 13"/.test(err.message)
+  );
+});
+
+test("T032 AC1: device names are looked up as own keys, not through the prototype chain", async () => {
+  for (const device of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    await assert.rejects(
+      () => startWithSettings("t032-proto-device", { device }),
+      (err: Error) => err.message.includes(`Unknown device "${device}"`),
+      device
+    );
+  }
+});
+
+test("T032 AC1: an invalid timezone fails the start cleanly", async () => {
+  await assert.rejects(() => startWithSettings("t032-bad-tz", { timezoneId: "Not/AZone" }), /timezone/i);
+});
+
+test("T032 AC4: the report header shows the session's settings, and the JSON keeps them", async () => {
+  const record = await startWithSettings("t032-header", {
+    device: "iPhone 13",
+    viewport: { width: 375, height: 812 },
+    colorScheme: "dark",
+    locale: "de-DE",
+  });
+  const ended = await endSession(record.id);
+  assert.deepEqual(ended!.settings, {
+    device: "iPhone 13",
+    viewport: { width: 375, height: 812 },
+    colorScheme: "dark",
+    locale: "de-DE",
+  });
+  const { htmlPath, jsonPath } = await writeReports(ended!, TMP_REPORTS_DIR);
+  const html = readFileSync(htmlPath, "utf8");
+  assert.match(html, /iPhone 13/);
+  assert.match(html, /375×812/);
+  assert.match(html, /dark/);
+  assert.match(html, /de-DE/);
+  assert.equal(JSON.parse(readFileSync(jsonPath, "utf8")).settings.colorScheme, "dark");
+});
+
+test("T032 AC4: a session with no settings has no settings line", async () => {
+  const record = await startSession("t032-header-none");
+  const ended = await endSession(record.id);
+  const { htmlPath } = await writeReports(ended!, TMP_REPORTS_DIR);
+  assert.doesNotMatch(readFileSync(htmlPath, "utf8"), /class="meta settings"/);
 });

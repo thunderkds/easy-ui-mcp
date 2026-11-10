@@ -221,9 +221,9 @@
       <p class="eyebrow">&gt; local ui testing for claude code</p>
       <h1>easy-ui-mcp</h1>
       <p class="lede">A Dockerized MCP server that lets an AI agent such as Claude Code drive a real browser step by step and get back a JSON and HTML report with screenshots.</p>
-      <p>It exposes 19 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
+      <p>It exposes 22 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
       <div class="strip">
-        <div><div class="strip__num strip__num--key">19</div><div class="strip__label">MCP tools</div></div>
+        <div><div class="strip__num strip__num--key">22</div><div class="strip__label">MCP tools</div></div>
         <div><div class="strip__num">8765</div><div class="strip__label">port on localhost</div></div>
         <div><div class="strip__num strip__num--text">Chromium</div><div class="strip__label">the only browser (v1)</div></div>
         <div><div class="strip__num">0</div><div class="strip__label">LLM calls on the server</div></div>
@@ -276,18 +276,18 @@
 
     <section id="tools">
       <h2>Tools</h2>
-      <p>All 19 tools. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
+      <p>All 22 tools. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
       <div class="table-wrap">
         <table class="names">
           <thead><tr><th scope="col">tool</th><th scope="col">purpose</th></tr></thead>
           <tbody>
-            <tr><td><code>ui_start_session</code></td><td>Open a fresh browser context and start logging into a report.</td></tr>
+            <tr><td><code>ui_start_session</code></td><td>Open a fresh browser context and start logging into a report. Optional device, viewport, color scheme, locale and timezone.</td></tr>
             <tr><td><code>ui_end_session</code></td><td>Write the JSON and HTML report and return their paths.</td></tr>
             <tr><td><code>ui_step</code></td><td>Label what you are about to do; following actions are grouped under it in the report.</td></tr>
             <tr><td><code>ui_navigate</code></td><td>Navigate the browser to a URL.</td></tr>
             <tr><td><code>ui_get_page_state</code></td><td>Return URL, title, up to 200 visible interactive elements (custom widgets included) with ready-to-use selectors and their state, the open dialogs, the focused element, and visible alert messages.</td></tr>
             <tr><td><code>ui_get_text</code></td><td>Read the visible text of one element, or of the whole page, to check a value, heading or error.</td></tr>
-            <tr><td><code>ui_take_screenshot</code></td><td>Capture the current viewport as a PNG in the reports output.</td></tr>
+            <tr><td><code>ui_take_screenshot</code></td><td>Capture the viewport, one element or the full page as a PNG in the reports output; optionally return the image so the agent can look at it.</td></tr>
             <tr><td><code>ui_click</code></td><td>Click the single element matching a selector; optionally right, double or modifier click, at an offset, or forced.</td></tr>
             <tr><td><code>ui_click_outside</code></td><td>Click just outside an element, such as a modal backdrop, to close it the way a user would.</td></tr>
             <tr><td><code>ui_dialog</code></td><td>Answer a native alert, confirm or prompt the browser is holding open, or pre-set the answer for the next one.</td></tr>
@@ -296,7 +296,10 @@
             <tr><td><code>ui_press_key</code></td><td>Press a key or combo such as Enter, Tab, Escape or Control+a, on an element or on whatever has focus.</td></tr>
             <tr><td><code>ui_hover</code></td><td>Move the pointer over an element to reveal hover content such as dropdown menus.</td></tr>
             <tr><td><code>ui_set_checked</code></td><td>Set a checkbox or radio button to checked or unchecked.</td></tr>
-            <tr><td><code>ui_scroll</code></td><td>Scroll an element into view, or the page down by one viewport when no selector is given.</td></tr>
+            <tr><td><code>ui_scroll</code></td><td>Scroll an element into view, or one step in any direction on the page or inside a scroll area; says when the end is reached.</td></tr>
+            <tr><td><code>ui_set_viewport</code></td><td>Resize the page, for example to a 375px phone or a tablet.</td></tr>
+            <tr><td><code>ui_type</code></td><td>Type into an input one key at a time, like a user (autocomplete, masked inputs, OTP boxes).</td></tr>
+            <tr><td><code>ui_navigate_history</code></td><td>Go back, go forward or reload, keeping the browser history.</td></tr>
             <tr><td><code>ui_assert</code></td><td>Hard check of a JS expression: false fails the whole session.</td></tr>
             <tr><td><code>ui_check</code></td><td>Soft check of a JS expression: recorded in the report, the run continues.</td></tr>
             <tr><td><code>ui_wait_for</code></td><td>Poll a JS expression until it is true; a timeout fails the session.</td></tr>

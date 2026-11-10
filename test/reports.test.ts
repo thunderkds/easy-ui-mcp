@@ -163,6 +163,39 @@ test("describe says a navigation was cancelled by the page and the agent stayed 
   );
 });
 
+test("T032 AC3/5/6/7/9 describe(): ui_set_viewport, ui_type, ui_navigate_history, ui_scroll options, screenshot options", () => {
+  assert.equal(describe(action({ action: "ui_set_viewport", args: { width: 375, height: 812 } })), "Resized the viewport to 375×812");
+  assert.equal(describe(action({ action: "ui_type", args: { selector: "#q", text: "abc" } })), "Typed 3 characters into #q");
+  assert.equal(describe(action({ action: "ui_type", args: { selector: "#q", text: "a" } })), "Typed 1 character into #q");
+  assert.equal(describe(action({ action: "ui_type", args: { selector: "#otp", text: "OTPCODE-222" } })), "Typed 11 characters into #otp");
+  assert.equal(describe(action({ action: "ui_type", args: { selector: "#pw", text: "••••" } })), "Typed into #pw");
+  assert.equal(describe(action({ action: "ui_navigate_history", args: { action: "back" } })), "Went back");
+  assert.equal(describe(action({ action: "ui_navigate_history", args: { action: "forward" } })), "Went forward");
+  assert.equal(describe(action({ action: "ui_navigate_history", args: { action: "reload" } })), "Reloaded the page");
+  assert.equal(describe(action({ action: "ui_scroll", args: { container: "#chat", direction: "up" } })), "Scrolled #chat up");
+  assert.equal(describe(action({ action: "ui_scroll", args: { container: "#chat" } })), "Scrolled #chat down");
+  assert.equal(describe(action({ action: "ui_scroll", args: { direction: "top" } })), "Scrolled the page top");
+  assert.equal(describe(action({ action: "ui_scroll", args: { direction: "down" } })), "Scrolled down one page");
+  assert.equal(describe(action({ action: "ui_take_screenshot", args: { path: "/r/a.png", selector: "#hero" } })), "Took a screenshot of #hero");
+  assert.equal(describe(action({ action: "ui_take_screenshot", args: { path: "/r/a.png", fullPage: true } })), "Took a full-page screenshot");
+});
+
+test("T032 S-1: the rendered report step line never contains typed text", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "t032-report-"));
+  try {
+    const { htmlPath } = await writeReports(
+      record({ actions: [action({ action: "ui_type", args: { selector: "#q", text: "<img src=x onerror=alert(1)>" } })] }),
+      dir
+    );
+    const html = readFileSync(htmlPath, "utf8");
+    assert.ok(!html.includes("<img src=x"), "typed markup must not be injected");
+    assert.ok(!html.includes("onerror=alert(1)"), "typed text must not appear in the step line at all");
+    assert.ok(html.includes("Typed 28 characters into #q"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("describe truncates long values in the T019 sentences and keeps them to one line (AC7)", () => {
   const long = "x".repeat(500);
   const text = describe(action({ action: "ui_select_option", args: { selector: "#s", value: long } }));
