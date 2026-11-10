@@ -387,6 +387,8 @@ export function describe(action: LoggedAction): string {
       return selector ? `Scrolled ${selector} into view` : "Scrolled down one page";
     case "ui_get_page_state":
       return "Read the page state";
+    case "ui_get_text":
+      return selector ? `Read text of "${selector}"` : "Read the page text";
     case "ui_take_screenshot":
       return "Took a screenshot";
     default:

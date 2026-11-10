@@ -323,6 +323,37 @@ describe("one connection, several sessions", () => {
     assert.equal(reportFor(only)!.json.actions[0].action, "ui_navigate");
   });
 
+  test("ui_get_text with a session_id reads that session's page, and its text is not stored in the report (T030)", async () => {
+    const conn = await connect();
+    const a = await conn.start("text-A");
+    const b = await conn.start("text-B");
+    await conn.call("ui_navigate", { url: PAGE_ONE, session_id: a });
+    await conn.call("ui_navigate", { url: PAGE_TWO, session_id: b });
+
+    assert.deepEqual(await conn.call("ui_get_text", { selector: "h1", session_id: a }), { isError: false, text: "one" });
+    assert.deepEqual(await conn.call("ui_get_text", { selector: "h1", session_id: b }), { isError: false, text: "two" });
+    assert.equal((await conn.call("ui_get_text", { session_id: b })).text, "two\nTwo");
+    // an element that only exists in the other session is a clear failure, not a cross-read
+    const cross = await conn.call("ui_get_text", { selector: "#only-two", session_id: a });
+    assert.equal(cross.isError, true);
+    assert.match(cross.text, /No element matched/);
+    // two sessions open and no id: refused, like every other session-aware tool
+    const ambiguous = await conn.call("ui_get_text", { selector: "h1" });
+    assert.equal(ambiguous.isError, true);
+    assert.match(ambiguous.text, /session_id/);
+    assert.match((await conn.call("ui_get_text", { selector: "h1", session_id: "nope" })).text, /Unknown session/);
+
+    await conn.call("ui_end_session", { session_id: a });
+    await conn.call("ui_end_session", { session_id: b });
+    const readsA = reportFor(a)!.json.actions.filter((x: any) => x.action === "ui_get_text");
+    assert.equal(readsA.length, 2, "A's report holds its own two reads only (one ok, one failed)");
+    assert.deepEqual(readsA.map((x: any) => x.ok), [true, false]);
+    assert.deepEqual(readsA[0].args, { selector: "h1" }, "the text read is not stored in the args");
+    assert.equal(readsA[0].detail, undefined);
+    const readsB = reportFor(b)!.json.actions.filter((x: any) => x.action === "ui_get_text");
+    assert.equal(readsB.length, 2);
+  });
+
   test("every tool advertises an optional session_id, apart from ui_start_session (AC2)", async () => {
     const conn = await connect();
     const { tools } = await conn.client.listTools();

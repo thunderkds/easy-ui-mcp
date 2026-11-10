@@ -39,7 +39,7 @@ of `extra_hosts: ["host.docker.internal:host-gateway"]` to `docker-compose.yml`.
 
 ## Tools
 
-`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
+`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_get_text`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
 
 ### Run several sessions side by side
 
@@ -84,6 +84,15 @@ Sessions with no `ui_step` calls still render correctly, under a single implicit
 {"role": "button", "name": "Sign in", "selector": "[data-testid=\"signin\"]"}
 ui_click  selector: [data-testid="signin"]
 ```
+
+Page state also tells you what the page looks like right now, so you do not have to guess:
+
+- Each element may carry a `state` with only its non-default fields: `disabled`, `checked` (`true`, `false` or `"mixed"`), `value` (inputs, textarea, select; cut at 100 characters; **never** returned for a password field), `expanded`, `selected`, `pressed`, `required`, `invalid`.
+- Custom widgets are listed too: `combobox`, `listbox`, `option`, `switch`, `slider`, `spinbutton`, `searchbox`, `treeitem`, `menuitemcheckbox`/`menuitemradio`, `summary`, `contenteditable` regions, and anything with a role and `tabindex >= 0`.
+- `overlays` lists each open dialog as `{role, name, selector, modal}`, topmost first (`role=dialog`, `alertdialog`, `dialog[open]`, `aria-modal`). The key is absent when nothing is open, so a modal opening or closing shows up as the key appearing or disappearing.
+- `focused` is `{role, name, selector}` for the element holding focus. It is absent when focus is on the page body, in an iframe or in a shadow root.
+
+`ui_get_text` reads text: the trimmed visible text of one element (`selector`), or of the whole page body with no selector, cut at 4000 characters with a note of the real length. Use it to check a total, a heading or a field error. It fails on 0 or more than 1 match, like `ui_click`, and on an element that is not visible. The text it reads is returned to you but not stored in the report.
 
 ### Verifying vs waiting — pick the right one
 

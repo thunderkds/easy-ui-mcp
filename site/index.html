@@ -221,9 +221,9 @@
       <p class="eyebrow">&gt; local ui testing for claude code</p>
       <h1>easy-ui-mcp</h1>
       <p class="lede">A Dockerized MCP server that lets an AI agent such as Claude Code drive a real browser step by step and get back a JSON and HTML report with screenshots.</p>
-      <p>It exposes 16 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
+      <p>It exposes 17 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
       <div class="strip">
-        <div><div class="strip__num strip__num--key">16</div><div class="strip__label">MCP tools</div></div>
+        <div><div class="strip__num strip__num--key">17</div><div class="strip__label">MCP tools</div></div>
         <div><div class="strip__num">8765</div><div class="strip__label">port on localhost</div></div>
         <div><div class="strip__num strip__num--text">Chromium</div><div class="strip__label">the only browser (v1)</div></div>
         <div><div class="strip__num">0</div><div class="strip__label">LLM calls on the server</div></div>
@@ -276,7 +276,7 @@
 
     <section id="tools">
       <h2>Tools</h2>
-      <p>All 16 tools. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
+      <p>All 17 tools. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
       <div class="table-wrap">
         <table class="names">
           <thead><tr><th scope="col">tool</th><th scope="col">purpose</th></tr></thead>
@@ -285,7 +285,8 @@
             <tr><td><code>ui_end_session</code></td><td>Write the JSON and HTML report and return their paths.</td></tr>
             <tr><td><code>ui_step</code></td><td>Label what you are about to do; following actions are grouped under it in the report.</td></tr>
             <tr><td><code>ui_navigate</code></td><td>Navigate the browser to a URL.</td></tr>
-            <tr><td><code>ui_get_page_state</code></td><td>Return URL, title, up to 200 visible interactive elements with ready-to-use selectors, and visible alert messages.</td></tr>
+            <tr><td><code>ui_get_page_state</code></td><td>Return URL, title, up to 200 visible interactive elements (custom widgets included) with ready-to-use selectors and their state, the open dialogs, the focused element, and visible alert messages.</td></tr>
+            <tr><td><code>ui_get_text</code></td><td>Read the visible text of one element, or of the whole page, to check a value, heading or error.</td></tr>
             <tr><td><code>ui_take_screenshot</code></td><td>Capture the current viewport as a PNG in the reports output.</td></tr>
             <tr><td><code>ui_click</code></td><td>Click the single element matching a selector.</td></tr>
             <tr><td><code>ui_fill</code></td><td>Fill the single input matching a selector with a value.</td></tr>
@@ -329,6 +330,7 @@ ui_end_session    session_id: &lt;id-B&gt;</code></pre>
       <p><code>ui_get_page_state</code> returns each visible interactive element as <code>{role, name, selector}</code>. Every selector is checked against the live page before it is returned, so pass it unchanged to the interaction tools instead of guessing a CSS selector. A selector containing <code>nth=</code> is positional: call <code>ui_get_page_state</code> again after the page changes before reusing it.</p>
 <pre><code>{"role": "button", "name": "Sign in", "selector": "[data-testid=\"signin\"]"}
 ui_click  selector: [data-testid="signin"]</code></pre>
+      <p>Page state also reports what the page looks like right now. An element may carry a <code>state</code> with only its non-default fields (<code>disabled</code>, <code>checked</code>, <code>value</code>, <code>expanded</code>, <code>selected</code>, <code>pressed</code>, <code>required</code>, <code>invalid</code>; a password value is never returned). <code>overlays</code> lists each open dialog topmost first and is absent when none is open. <code>focused</code> names the element holding focus. Custom widgets such as comboboxes, switches and rich-text editors are listed too. To read text, call <code>ui_get_text</code>.</p>
 
       <h3>Verifying vs waiting</h3>
       <p>A session is marked failed if any hard action fails, so how you verify decides whether the report tells the truth.</p>
