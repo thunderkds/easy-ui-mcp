@@ -1,6 +1,7 @@
 # TASK_GUIDE — T038: stdio entry point so Glama's `mcp-proxy` can run easy-ui-mcp
 **Date**: 2026-11-10
 **Risk Level**: Medium (touches shared `src/server.ts`; adds a new process entry and transport)
+**Complexity Level**: C2
 **Assigned agents**: common-infrastructure (worktree/env), backend-developer (implement, test-first), qa-expert (independent verify)
 
 > Read relevant files from `docs/legacy/` before making any code changes. (This project has no `docs/legacy/`; read `PROJECT_SPEC.md`, `BRAINSTORMING_LOG_stdio-glama.md`, `src/server.ts`, `memory/MEMORY.md` and this guide.)
@@ -73,5 +74,9 @@ Glama-side config and pinned SHA (user does it after merge); a Docker image chan
 
 ## Demonstration
 **BEFORE**: Observed on Glama 2026-11-10T10:41–10:42 (image built from `main`, start `mcp-proxy -- node dist/server.js`): `[mcp-proxy] ignoring non-JSON output [ 'easy-ui-mcp server listening on http://localhost:8765' ]`, then `could not start the proxy SdkError: Request timed out` (`REQUEST_TIMEOUT`, 60000 ms), `transport event { type: 'close' }`. The proxy never got an `initialize` reply over stdio.
-**AFTER**: _(fill at Stage 5: live stdio handshake against built `dist/stdio.js` returns the tool list; HTTP `/health` still ok)_
-**DELTA**: _(fill at Stage 5)_
+**AFTER**: Supervisor, 2026-11-10, built `dist/stdio.js` from 896d297 in the task worktree: `initialize` + `tools/list` over stdio returned serverInfo `easy-ui-mcp` and 26 tools; stdout was 2 lines, all JSON-RPC; stderr only `easy-ui-mcp stdio server ready`; on stdin close the process exited 0 in ~17 ms. `node dist/server.js` (flag unset) still answered `GET /health` → `{"status":"ok"}` and released port 8765 on kill. With `PLAYWRIGHT_BROWSERS_PATH=/nonexistent-browsers` the server still started and listed 26 tools; `ui_start_session` returned `isError` "Could not start the session: browserType.launch: Executable doesn't exist…", exit 0.
+**DELTA**: The proxy's `initialize` now gets a reply (was a 60 s timeout). Local HTTP behaviour unchanged. Not yet shown: a real Glama build running it (needs the push and the new SHA in Glama).
+
+## Review summary (Stage 4)
+- code-review: 0 P0, 0 P1. P2: the 2026-07-01 "HTTP/SSE, not stdio" decision records (`PROJECT_SPEC.md:80`, `memory/decisions.md:31`, `PRD.md` FR-001) need a note that stdio now exists for hosted proxies (done at merge). P3: guide had no Complexity Level (`lane_check` printed UNKNOWN; added C2); `server.ts` grew +35/-9 against a predicted ~6 lines, because the SDK's stdio transport ignores stdin end and the `onclose` cleanup is fire-and-forget (`closeBrowser`, `settleClosing`, `closing` Set), accepted.
+- security-review: no findings at confidence ≥ 8.

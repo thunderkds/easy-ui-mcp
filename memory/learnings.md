@@ -21,6 +21,10 @@
 
 ## Gotchas
 
+### 2026-11-10 — A stdio entry must close itself on stdin end, and wait for the async `onclose` cleanup (T038)
+**Insight**: The MCP SDK's `StdioServerTransport` does not notice stdin ending, so `onclose` never fires on its own; `src/stdio.ts` listens for `process.stdin` `end`. The `onclose` session cleanup in `buildMcpServer` is async and was fire-and-forget, so exiting right after `server.close()` loses reports mid-write: `settleClosing()` awaits it. The browser keeps the event loop alive, so exit explicitly.
+**Files**: `src/stdio.ts`, `src/server.ts`
+
 ### 2026-10-30 — Event-trace records truncate at 300 chars; a piped test hides its own failure
 **Gotcha**: `post_tool_trace.py` (wired in `.claude/settings.json` on 2026-10-30) keeps only the first 300 characters of a Bash command. If long absolute paths come before `npm test`, the merge gate can't see that a test runner was invoked. Write the `.claude/hooks/.state/active_task` file in its own Bash call, then run `cd <dir> && npm test > log 2>&1` with no pipe. `npm test | grep …` exits 0 even when tests fail, so the trace would record a failing run as a success.
 **Files**: `.claude/hooks/post_tool_trace.py`, `.claude/hooks/pre_bash_block_unsafe_merge.py`

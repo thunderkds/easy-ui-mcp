@@ -14,12 +14,12 @@
 
 
 ### In Progress
-- [ ] **T038** — stdio entry point so Glama's `mcp-proxy` can run the server (local HTTP unchanged) | backend-developer | C2 | Risk: Medium | P1 | Requested by user 2026-11-10 (Glama start failed: `REQUEST_TIMEOUT`, server is HTTP-only). Guide: `tasks/TASK_GUIDE_T038.md`. Brainstorm: `BRAINSTORMING_LOG_stdio-glama.md`, Option B approved 2026-11-10
 
 ### Ready for Review
 
 
 ### Done
+- [x] **T038** — stdio entry point so Glama's `mcp-proxy` can run the server (local HTTP unchanged) | backend-developer | C2 | Risk: Medium | P1 | Requested by user 2026-11-10. Guide: `tasks/TASK_GUIDE_T038.md`. Brainstorm: `BRAINSTORMING_LOG_stdio-glama.md` (Option B approved 2026-11-10) | **Completed 2026-11-10**: `src/stdio.ts` + guarded `app.listen`/SIGTERM in `src/server.ts` (flag `EASY_UI_MCP_NO_HTTP`); `dist/stdio.js` handshake returns 26 tools, exits 0 on stdin close; HTTP `/health` unchanged; full `npm test` 312/312; code-review 0 P0/P1; security-review clean. Follow-up (user): push, then set Glama start `mcp-proxy -- node dist/stdio.js`, build `pnpm install && pnpm build && pnpm exec playwright install --with-deps chromium`, and the new SHA. Evidence: `tasks/TASK_REVIEW_T038.md`
 - [x] **T037** — The current-site dot in the family nav glows like the siblings | backend-developer | ? | Risk: Low | ? | **Completed 2026-11-10**: merged into main; current-site dot glows (`--glow-dot: 0 0 8px #3cf5a8`, the only allowed box-shadow); full `npm test` 307/307 (traced). Evidence: `tasks/TASK_REVIEW_T037.md`
 - [x] **T036** — Docs-site index page in the Easy Kit family style, with flows and charts | backend-developer | ? | Risk: Low | ? | **Completed 2026-11-10**: merged into main; docs page now in the Easy Kit family style (IBM Plex, icon tile + chip header, bordered GitHub, hero tiles) with flows, 26-tool map, before/after and measured bars; Easy Kit link → https://easy-kits.vercel.app/; full `npm test` 307/307 (traced). Evidence: `tasks/TASK_REVIEW_T036.md`
 - [x] **T035** — Docs and docs-site index page catch up with T029–T034 | backend-developer | ? | Risk: Low | ? | **Completed 2026-11-10**: merged into main; 4 docs-site guide sections (seeing the page, overlays & dialogs, real sizes & typing, debugging & tabs) + nav, README T033 section, RUNBOOK Configuration table / 3 failure modes / release row, HARNESS REST-dialog note, PROJECT_SPEC insight; full `npm test` 303/303 (traced). Evidence: `tasks/TASK_REVIEW_T035.md`

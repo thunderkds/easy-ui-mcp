@@ -32,6 +32,7 @@
 **Decision**: Server runs as a persistent Docker service exposing MCP over HTTP/SSE on `localhost:8765`, using the MCP SDK's `StreamableHTTPServerTransport` with session-per-connection keyed by the `mcp-session-id` header.
 **Why**: Cleaner fit for an always-on Docker service than a stdio bridge — Claude Code connects directly to the running container, no local spawn/bridge process needed.
 **Files**: `src/server.ts`
+**Update 2026-11-10 (T038)**: HTTP stays the default and the local/Docker path. A second entry, `src/stdio.ts` (`dist/stdio.js`), serves the same tools over stdio for hosts that wrap a stdio server, such as Glama's `mcp-proxy`. It sets `EASY_UI_MCP_NO_HTTP` before importing `server.js`, so nothing binds 8765.
 
 ## Infrastructure
 

@@ -18,6 +18,8 @@
 
 <!-- Format: - [Title](cold-file.md#section) — one-line summary (≤150 chars) -->
 - [Session-aware tools use `registerSessionTool`](learnings.md#gotchas) — plain `server.registerTool(` acts on no session; doc tests scan the literal call; onclose needs DELETE (T029)
+- [stdio entry: close on stdin end, await onclose cleanup](learnings.md#gotchas) — SDK stdio transport ignores stdin EOF; `settleClosing()` before exit or reports are lost (T038)
+- [Transport: HTTP default + stdio entry for hosted proxies](decisions.md#architecture) — `dist/stdio.js` for Glama `mcp-proxy`; `EASY_UI_MCP_NO_HTTP` skips listen (T038)
 - [Primitive tools + session bracketing](decisions.md#architecture) — no server-side LLM; Claude Code drives Playwright step-by-step via MCP tool calls
 - [MCP transport: HTTP/SSE](decisions.md#architecture) — StreamableHTTPServerTransport, session-per-connection, localhost:8765, not stdio
 - [Docker↔Playwright version pinning](decisions.md#infrastructure) — mcr.microsoft.com/playwright tag must exact-match `playwright` npm pin; use `npm ci`
