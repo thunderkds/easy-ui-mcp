@@ -14,12 +14,12 @@
 
 
 ### In Progress
-- [ ] **T037** — The current-site dot in the family nav glows like the siblings | backend-developer | ? | Risk: Low | ? | **Started 2026-11-10**: frontend-developer, worktree off main
 
 ### Ready for Review
 
 
 ### Done
+- [x] **T037** — The current-site dot in the family nav glows like the siblings | backend-developer | ? | Risk: Low | ? | **Completed 2026-11-10**: merged into main; current-site dot glows (`--glow-dot: 0 0 8px #3cf5a8`, the only allowed box-shadow); full `npm test` 307/307 (traced). Evidence: `tasks/TASK_REVIEW_T037.md`
 - [x] **T036** — Docs-site index page in the Easy Kit family style, with flows and charts | backend-developer | ? | Risk: Low | ? | **Completed 2026-11-10**: merged into main; docs page now in the Easy Kit family style (IBM Plex, icon tile + chip header, bordered GitHub, hero tiles) with flows, 26-tool map, before/after and measured bars; Easy Kit link → https://easy-kits.vercel.app/; full `npm test` 307/307 (traced). Evidence: `tasks/TASK_REVIEW_T036.md`
 - [x] **T035** — Docs and docs-site index page catch up with T029–T034 | backend-developer | ? | Risk: Low | ? | **Completed 2026-11-10**: merged into main; 4 docs-site guide sections (seeing the page, overlays & dialogs, real sizes & typing, debugging & tabs) + nav, README T033 section, RUNBOOK Configuration table / 3 failure modes / release row, HARNESS REST-dialog note, PROJECT_SPEC insight; full `npm test` 303/303 (traced). Evidence: `tasks/TASK_REVIEW_T035.md`
 - [x] **T034** — Commit the Easy Kit harness sync and bring the harness tests in line | backend-developer | ? | Risk: Medium | ? | **Completed 2026-11-10**: harness sync committed as-is (5ec9bd0, 113 files); lock rebuilt for the new layout (147 files) + `harness-snapshot`/`codex-mapping` tests updated, policy guard moved to `docs/MULTI_AGENT.md` (fbaa538); full `npm test` on main 302/302 (traced). Untracked `.claude/verify-runs/*.log` left uncommitted (runtime evidence)
