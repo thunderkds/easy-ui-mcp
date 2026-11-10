@@ -95,6 +95,36 @@ test("describe renders a readable sentence for each T019 interaction (AC7)", () 
   assert.equal(describe(action({ action: "ui_scroll" })), "Scrolled down one page");
 });
 
+test("T032 AC3/5/6/7/9 describe(): ui_set_viewport, ui_type, ui_navigate_history, ui_scroll options, screenshot options", () => {
+  assert.equal(describe(action({ action: "ui_set_viewport", args: { width: 375, height: 812 } })), "Resized the viewport to 375×812");
+  assert.equal(describe(action({ action: "ui_type", args: { selector: "#q", text: "abc" } })), 'Typed "abc" into #q');
+  assert.equal(describe(action({ action: "ui_type", args: { selector: "#pw", text: "••••" } })), 'Typed "••••" into #pw');
+  assert.equal(describe(action({ action: "ui_navigate_history", args: { action: "back" } })), "Went back");
+  assert.equal(describe(action({ action: "ui_navigate_history", args: { action: "forward" } })), "Went forward");
+  assert.equal(describe(action({ action: "ui_navigate_history", args: { action: "reload" } })), "Reloaded the page");
+  assert.equal(describe(action({ action: "ui_scroll", args: { container: "#chat", direction: "up" } })), "Scrolled #chat up");
+  assert.equal(describe(action({ action: "ui_scroll", args: { container: "#chat" } })), "Scrolled #chat down");
+  assert.equal(describe(action({ action: "ui_scroll", args: { direction: "top" } })), "Scrolled the page top");
+  assert.equal(describe(action({ action: "ui_scroll", args: { direction: "down" } })), "Scrolled down one page");
+  assert.equal(describe(action({ action: "ui_take_screenshot", args: { path: "/r/a.png", selector: "#hero" } })), "Took a screenshot of #hero");
+  assert.equal(describe(action({ action: "ui_take_screenshot", args: { path: "/r/a.png", fullPage: true } })), "Took a full-page screenshot");
+});
+
+test("T032 AC5: typed text is escaped in the rendered report", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "t032-report-"));
+  try {
+    const { htmlPath } = await writeReports(
+      record({ actions: [action({ action: "ui_type", args: { selector: "#q", text: "<img src=x onerror=alert(1)>" } })] }),
+      dir
+    );
+    const html = readFileSync(htmlPath, "utf8");
+    assert.ok(!html.includes("<img src=x"), "typed markup must be escaped");
+    assert.ok(html.includes("&lt;img src=x onerror=alert(1)&gt;"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("describe truncates long values in the T019 sentences and keeps them to one line (AC7)", () => {
   const long = "x".repeat(500);
   const text = describe(action({ action: "ui_select_option", args: { selector: "#s", value: long } }));
