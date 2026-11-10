@@ -17,6 +17,7 @@ RUN npm ci
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY assets ./assets
 
 RUN npm run build
 

@@ -2,8 +2,9 @@
 // T001: ui_navigate. T002: ui_click, ui_fill, ui_assert, ui_get_page_state, ui_take_screenshot.
 
 import type { Page } from "playwright";
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface NavigateResult {
   ok: boolean;
@@ -193,6 +194,86 @@ export async function scroll(page: Page, selector?: string): Promise<ActionResul
   }
   return onUniqueLocator(page, selector, async (locator) => {
     await locator.scrollIntoViewIfNeeded({ timeout: 5_000 });
+  });
+}
+
+/**
+ * The one file ui_upload_file ever sends (decision D1): a server constant resolved
+ * from the app folder — never built from tool input — so the agent cannot upload any
+ * other container file to the site under test. Same location from src/ and dist/.
+ */
+export const UPLOAD_FILE_NAME = "default_draft.png";
+const UPLOAD_FILE_PATH = fileURLToPath(new URL(`../../assets/${UPLOAD_FILE_NAME}`, import.meta.url));
+
+/** Size of the built-in upload file in bytes, or undefined if it is missing from the install. */
+export async function getUploadFileSize(): Promise<number | undefined> {
+  try {
+    return (await stat(UPLOAD_FILE_PATH)).size;
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when an `accept` attribute lets a PNG through (an absent/empty one accepts anything). */
+function acceptsPng(accept: string | null): boolean {
+  const tokens = (accept ?? "").split(",").map((t) => t.trim().toLowerCase()).filter((t) => t !== "");
+  return tokens.length === 0 || tokens.some((t) => ["image/png", "image/*", ".png", "*/*"].includes(t));
+}
+
+export interface UploadResult extends ActionResult {
+  file?: string;
+  size?: number;
+  /** Set when the input's `accept` excludes images, so the app may reject the file. */
+  warning?: string;
+}
+
+/**
+ * Upload the built-in default_draft.png through the single element matching
+ * `selector`: an `input[type=file]` directly (hidden ones included), or any element
+ * whose click opens a file chooser (a styled "Upload" button over a hidden input).
+ * Takes no path on purpose (D1).
+ */
+export async function uploadFile(page: Page, selector: string): Promise<UploadResult> {
+  const size = await getUploadFileSize();
+  if (size === undefined) {
+    return { ok: false, error: `Built-in upload file ${UPLOAD_FILE_NAME} is missing from the server` };
+  }
+  let accept: string | null = null;
+  const result = await onUniqueLocator(page, selector, async (locator) => {
+    const isFileInput = await locator.evaluate((el) => el instanceof HTMLInputElement && el.type === "file");
+    if (isFileInput) {
+      accept = await locator.getAttribute("accept");
+      await locator.setInputFiles(UPLOAD_FILE_PATH, { timeout: 5_000 });
+      return;
+    }
+    const opened = page.waitForEvent("filechooser", { timeout: 5_000 });
+    opened.catch(() => undefined); // a failing click below must not leave this rejection unhandled
+    await locator.click({ timeout: 5_000 });
+    const chooser = await opened.catch(() => undefined);
+    if (!chooser) {
+      return { ok: false, error: `Clicking "${selector}" did not open a file chooser; pass the file input or the button that opens it` };
+    }
+    accept = await chooser.element().getAttribute("accept");
+    await chooser.setFiles(UPLOAD_FILE_PATH);
+  });
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    file: UPLOAD_FILE_NAME,
+    size,
+    ...(acceptsPng(accept) ? {} : { warning: `the input's accept="${accept}" excludes images, so the app may reject ${UPLOAD_FILE_NAME}` }),
+  };
+}
+
+/**
+ * Drag the single `from` match onto the single `to` match (Playwright `dragTo`:
+ * real pointer events, so it drives both HTML5 drag-and-drop and pointer-based sortables).
+ */
+export async function drag(page: Page, from: string, to: string): Promise<ActionResult> {
+  return onUniqueLocator(page, from, async (source) => {
+    const target = await resolveUniqueLocator(page, to);
+    if (!target.ok) return { ok: false, error: target.error };
+    await source.dragTo(target.locator, { timeout: 5_000 });
   });
 }
 
