@@ -5,6 +5,7 @@ import { mkdir, writeFile, rename, readFile, readdir, rm } from "node:fs/promise
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { LoggedAction, SessionRecord } from "../tools/session.js";
+import { describeClick, type ClickOptions } from "../tools/web.js";
 
 export interface ReportPaths {
   jsonPath: string;
@@ -333,7 +334,7 @@ function outcome(action: LoggedAction): { cls: string; label: string } {
  * one line. A data: URL or a deep selector chain otherwise swamps the step. */
 const MAX_DESCRIBED_VALUE = 120;
 
-function truncate(value: string): string {
+export function truncate(value: string): string {
   return value.length <= MAX_DESCRIBED_VALUE
     ? value
     : `${value.slice(0, MAX_DESCRIBED_VALUE)}… (${value.length} chars)`;
@@ -353,6 +354,18 @@ function arg(action: LoggedAction, name: string): string | undefined {
  * in the renderer to unit-test.
  */
 export function describe(action: LoggedAction): string {
+  const stayed = action.args?.stayedOn;
+  if (typeof stayed === "string") {
+    return action.action === "ui_navigate"
+      ? `Stayed on ${truncate(stayed)} (navigation to ${arg(action, "url") ?? "another page"} cancelled by the page)`
+      : `${describeAction(action)} (stayed on ${truncate(stayed)})`;
+  }
+  const text = describeAction(action);
+  const opened = action.args?.opensDialog;
+  return typeof opened === "string" ? `${text} (opened ${opened === "alert" ? "an" : "a"} ${truncate(opened)} dialog)` : text;
+}
+
+function describeAction(action: LoggedAction): string {
   const selector = arg(action, "selector");
   const condition = arg(action, "condition");
   switch (action.action) {
@@ -361,7 +374,18 @@ export function describe(action: LoggedAction): string {
     case "ui_navigate":
       return `Opened ${arg(action, "url") ?? "the page"}`;
     case "ui_click":
-      return `Clicked ${selector ?? "an element"}`;
+      return describeClick(selector ?? "an element", action.args as ClickOptions | undefined);
+    case "ui_click_outside": {
+      const hit = arg(action, "hit");
+      return `Clicked outside ${selector ?? "an element"}${hit ? ` (on ${hit})` : ""}`;
+    }
+    case "dialog": {
+      // Never repeat text typed into a prompt — it can be a secret, same rule as ui_fill.
+      const verdict = action.args?.answer === "accept" ? "accepted" : "dismissed";
+      return `Browser ${arg(action, "type") ?? "native"} dialog "${arg(action, "message") ?? ""}" — ${verdict} (answered by ${arg(action, "answeredBy") ?? "unknown"})`;
+    }
+    case "ui_dialog":
+      return `Set the next dialog to be ${action.args?.action === "dismiss" ? "dismissed" : "accepted"}`;
     case "ui_fill":
       // Never repeat entered values in the human-facing report: inputs commonly
       // contain passwords, tokens, and other secrets. The selector is enough to

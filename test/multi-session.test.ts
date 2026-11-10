@@ -239,8 +239,10 @@ const PAGE_TWO = pageUrl('<h1>two</h1><button id="only-two">Two</button>');
 function argsFor(tool: { inputSchema: { properties?: Record<string, any>; required?: string[] } }): Record<string, unknown> {
   const args: Record<string, unknown> = {};
   for (const key of tool.inputSchema.required ?? []) {
-    const type = tool.inputSchema.properties?.[key]?.type;
-    args[key] = type === "boolean" ? true : type === "number" || type === "integer" ? 1 : "x";
+    const prop = tool.inputSchema.properties?.[key];
+    const type = prop?.type;
+    // An enum input (ui_dialog's `action`) only validates with one of its own values.
+    args[key] = prop?.enum?.[0] ?? (type === "boolean" ? true : type === "number" || type === "integer" ? 1 : "x");
   }
   return args;
 }

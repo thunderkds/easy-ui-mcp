@@ -104,6 +104,65 @@ test("describe renders ui_get_text readably and never repeats the text it read (
   );
 });
 
+test("describe renders the T031 click options, click-outside and dialog actions (AC6/AC7)", () => {
+  assert.equal(describe(action({ action: "ui_click", args: { selector: "#row-3", button: "right" } })), "Right-clicked #row-3");
+  assert.equal(describe(action({ action: "ui_click", args: { selector: "#cell", clickCount: 2 } })), "Double-clicked #cell");
+  assert.equal(
+    describe(action({ action: "ui_click", args: { selector: "#row", modifiers: ["Shift"], force: true } })),
+    "Clicked #row with Shift (forced)"
+  );
+  assert.equal(describe(action({ action: "ui_click", args: { selector: "#x", button: "left" } })), "Clicked #x");
+  assert.equal(
+    describe(action({ action: "ui_click_outside", args: { selector: "#panel", hit: "div#backdrop" } })),
+    "Clicked outside #panel (on div#backdrop)"
+  );
+  assert.equal(describe(action({ action: "ui_click_outside", args: { selector: "#panel" } })), "Clicked outside #panel");
+  assert.equal(
+    describe(action({ action: "dialog", args: { type: "confirm", message: "Delete?", answer: "accept", answeredBy: "agent" } })),
+    'Browser confirm dialog "Delete?" — accepted (answered by agent)'
+  );
+  assert.equal(
+    describe(action({ action: "dialog", args: { type: "prompt", message: "Name?", answer: "accept", text: "secret", answeredBy: "pre-set" } })),
+    'Browser prompt dialog "Name?" — accepted (answered by pre-set)',
+    "text entered into a prompt is never repeated in the report"
+  );
+  assert.equal(
+    describe(action({ action: "dialog", args: { type: "alert", message: "Hi", answer: "dismiss", answeredBy: "timeout" } })),
+    'Browser alert dialog "Hi" — dismissed (answered by timeout)'
+  );
+  assert.equal(
+    describe(action({ action: "ui_dialog", args: { action: "accept" } })),
+    "Set the next dialog to be accepted"
+  );
+});
+
+test("describe notes the dialog a click or key press opened, with the right article (T031)", () => {
+  assert.equal(
+    describe(action({ action: "ui_click", args: { selector: "#del", opensDialog: "confirm" } })),
+    "Clicked #del (opened a confirm dialog)"
+  );
+  assert.equal(
+    describe(action({ action: "ui_press_key", args: { key: "Enter", opensDialog: "alert" } })),
+    "Pressed Enter (opened an alert dialog)"
+  );
+  assert.equal(describe(action({ action: "ui_click", args: { selector: "#x" } })), "Clicked #x");
+  assert.equal(
+    describe(action({ action: "dialog", args: { type: "alert", message: "Hi", answer: "dismiss", answeredBy: "auto" } })),
+    'Browser alert dialog "Hi" — dismissed (answered by auto)'
+  );
+});
+
+test("describe says a navigation was cancelled by the page and the agent stayed (T031)", () => {
+  assert.equal(
+    describe(action({ action: "ui_navigate", args: { url: "http://b/", stayedOn: "http://a/" } })),
+    "Stayed on http://a/ (navigation to http://b/ cancelled by the page)"
+  );
+  assert.equal(
+    describe(action({ action: "ui_click", args: { selector: "#link", stayedOn: "http://a/" } })),
+    "Clicked #link (stayed on http://a/)"
+  );
+});
+
 test("describe truncates long values in the T019 sentences and keeps them to one line (AC7)", () => {
   const long = "x".repeat(500);
   const text = describe(action({ action: "ui_select_option", args: { selector: "#s", value: long } }));

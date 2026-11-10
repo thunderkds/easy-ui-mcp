@@ -17,6 +17,8 @@ import {
   scroll,
   getText,
   textSelectorOrUndefined,
+  clickOutside,
+  describeClick,
 } from "../src/tools/web.js";
 
 const FIXTURE_HTML = `
@@ -944,4 +946,125 @@ test("takeScreenshot fails clearly when no active page", async () => {
   const result = await takeScreenshot(undefined, path.join(process.cwd(), "test", ".tmp-screenshots"));
   assert.equal(result.ok, false);
   assert.match(result.error ?? "", /no active page/i);
+});
+
+// --- T031: click outside, click options ---
+
+const BACKDROP_FIXTURE = `<!doctype html><html><body>
+  <p id="state">open</p>
+  <div id="backdrop" style="position:fixed;inset:0;background:#0006"
+       onclick="document.getElementById('state').textContent='closed';this.remove();document.getElementById('panel').remove()"></div>
+  <div id="panel" style="position:fixed;inset:15% 15%;background:#fff"><button id="inner">Inner</button></div>
+</body></html>`;
+
+test("T031 AC1/AC2: click_outside on the panel closes a backdrop that ui_click cannot reach", async () => {
+  await fixturePage.setContent(BACKDROP_FIXTURE, { waitUntil: "domcontentloaded" });
+  const result = await clickOutside(fixturePage, "#panel");
+  assert.equal(result.ok, true);
+  assert.match(result.hit ?? "", /div#backdrop/);
+  assert.equal(await fixturePage.textContent("#state"), "closed");
+});
+
+test("T031 AC2: click_outside closes a modal <dialog> through its backdrop", async () => {
+  await fixturePage.setContent(
+    `<p id="state">open</p><dialog id="d" style="width:240px;height:120px"><button>Inner</button></dialog>
+     <script>
+       const d = document.getElementById('d');
+       d.addEventListener('click', (e) => { if (e.target === d) { d.close(); document.getElementById('state').textContent = 'closed'; } });
+       d.showModal();
+     </script>`,
+    { waitUntil: "domcontentloaded" }
+  );
+  const result = await clickOutside(fixturePage, "dialog");
+  assert.equal(result.ok, true);
+  assert.match(result.hit ?? "", /::backdrop/);
+  assert.equal(await fixturePage.textContent("#state"), "closed");
+});
+
+test("T031 AC3: an element covering the viewport has no safe outside point and the error suggests Escape", async () => {
+  await fixturePage.setContent(`<div id="full" style="position:fixed;inset:0">x</div>`, { waitUntil: "domcontentloaded" });
+  const result = await clickOutside(fixturePage, "#full");
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /no safe point/i);
+  assert.match(result.error ?? "", /Escape/);
+});
+
+test("T031 edge: click_outside never clicks a control — every point around the element is a button", async () => {
+  await fixturePage.setContent(
+    `<style>body{margin:0}</style>
+     <p id="state">untouched</p>
+     <button style="position:fixed;left:0;top:0;width:100vw;height:100vh;border:0"
+             onclick="document.getElementById('state').textContent='control clicked'"></button>
+     <div id="target" style="position:fixed;left:100px;right:100px;top:100px;bottom:100px"></div>`,
+    { waitUntil: "domcontentloaded" }
+  );
+  const result = await clickOutside(fixturePage, "#target");
+  assert.equal(result.ok, false);
+  assert.equal(await fixturePage.textContent("#state"), "untouched");
+});
+
+test("T031 edge: click_outside keeps the exactly-one-match contract", async () => {
+  await fixturePage.setContent(`<i class="m">a</i><i class="m">b</i>`, { waitUntil: "domcontentloaded" });
+  const result = await clickOutside(fixturePage, ".m");
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /matched 2 elements/);
+});
+
+const CLICK_OPTIONS_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <p id="log"></p>
+  <div id="t" style="width:200px;height:100px;background:#ccc"
+       ondblclick="log('dbl')" oncontextmenu="event.preventDefault();log('ctx')"
+       onclick="log('click' + (event.shiftKey ? ':shift' : '') + ':' + event.offsetX + ',' + event.offsetY)"
+       onauxclick="log('aux' + event.button)"></div>
+  <div id="under" style="position:relative;width:100px;height:40px;background:#9c9">
+    <button id="hidden-btn" style="width:100px;height:40px">b</button>
+    <div id="overlay" onclick="log('overlay')" style="position:absolute;inset:0;background:transparent"></div>
+  </div>
+  <script>function log(m){ document.getElementById('log').textContent += m + ' '; }</script>
+</body></html>`;
+
+test("T031 AC4/AC5: ui_click options — double, right, middle, shift, position, force", async () => {
+  await fixturePage.setContent(CLICK_OPTIONS_FIXTURE, { waitUntil: "domcontentloaded" });
+  const log = async () => ((await fixturePage.textContent("#log")) ?? "").trim();
+
+  assert.deepEqual(await click(fixturePage, "#t", { clickCount: 2 }), { ok: true });
+  assert.match(await log(), /dbl/);
+
+  assert.deepEqual(await click(fixturePage, "#t", { button: "right" }), { ok: true });
+  assert.match(await log(), /ctx/);
+
+  assert.deepEqual(await click(fixturePage, "#t", { button: "middle" }), { ok: true });
+  assert.match(await log(), /aux1/);
+
+  assert.deepEqual(await click(fixturePage, "#t", { modifiers: ["Shift"] }), { ok: true });
+  assert.match(await log(), /click:shift/);
+
+  assert.deepEqual(await click(fixturePage, "#t", { position: { x: 3, y: 4 } }), { ok: true });
+  assert.match(await log(), /click:3,4/);
+
+  const blocked = await click(fixturePage, "#hidden-btn");
+  assert.equal(blocked.ok, false, "an overlay covers the button, so a plain click must time out");
+  assert.deepEqual(await click(fixturePage, "#hidden-btn", { force: true }), { ok: true });
+  // force bypasses the covered-by-another-element check; the pointer still lands on the topmost element.
+  assert.match(await log(), /overlay/);
+});
+
+test("T031 AC4: no options behaves as before; a position outside the box is an error, not a silent click", async () => {
+  await fixturePage.setContent(CLICK_OPTIONS_FIXTURE, { waitUntil: "domcontentloaded" });
+  assert.deepEqual(await click(fixturePage, "#t"), { ok: true });
+  assert.match((await fixturePage.textContent("#log")) ?? "", /click:/);
+  const far = await click(fixturePage, "#t", { position: { x: 5000, y: 5000 } });
+  assert.equal(far.ok, false);
+});
+
+test("T031 AC6: describeClick builds the same sentence for every option", () => {
+  assert.equal(describeClick('"#x"'), 'Clicked "#x"');
+  assert.equal(describeClick("#x", { button: "right" }), "Right-clicked #x");
+  assert.equal(describeClick("#x", { clickCount: 2 }), "Double-clicked #x");
+  assert.equal(describeClick("#x", { clickCount: 3 }), "Triple-clicked #x");
+  assert.equal(describeClick("#x", { clickCount: 2, button: "right" }), "Double right-clicked #x");
+  assert.equal(describeClick("#x", { modifiers: ["Shift", "Control"] }), "Clicked #x with Shift+Control");
+  assert.equal(describeClick("#x", { position: { x: 4, y: 4 } }), "Clicked #x at 4,4");
+  assert.equal(describeClick("#x", { force: true }), "Clicked #x (forced)");
+  assert.equal(describeClick("#x", { button: "left", clickCount: 1, force: false }), "Clicked #x");
 });

@@ -31,7 +31,10 @@ import {
   scroll,
   getText,
   textSelectorOrUndefined,
+  clickOutside,
+  describeClick,
   MAX_WAIT_MS,
+  type ClickOptions,
 } from "./tools/web.js";
 import {
   startSession,
@@ -47,6 +50,16 @@ import {
   endCall,
   formatIdle,
   DEFAULT_TIMEOUT_MS,
+  attachDialogHandler,
+  applyDialogInterruption,
+  cleanError,
+  interruptedByDialog,
+  quoteDialogText,
+  raceDialog,
+  answerDialog,
+  waitingDialogText,
+  takeDialogNotices,
+  type DialogCall,
   type LoggedAction,
   type SessionRecord,
 } from "./tools/session.js";
@@ -65,6 +78,8 @@ const TOOL = {
   setChecked: "ui_set_checked",
   scroll: "ui_scroll",
   getText: "ui_get_text",
+  clickOutside: "ui_click_outside",
+  dialog: "ui_dialog",
 } as const;
 
 const SELECTOR_DESCRIPTION =
@@ -107,6 +122,7 @@ async function getPage(): Promise<Page> {
   }
   if (!page || page.isClosed()) {
     page = await browser.newPage();
+    attachDialogHandler(page);
   }
   return page;
 }
@@ -116,6 +132,17 @@ function currentPage(): Page | undefined {
   return page && !page.isClosed() ? page : undefined;
 }
 
+type ToolResponse = { isError?: boolean; content: Array<{ type: "text"; text: string }> };
+
+/** Tools that never refuse and never race a dialog: they are the way out of one, or never touch the page. */
+const DIALOG_EXEMPT_TOOLS = new Set(["ui_step", TOOL.dialog]);
+/** Tools that may create the legacy page, so the dialog listener must exist before they run. */
+const PAGE_CREATING_TOOLS = new Set(["ui_navigate"]);
+/** Tools whose own action opens a dialog (a click, a key press), so a timeout on them is expected. */
+const OPENER_TOOLS = new Set(["ui_click", "ui_press_key"]);
+/** Replies standing in for a call a dialog interrupted; ui_dialog states them as they are. */
+const interruptedReplies = new WeakSet<object>();
+
 function buildMcpServer(): McpServer {
   const server = new McpServer({ name: "easy-ui-mcp", version: "0.1.0" });
 
@@ -123,7 +150,8 @@ function buildMcpServer(): McpServer {
   const owned = new ConnectionSessions(MAX_SESSIONS_PER_CONNECTION);
   // The session the running tool call acts on; set by registerSessionTool. A tool call
   // outside registerSessionTool acts on no session (the legacy shared page).
-  const callContext = new AsyncLocalStorage<{ sessionId?: string }>();
+  // `dialogCall` is the running call a native dialog may take over (T031); read by recordAction.
+  const callContext = new AsyncLocalStorage<{ sessionId?: string; dialogCall?: DialogCall }>();
   const callSessionId = () => callContext.getStore()?.sessionId;
 
   /** The idle timer closed one of this connection's sessions: free its slot, remember
@@ -166,11 +194,57 @@ function buildMcpServer(): McpServer {
       if (error) return { isError: true, content: [{ type: "text", text: error }] };
       if (sessionId) beginCall(sessionId);
       try {
-        return await callContext.run({ sessionId }, () => handler(args as z.infer<z.ZodObject<S>>));
+        return await guardDialog(name, sessionId, () => handler(args as z.infer<z.ZodObject<S>>) as Promise<ToolResponse>);
       } finally {
         if (sessionId) endCall(sessionId);
       }
     });
+  }
+
+  /**
+   * Every session-aware tool goes through this (T031, decision D1). A native dialog blocks
+   * its page, and each session has its own page, so the rule is per session: while a dialog
+   * is waiting in session A, every tool but the exempt ones is refused for A, and B is
+   * untouched. A call that opens a dialog returns at once with "waiting" instead of hanging
+   * until its own timeout; the abandoned call keeps running and ui_dialog collects its
+   * result. Notices (e.g. a dialog the safety timeout dismissed) ride on the next response.
+   */
+  async function guardDialog(
+    name: string,
+    sessionId: string | undefined,
+    run: () => Promise<ToolResponse>
+  ): Promise<ToolResponse> {
+    const target = sessionId
+      ? getSessionPage(sessionId)
+      : PAGE_CREATING_TOOLS.has(name)
+        ? await getPage()
+        : currentPage();
+    const withNotices = (res: ToolResponse): ToolResponse => {
+      const notices = takeDialogNotices(target);
+      return notices.length === 0
+        ? res
+        : { ...res, content: [...res.content, ...notices.map((text) => ({ type: "text" as const, text }))] };
+    };
+    if (DIALOG_EXEMPT_TOOLS.has(name)) return withNotices(await callContext.run({ sessionId }, run));
+
+    const waiting = waitingDialogText(target);
+    if (waiting) return { isError: true, content: [{ type: "text", text: waiting }] };
+
+    const outcome = await raceDialog(target, (call) =>
+      callContext.run({ sessionId, dialogCall: call }, async () => {
+        const res = await run();
+        if (!res.isError || !interruptedByDialog(target, call)) return res;
+        const why = res.content.map((c) => c.text).join(" ");
+        const text = OPENER_TOOLS.has(name)
+          ? `The ${name} that opened the dialog was interrupted by it; that is expected.`
+          : `The call was interrupted by the dialog and its own outcome is unknown (${why}).`;
+        const replaced: ToolResponse = { content: [{ type: "text" as const, text }] };
+        interruptedReplies.add(replaced);
+        return replaced;
+      })
+    );
+    if (outcome.kind === "waiting") return { content: [{ type: "text", text: outcome.text }] };
+    return withNotices(outcome.value);
   }
 
   /** Resolves the page primitive tools should act on: the resolved session's
@@ -211,8 +285,12 @@ function buildMcpServer(): McpServer {
   ): Promise<void> {
     const sessionId = callSessionId();
     if (!sessionId) return;
-    const entry: LoggedAction = { timestamp: new Date().toISOString(), action: name, args, ok, detail };
+    let entry: LoggedAction = { timestamp: new Date().toISOString(), action: name, args, ok, detail };
     if (soft) entry.soft = true;
+    // A call a native dialog took over (T031) hits its own timeout while the page is blocked, so
+    // a failure that settles BEFORE the dialog is answered says nothing about the app; one after
+    // the answer is real and stays hard.
+    entry = applyDialogInterruption(getSessionPage(sessionId), callContext.getStore()?.dialogCall, entry);
     const step = getCurrentStep(sessionId);
     if (step) entry.step = step;
     logAction(sessionId, entry);
@@ -268,7 +346,7 @@ function buildMcpServer(): McpServer {
       if (refusal) return { isError: true, content: [{ type: "text", text: refusal }] };
       let record: SessionRecord;
       try {
-        record = await startSession(target, DEFAULT_TIMEOUT_MS, onIdle);
+        record = await startSession(target, DEFAULT_TIMEOUT_MS, onIdle, { holdDialogs: true });
       } catch (err) {
         owned.cancelReservation();
         throw err;
@@ -353,25 +431,153 @@ function buildMcpServer(): McpServer {
       title: "ui_click",
       description:
         "Click the single element matching the given selector. The selector may be a CSS selector or the `selector` value from ui_get_page_state, passed unchanged." +
-        ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.',
+        ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.' +
+        " Optional: `button` (right/middle), `clickCount` 2 for a double-click, `modifiers` for Shift/Control-click, `position` for an offset inside the element, `force` to click through an element covering it." +
+        " If the click opens a native alert/confirm/prompt, the reply says the browser is waiting: answer it with ui_dialog.",
       inputSchema: {
         selector: z
           .string()
           .describe("CSS selector, or the `selector` value of an element from ui_get_page_state"),
+        button: z.enum(["left", "right", "middle"]).optional().describe("Mouse button (default left); right fires contextmenu"),
+        clickCount: z.number().int().min(1).max(3).optional().describe("2 = double-click, 3 = triple-click (default 1)"),
+        modifiers: z
+          .array(z.enum(["Alt", "Control", "Meta", "Shift", "ControlOrMeta"]))
+          .optional()
+          .describe("Keys held during the click, e.g. [\"Shift\"] for a range select"),
+        position: z
+          .object({ x: z.number(), y: z.number() })
+          .optional()
+          .describe("Click this offset from the element's top-left corner, in CSS pixels (default: its centre)"),
+        force: z
+          .boolean()
+          .optional()
+          .describe("Skip the check that nothing covers the element (e.g. a transparent overlay); the click lands on whatever is on top"),
+      },
+    },
+    async ({ selector, button, clickCount, modifiers, position, force }) => {
+      // Only options the caller set are logged, so the report never claims a default as a choice.
+      const options: ClickOptions = {
+        ...(button !== undefined && { button }),
+        ...(clickCount !== undefined && { clickCount }),
+        ...(modifiers !== undefined && { modifiers }),
+        ...(position !== undefined && { position }),
+        ...(force !== undefined && { force }),
+      };
+      const args = { selector, ...options };
+      const target = resolvePageForRead();
+      if (!target) {
+        await recordAction("ui_click", args, false, "No active page");
+        return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
+      }
+      const result = await click(target, selector, options);
+      await recordAction("ui_click", args, result.ok, result.error);
+      if (!result.ok) {
+        return { isError: true, content: [{ type: "text", text: result.error ?? "Click failed" }] };
+      }
+      return { content: [{ type: "text", text: describeClick(`"${selector}"`, options) }] };
+    }
+  );
+
+  registerSessionTool(
+    TOOL.clickOutside,
+    {
+      title: TOOL.clickOutside,
+      description:
+        "Click just outside the single element matching the selector, the way a user closes a modal, drawer or popover by clicking its backdrop. Picks a point whose topmost element is not inside the target and not a control, and says what it hit. " +
+        "Pass the dialog panel, not the backdrop. Fails if no safe point exists (the element fills the viewport): use ui_press_key with Escape then." +
+        NTH_NOTE,
+      inputSchema: {
+        selector: z.string().describe(SELECTOR_DESCRIPTION + " of the modal/panel to click outside of"),
       },
     },
     async ({ selector }) => {
       const target = resolvePageForRead();
       if (!target) {
-        await recordAction("ui_click", { selector }, false, "No active page");
+        await recordAction(TOOL.clickOutside, { selector }, false, "No active page");
         return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
       }
-      const result = await click(target, selector);
-      await recordAction("ui_click", { selector }, result.ok, result.error);
+      const result = await clickOutside(target, selector);
+      await recordAction(TOOL.clickOutside, result.ok ? { selector, hit: result.hit } : { selector }, result.ok, result.error);
       if (!result.ok) {
-        return { isError: true, content: [{ type: "text", text: result.error ?? "Click failed" }] };
+        return { isError: true, content: [{ type: "text", text: result.error ?? "Click outside failed" }] };
       }
-      return { content: [{ type: "text", text: `Clicked "${selector}"` }] };
+      return {
+        content: [{ type: "text", text: `Clicked outside "${selector}" at ${result.x},${result.y} (on ${result.hit})` }],
+      };
+    }
+  );
+
+  /** The page's URL and title right now, for replies that follow a dialog answer; never blocks on a blocked page. */
+  async function pageNow(target: Page): Promise<string> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const title = await Promise.race([
+      target.title().catch(() => ""),
+      new Promise<string>((resolve) => {
+        timer = setTimeout(() => resolve(""), 2_000);
+      }),
+    ]);
+    clearTimeout(timer);
+    return `${target.url()} (title: ${JSON.stringify(title)})`;
+  }
+
+  registerSessionTool(
+    TOOL.dialog,
+    {
+      title: TOOL.dialog,
+      description:
+        "Answer a native browser dialog (alert, confirm, prompt, beforeunload). When a tool call opens one, its reply says \"Browser is waiting on a <type> dialog\" and every other tool is refused until you answer here. " +
+        "`accept` = OK / Leave; `dismiss` = Cancel / Stay; for a prompt add `text`. The reply also reports what the interrupted action did next. " +
+        "With no dialog waiting, this pre-sets the answer for the NEXT dialog, which is then answered at once (one answer, used once). An unanswered dialog is dismissed after a safety timeout.",
+      inputSchema: {
+        action: z.enum(["accept", "dismiss"]).describe("accept = OK / Leave; dismiss = Cancel / Stay"),
+        text: z.string().optional().describe("Text to enter into a prompt dialog (accept only)"),
+      },
+    },
+    async ({ action, text }) => {
+      const target = resolvePageForRead();
+      if (!target) {
+        await recordAction(TOOL.dialog, { action }, false, "No active page");
+        return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
+      }
+      const outcome = await answerDialog(target, action, action === "accept" ? text : undefined);
+      if (outcome.kind === "waiting") return { content: [{ type: "text", text: outcome.text }] };
+      const answered = outcome.value;
+      if (answered.preset) {
+        await recordAction(TOOL.dialog, { action }, true);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `No dialog is waiting. The next dialog will be ${action === "accept" ? "accepted" : "dismissed"} without pausing.`,
+            },
+          ],
+        };
+      }
+      const lines = [
+        `${action === "accept" ? "Accepted" : "Dismissed"} the ${answered.type} dialog ${quoteDialogText(answered.message ?? "")}.`,
+      ];
+      const done = answered.result as ToolResponse | undefined;
+      const now = await pageNow(target);
+      const interrupted = done?.content ? interruptedReplies.has(done) : false;
+      const failed = Boolean(done?.isError) && !interrupted;
+      const said = cleanError(done?.content?.map((c) => c.text).join(" "));
+      if (answered.type === "beforeunload" && action === "dismiss") {
+        // The navigation that raised the prompt is rejected with ERR_ABORTED: that is the Stay.
+        lines.push(`Stayed on ${now}.`);
+        if (failed && !/ERR_ABORTED/.test(said)) lines.push(`The interrupted call failed: ${said}`);
+      } else {
+        if (answered.stillRunning) {
+          lines.push("The action that opened it is still running.");
+        } else if (interrupted) {
+          lines.push(said);
+        } else if (failed) {
+          lines.push(`The interrupted call failed: ${said}`);
+        } else if (done?.content) {
+          lines.push(`The interrupted call then returned: ${said}`);
+        }
+        lines.push(`Page now: ${now}.`);
+      }
+      return { content: [{ type: "text", text: lines.join(" ") }] };
     }
   );
 

@@ -95,3 +95,21 @@ test("POST /api/run-test with an unreachable URL returns a failed status, not a 
   assert.equal(body.status, "failed");
   assert.ok(existsSync(body.report_url));
 });
+
+test("POST /api/run-test on a page that alerts on load still passes (REST cannot answer dialogs)", async () => {
+  const started = Date.now();
+  const res = await fetch(`${BASE_URL}/api/run-test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      platform: "web",
+      flow_description: "alert on load",
+      app_url_or_package: "data:text/html,<title>Alerting</title><script>alert('Hi')</script>",
+      timeout: 20_000,
+    }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, "passed");
+  assert.ok(Date.now() - started < 10_000, "the alert must be answered at once, not held until the run times out");
+});
