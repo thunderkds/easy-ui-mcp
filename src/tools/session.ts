@@ -174,7 +174,8 @@ export type DialogAnsweredBy = "agent" | "pre-set" | "timeout" | "session-end";
 /** How long a held dialog waits for the agent before it is answered automatically. Read per
  * dialog so it can be changed without a restart (tests, ops). */
 function dialogTimeoutMs(): number {
-  return Number(process.env.DIALOG_TIMEOUT_MS ?? 120_000);
+  const ms = Number(process.env.DIALOG_TIMEOUT_MS);
+  return Number.isFinite(ms) && ms > 0 ? ms : 120_000;
 }
 
 /** How long ui_dialog waits for the action that opened a dialog to finish once it is answered. */
