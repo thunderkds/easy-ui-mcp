@@ -14,12 +14,12 @@
 
 
 ### In Progress
-- [ ] **T036** — Docs-site index page in the Easy Kit family style, with flows and charts | backend-developer | ? | Risk: Low | ? | **Started 2026-11-10**: frontend-developer, worktree off main
 
 ### Ready for Review
 
 
 ### Done
+- [x] **T036** — Docs-site index page in the Easy Kit family style, with flows and charts | backend-developer | ? | Risk: Low | ? | **Completed 2026-11-10**: merged into main; docs page now in the Easy Kit family style (IBM Plex, icon tile + chip header, bordered GitHub, hero tiles) with flows, 26-tool map, before/after and measured bars; Easy Kit link → https://easy-kits.vercel.app/; full `npm test` 307/307 (traced). Evidence: `tasks/TASK_REVIEW_T036.md`
 - [x] **T035** — Docs and docs-site index page catch up with T029–T034 | backend-developer | ? | Risk: Low | ? | **Completed 2026-11-10**: merged into main; 4 docs-site guide sections (seeing the page, overlays & dialogs, real sizes & typing, debugging & tabs) + nav, README T033 section, RUNBOOK Configuration table / 3 failure modes / release row, HARNESS REST-dialog note, PROJECT_SPEC insight; full `npm test` 303/303 (traced). Evidence: `tasks/TASK_REVIEW_T035.md`
 - [x] **T034** — Commit the Easy Kit harness sync and bring the harness tests in line | backend-developer | ? | Risk: Medium | ? | **Completed 2026-11-10**: harness sync committed as-is (5ec9bd0, 113 files); lock rebuilt for the new layout (147 files) + `harness-snapshot`/`codex-mapping` tests updated, policy guard moved to `docs/MULTI_AGENT.md` (fbaa538); full `npm test` on main 302/302 (traced). Untracked `.claude/verify-runs/*.log` left uncommitted (runtime evidence)
 - [x] **T033** — Debug and multi-page — logs, HTTP errors, tabs, upload, drag, downloads | backend-developer | C2 | Risk: Medium | P1 | Requested by user 2026-11-10 (full browser-action audit). Guide: `tasks/TASK_GUIDE_T033.md`. Brainstorm: `BRAINSTORMING_LOG_browser-actions.md`. D1 decided 2026-11-10: uploads use one built-in file `assets/default_draft.png`, no path input | **Completed 2026-11-10**: merged into main (local, not yet pushed) with T029–T032 conflicts resolved (options-object `startSession`, per-tab dialog handling, 4 tools via `registerSessionTool`, per-session notices; new per-session tabs test); merged tree tsc ok, full `npm test` 300/302 — the 2 failures are the known harness tests (T034). Independent re-verify PASS (WITNESS 2026-11-10T07:33Z). Follow-ups: tab-close race, size check before `saveAs`, tab cap, dialogs in background tabs only seen after switching. Evidence: `tasks/TASK_REVIEW_T033.md`

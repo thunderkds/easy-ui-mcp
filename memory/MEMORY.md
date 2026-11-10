@@ -57,3 +57,4 @@
 - [Harness lock covers `agents/`/`skills/`, not the `.claude/` symlinks](learnings.md#gotchas) — rebuild the lock from `git ls-files` after a kit sync; keep project policy guards in `docs/MULTI_AGENT.md`, not kit-owned AGENTS.md (T034)
 - [T029–T034 merged to main 2026-11-10](decisions.md#architecture) — multi-session, page state/`ui_get_text`, dialogs/click-outside, viewport/device/typing, logs/tabs/downloads (26 tools); harness sync committed; `npm test` 302/302
 - [Merge gate reads the board before a chained command runs](learnings.md#gotchas) — commit evidence and move the row in separate calls before `git merge` (T035)
+- [Docs site follows the Easy Kit family pattern (T036)](decisions.md#architecture) — IBM Plex, icon-tile header, flows/charts from recorded numbers only; Easy Kit = https://easy-kits.vercel.app/
