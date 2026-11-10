@@ -6,6 +6,8 @@ This document describes the REST API endpoints available in easy-ui-mcp for non-
 
 **MCP sessions and `session_id`**: the MCP tools (not this REST API) accept an optional `session_id` on every tool except `ui_start_session`, so one connection can drive several sessions at once. `POST /api/run-test` always runs one isolated session per call and needs no `session_id`.
 
+**Native dialogs**: a REST session cannot answer a native `alert`/`confirm`/`prompt`/`beforeunload` (there is no `ui_dialog` here), so `/api/run-test` auto-dismisses every dialog the page opens, as it always has. The MCP tools hold dialogs open for the agent instead. REST behaviour is otherwise unchanged.
+
 ---
 
 ## Endpoints
