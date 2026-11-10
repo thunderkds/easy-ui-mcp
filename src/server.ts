@@ -27,6 +27,7 @@ import {
   hover,
   setChecked,
   scroll,
+  getText,
   MAX_WAIT_MS,
 } from "./tools/web.js";
 import {
@@ -54,6 +55,7 @@ const TOOL = {
   hover: "ui_hover",
   setChecked: "ui_set_checked",
   scroll: "ui_scroll",
+  getText: "ui_get_text",
 } as const;
 
 const SELECTOR_DESCRIPTION =
@@ -160,7 +162,7 @@ function buildMcpServer(): McpServer {
     name: string,
     args: Record<string, unknown>,
     act: (target: Page) => Promise<{ ok: boolean; error?: string }>,
-    successText: string
+    successText: string | (() => string)
   ) {
     const target = resolvePageForRead();
     if (!target) {
@@ -172,7 +174,9 @@ function buildMcpServer(): McpServer {
     if (!result.ok) {
       return { isError: true, content: [{ type: "text" as const, text: result.error ?? `${name} failed` }] };
     }
-    return { content: [{ type: "text" as const, text: successText }] };
+    return {
+      content: [{ type: "text" as const, text: typeof successText === "function" ? successText() : successText }],
+    };
   }
 
   server.registerTool(
@@ -534,7 +538,13 @@ function buildMcpServer(): McpServer {
     {
       title: "ui_get_page_state",
       description:
-        "Return the current page's URL, title, visible interactive elements ({role, name, selector}; pass `selector` unchanged to ui_click/ui_fill, at most 200 elements) and visible alert/status messages.",
+        "Return the current page's URL, title, visible interactive elements and visible alert/status messages. " +
+        "Each element is {role, name, selector, state?}: pass `selector` unchanged to ui_click/ui_fill (at most 200 elements); " +
+        "`state` lists only non-default fields (disabled, checked, value, expanded, selected, pressed, required, invalid; a password's value is never returned). " +
+        "Custom widgets (combobox, listbox, option, switch, slider, contenteditable, summary...) are listed too. " +
+        "`overlays` ({role, name, selector, modal}, topmost first) names each open dialog and is absent when none is open; " +
+        "`focused` ({role, name, selector}) names the element holding focus and is absent when focus is on the page body. " +
+        "To read page text use ui_get_text.",
       inputSchema: {},
     },
     async () => {
@@ -544,6 +554,33 @@ function buildMcpServer(): McpServer {
         return { isError: true, content: [{ type: "text", text: result.error ?? "Failed to get page state" }] };
       }
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+  );
+
+  server.registerTool(
+    TOOL.getText,
+    {
+      title: TOOL.getText,
+      description:
+        "Read the trimmed visible text of the single element matching the selector, or of the whole page body when no selector is given (cut at 4000 characters with a note of the real length). " +
+        "Use it to check content: a table value, a heading, an error under a field, a total. Fails if the selector matches no element or more than one." +
+        NTH_NOTE,
+      inputSchema: {
+        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; omit to read the whole page body"),
+      },
+    },
+    async ({ selector }) => {
+      let text = "";
+      return runInteraction(
+        TOOL.getText,
+        selector === undefined ? {} : { selector },
+        async (target) => {
+          const result = await getText(target, selector);
+          text = result.text ?? "";
+          return result;
+        },
+        () => text || "(no visible text)"
+      );
     }
   );
 

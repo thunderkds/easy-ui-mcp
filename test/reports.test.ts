@@ -95,6 +95,15 @@ test("describe renders a readable sentence for each T019 interaction (AC7)", () 
   assert.equal(describe(action({ action: "ui_scroll" })), "Scrolled down one page");
 });
 
+test("describe renders ui_get_text readably and never repeats the text it read (T030 AC8)", () => {
+  assert.equal(describe(action({ action: "ui_get_text", args: { selector: "#total" } })), 'Read text of "#total"');
+  assert.equal(describe(action({ action: "ui_get_text" })), "Read the page text");
+  assert.equal(
+    describe(action({ action: "ui_get_text", args: { selector: "#t" }, detail: "secret page text" })),
+    'Read text of "#t"'
+  );
+});
+
 test("describe truncates long values in the T019 sentences and keeps them to one line (AC7)", () => {
   const long = "x".repeat(500);
   const text = describe(action({ action: "ui_select_option", args: { selector: "#s", value: long } }));
@@ -256,6 +265,19 @@ test("T019 action sentences are HTML-escaped in the rendered report (AC7)", asyn
 
   assert.doesNotMatch(html, /<img src=x/);
   assert.match(html, /Selected &quot;&lt;img src=x onerror=alert\(1\)&gt;&quot; in #s/);
+});
+
+test("T030 ui_get_text sentence is HTML-escaped in the rendered report (AC8)", async () => {
+  const { htmlPath } = await writeReports(
+    record({
+      actions: [action({ action: "ui_get_text", args: { selector: "<img src=x onerror=alert(1)>" } })],
+    }),
+    TMP_REPORTS_DIR
+  );
+  const html = readFileSync(htmlPath, "utf8");
+
+  assert.doesNotMatch(html, /<img src=x/);
+  assert.match(html, /Read text of &quot;&lt;img src=x onerror=alert\(1\)&gt;&quot;/);
 });
 
 test("browser problems are listed and explicitly do not change the verdict", async () => {

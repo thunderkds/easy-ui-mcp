@@ -15,6 +15,7 @@ import {
   hover,
   setChecked,
   scroll,
+  getText,
 } from "../src/tools/web.js";
 
 const FIXTURE_HTML = `
@@ -478,6 +479,211 @@ test("getPageState caps elements at 200 with a truncation note and stays fast (T
 
   const few = await pageStateOf("<button>One</button>");
   assert.equal(few.note, undefined);
+});
+
+// --- T030: element state, custom widgets, overlays, focus, ui_get_text ---
+
+const byName = (els: StateElement[] | undefined, name: string) => (els ?? []).find((e) => e.name === name);
+
+test("getPageState reports element state, lists custom widgets, and every selector round-trips (T030 AC1,2)", async () => {
+  const result = await pageStateOf(`
+    <button id="off" disabled>Off</button>
+    <input id="agree" type="checkbox" checked aria-label="Agree">
+    <input id="newsletter" type="checkbox" aria-label="Newsletter">
+    <input id="user" aria-label="User" value="jcarlin" required>
+    <input id="pw" type="password" aria-label="Password" value="hunter2">
+    <textarea id="bio" aria-label="Bio">hello bio</textarea>
+    <select id="country" aria-label="Country"><option value="us">US</option><option value="vn" selected>VN</option></select>
+    <button id="acc" aria-expanded="false">Accordion</button>
+    <div id="combo" role="combobox" aria-expanded="true" tabindex="0" aria-label="City">Hanoi</div>
+    <ul role="listbox" aria-label="Cities"><li role="option" aria-selected="true" id="o1">Hanoi</li><li role="option" id="o2">Hue</li></ul>
+    <div id="sw" role="switch" aria-checked="true" tabindex="0" aria-label="Dark mode">.</div>
+    <div id="mixed" role="checkbox" aria-checked="mixed" tabindex="0" aria-label="Some">.</div>
+    <button id="bold" aria-pressed="true">Bold</button>
+    <div id="slider" role="slider" aria-valuenow="7" tabindex="0" aria-label="Volume">.</div>
+    <details><summary id="sum">More</summary>Body</details>
+    <div id="rte" contenteditable="true" aria-label="Editor">draft text</div>
+    <div id="nope" contenteditable="false">Not editable</div>
+    <div id="bad" role="textbox" tabindex="0" aria-invalid="true" aria-label="Email">.</div>
+    <div id="layout" tabindex="0">A layout div with tabindex but no role</div>
+    <div id="skipped" role="row" tabindex="-1">Roving row</div>`);
+  const els = result.elements ?? [];
+  assert.deepEqual(byName(els, "Off")?.state, { disabled: true });
+  assert.deepEqual(byName(els, "Agree")?.state, { checked: true });
+  assert.deepEqual(byName(els, "Newsletter")?.state, { checked: false });
+  assert.deepEqual(byName(els, "User")?.state, { value: "jcarlin", required: true });
+  assert.equal(byName(els, "Password")?.state?.value, undefined, "password value must never be returned");
+  assert.ok(!JSON.stringify(result).includes("hunter2"));
+  assert.deepEqual(byName(els, "Bio")?.state, { value: "hello bio" });
+  assert.deepEqual(byName(els, "Country")?.state, { value: "vn" });
+  assert.deepEqual(byName(els, "Accordion")?.state, { expanded: false });
+  assert.equal(byName(els, "City")?.role, "combobox");
+  assert.deepEqual(byName(els, "City")?.state, { expanded: true });
+  assert.equal(byName(els, "Cities")?.role, "listbox");
+  assert.deepEqual(byName(els, "Hanoi")?.state, { selected: true });
+  assert.equal(byName(els, "Hue")?.role, "option");
+  assert.deepEqual(byName(els, "Dark mode")?.state, { checked: true });
+  assert.deepEqual(byName(els, "Some")?.state, { checked: "mixed" });
+  assert.deepEqual(byName(els, "Bold")?.state, { pressed: true });
+  assert.deepEqual(byName(els, "Volume")?.state, { value: "7" });
+  assert.deepEqual(byName(els, "More")?.state, { expanded: false });
+  assert.equal(byName(els, "Editor")?.role, "textbox");
+  assert.equal(byName(els, "Not editable"), undefined);
+  assert.deepEqual(byName(els, "Email")?.state, { invalid: true });
+  assert.equal(byName(els, "A layout div with tabindex but no role"), undefined);
+  assert.equal(byName(els, "Roving row"), undefined);
+  // An element with no non-default state has no `state` key at all.
+  assert.equal("state" in (byName(els, "Cities") ?? {}), false);
+
+  await assertAllSelectorsUnique(els);
+});
+
+test("getPageState selectors for custom widgets hit the intended element (T030 AC2 round-trip)", async () => {
+  const result = await pageStateOf(`
+    <div id="combo" role="combobox" tabindex="0" aria-label="City" onclick="log('combo')">Pick</div>
+    <div role="switch" aria-checked="false" tabindex="0" aria-label="Dark mode" onclick="this.setAttribute('aria-checked','true'); log('switch')">.</div>
+    <div role="option" onclick="log('opt')">Hue</div>
+    <div contenteditable="true" aria-label="Editor">.</div>
+    <details><summary onclick="log('sum')">More</summary>Body</details>
+    <p id="out"></p>
+    <script>window.log = (m) => { document.getElementById('out').textContent += m + ';'; };</script>`);
+  const els = result.elements ?? [];
+  for (const name of ["City", "Dark mode", "Hue", "More"]) {
+    const el = byName(els, name);
+    assert.ok(el, `${name} listed`);
+    assert.equal((await click(fixturePage, el.selector)).ok, true, `click ${name}`);
+  }
+  assert.equal(await fixturePage.textContent("#out"), "combo;switch;opt;sum;");
+  const editor = byName(els, "Editor");
+  assert.ok(editor);
+  assert.equal((await fill(fixturePage, editor.selector, "typed")).ok, true);
+  assert.equal(await fixturePage.textContent('[aria-label="Editor"]'), "typed");
+});
+
+test("getPageState truncates a long input value to 100 chars (T030 edge)", async () => {
+  const result = await pageStateOf(`<input aria-label="Long" value="${"v".repeat(300)}">`);
+  const value = byName(result.elements, "Long")?.state?.value ?? "";
+  assert.ok(value.length <= 101, `value was ${value.length} chars`);
+  assert.ok(value.startsWith("vvvv"));
+});
+
+test("getPageState lists an open modal dialog and drops it once closed (T030 AC3,4)", async () => {
+  await fixturePage.setContent(
+    `<button>Behind</button><dialog id="dlg" aria-label="Confirm delete"><button>OK</button></dialog>`,
+    { waitUntil: "domcontentloaded" }
+  );
+  const closed = await getPageState(fixturePage);
+  assert.equal("overlays" in closed, false, "no overlays key while closed");
+
+  await fixturePage.evaluate("document.getElementById('dlg').showModal()");
+  const open = await getPageState(fixturePage);
+  assert.equal(open.overlays?.length, 1);
+  assert.equal(open.overlays?.[0].role, "dialog");
+  assert.equal(open.overlays?.[0].name, "Confirm delete");
+  assert.equal(open.overlays?.[0].modal, true);
+  assert.equal(await fixturePage.locator(open.overlays![0].selector).count(), 1);
+
+  await fixturePage.evaluate("document.getElementById('dlg').close()");
+  const after = await getPageState(fixturePage);
+  assert.equal("overlays" in after, false, "no overlays key after close");
+});
+
+test("getPageState: <dialog open> without showModal is not modal; a name falls back to the heading (T030 edge)", async () => {
+  const result = await pageStateOf(`<dialog open><h2>Heads up</h2><p>text</p></dialog>`);
+  assert.equal(result.overlays?.length, 1);
+  assert.equal(result.overlays?.[0].modal, false);
+  assert.equal(result.overlays?.[0].name, "Heads up");
+});
+
+test("getPageState ignores overlays hidden by every means, and tracks an aria-modal div toggled with hidden (T030 AC3,4)", async () => {
+  const hiddenWays = `
+    <div role="dialog" hidden>a</div>
+    <div role="dialog" style="display:none">b</div>
+    <div role="dialog" style="visibility:hidden">c</div>
+    <div role="alertdialog" aria-hidden="true">d</div>
+    <div aria-hidden="true"><div role="dialog">e</div></div>`;
+  const none = await pageStateOf(hiddenWays);
+  assert.equal("overlays" in none, false);
+
+  await fixturePage.setContent(
+    `<div id="m" role="dialog" aria-modal="true" aria-label="Settings" hidden><button>Close</button></div>`,
+    { waitUntil: "domcontentloaded" }
+  );
+  assert.equal("overlays" in (await getPageState(fixturePage)), false);
+  await fixturePage.evaluate("document.getElementById('m').hidden = false");
+  const open = await getPageState(fixturePage);
+  assert.equal(open.overlays?.[0].name, "Settings");
+  assert.equal(open.overlays?.[0].modal, true);
+  await fixturePage.evaluate("document.getElementById('m').remove()");
+  assert.equal("overlays" in (await getPageState(fixturePage)), false);
+});
+
+test("getPageState lists nested overlays topmost first (T030 edge)", async () => {
+  const result = await pageStateOf(`
+    <div role="dialog" aria-label="Outer" style="position:fixed;top:0;left:0;width:300px;height:300px;z-index:10">
+      <div role="alertdialog" aria-label="Inner" style="position:absolute;top:10px;left:10px;width:100px;height:100px">x</div>
+    </div>`);
+  assert.deepEqual(
+    (result.overlays ?? []).map((o) => o.name),
+    ["Inner", "Outer"]
+  );
+});
+
+test("getPageState reports the focused element, and omits it after blur (T030 AC5)", async () => {
+  await fixturePage.setContent(`<input id="email" aria-label="Email"><button>Go</button>`, {
+    waitUntil: "domcontentloaded",
+  });
+  assert.equal("focused" in (await getPageState(fixturePage)), false, "nothing focused → omitted");
+  await fixturePage.focus("#email");
+  const focused = (await getPageState(fixturePage)).focused;
+  assert.equal(focused?.role, "textbox");
+  assert.equal(focused?.name, "Email");
+  assert.equal(await fixturePage.locator(focused!.selector).count(), 1);
+  await fixturePage.evaluate("document.getElementById('email').blur()");
+  assert.equal("focused" in (await getPageState(fixturePage)), false);
+});
+
+test("getPageState reports focus on an element outside the interactive list, but not an iframe (T030 edge)", async () => {
+  await pageStateOf(
+    `<div id="panel" tabindex="-1" aria-label="Results panel">x</div><iframe id="f" srcdoc="<input id=i>"></iframe>`
+  );
+  await fixturePage.focus("#panel");
+  const onPanel = (await getPageState(fixturePage)).focused;
+  assert.equal(onPanel?.name, "Results panel");
+  assert.equal(await fixturePage.locator(onPanel!.selector).count(), 1);
+  await fixturePage.focus("#f");
+  assert.equal("focused" in (await getPageState(fixturePage)), false);
+});
+
+const LONG_BODY = `<p id="total">  $1,234.50 </p><p id="a2" class="dup">x</p><p class="dup">y</p><div>${"z".repeat(10_000)}</div>`;
+
+test("getText returns the trimmed text of one element, or of body, capped at 4000 chars (T030 AC6)", async () => {
+  await fixturePage.setContent(LONG_BODY, { waitUntil: "domcontentloaded" });
+  const cell = await getText(fixturePage, "#total");
+  assert.equal(cell.ok, true);
+  assert.equal(cell.text, "$1,234.50");
+
+  const body = await getText(fixturePage);
+  assert.equal(body.ok, true);
+  assert.ok((body.text ?? "").startsWith("$1,234.50"));
+  assert.match(body.text ?? "", /…\(truncated, \d{5} chars\)$/);
+  assert.ok((body.text ?? "").length < 4100);
+
+  await fixturePage.setContent("<p id='s'>short</p>", { waitUntil: "domcontentloaded" });
+  assert.equal((await getText(fixturePage)).text, "short");
+});
+
+test("getText fails like ui_click on 0 or >1 matches and with no page (T030 AC7)", async () => {
+  await fixturePage.setContent(LONG_BODY, { waitUntil: "domcontentloaded" });
+  const none = await getText(fixturePage, "#nope");
+  assert.equal(none.ok, false);
+  assert.match(none.error ?? "", /No element matched selector "#nope"/);
+  const many = await getText(fixturePage, ".dup");
+  assert.equal(many.ok, false);
+  assert.match(many.error ?? "", /matched 2 elements/);
+  const noPage = await getText(undefined, "#total");
+  assert.equal(noPage.ok, false);
+  assert.match(noPage.error ?? "", /no active page/i);
 });
 
 // --- ui_take_screenshot ---

@@ -67,6 +67,7 @@ Each FR must trace to at least one User Story.
 | FR-018 | The system must capture browser console errors, uncaught page errors, and failed network requests during a session and surface them in the report. These are informational and must not change session status. | US-005 |
 | FR-019 | The system must provide a separate primitive tool for each of these interactions: `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, each recorded in the session report like the other primitives. | US-002 |
 | FR-020 | Report files must be named `session-<YYYYMMDD-HHMMSS>-<slug>-<id8>` so they say when and what, and the system must rewrite `reports/index.html` (newest first, capped at 500) after every report; a failure to write the index must not fail the report. | US-005 |
+| FR-022 | `ui_get_page_state` must report what the agent needs to choose its next step: each element's non-default state (`disabled`, `checked`, `value`, `expanded`, `selected`, `pressed`, `required`, `invalid`; never the value of a password field), custom-widget and contenteditable elements with working selectors, `overlays` (visible dialogs, topmost first, omitted when none) and `focused` (omitted when focus is on the body). A `ui_get_text(selector?)` tool must return the trimmed visible text of one element or of the page body, capped at 4000 characters, failing like `ui_click` on 0 or >1 matches. | US-002, US-004 |
 
 ---
 
