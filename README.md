@@ -39,7 +39,7 @@ of `extra_hosts: ["host.docker.internal:host-gateway"]` to `docker-compose.yml`.
 
 ## Tools
 
-`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
+`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_set_viewport`, `ui_type`, `ui_navigate_history`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
 
 ### Label your steps
 
@@ -66,6 +66,14 @@ Sessions with no `ui_step` calls still render correctly, under a single implicit
 {"role": "button", "name": "Sign in", "selector": "[data-testid=\"signin\"]"}
 ui_click  selector: [data-testid="signin"]
 ```
+
+### Test at real sizes, type like a user, see what you capture
+
+- **Sizes and settings.** `ui_start_session` takes optional `device` (a Playwright device name such as `"iPhone 13"`: mobile user agent, touch, pixel ratio, size), `viewport` `{width, height}` (overrides the device size), `colorScheme` (`light`/`dark`), `locale` and `timezoneId`. An unknown device is an error that lists valid names. With none of them the browser is a 1280x720 desktop. These apply to the session only (not to the shared page used without a session). `ui_set_viewport(width, height)` resizes mid-flow (320-3840 x 320-2160); layouts can change, so call `ui_get_page_state` again afterwards. The settings appear in the report header.
+- **Typing.** `ui_fill` sets the whole value at once. `ui_type(selector, text, delayMs?)` types key by key (`keydown`/`input`/`keyup` per character, appended to what is there), for autocomplete, search-as-you-type, masked inputs and OTP boxes. The typed text is shown in the report, except when the target is a password field (shown as `••••`).
+- **History.** `ui_navigate_history(action)` with `back`, `forward` or `reload` keeps the history and form state that a second `ui_navigate` would lose. With no entry to go to, it is an error that says so.
+- **Scrolling.** `ui_scroll` also takes `container` (the selector of a scroll area such as a chat panel, virtual table or carousel) and `direction` (`down`, `up`, `left`, `right`, `top`, `bottom`; default `down`). It moves one viewport (or container) step per call and says when the end was reached, so a loop over a lazy list knows when to stop.
+- **Screenshots.** `ui_take_screenshot` also takes `selector` (just that element), `fullPage` (the whole page, cut at 16000px) and `inline: true`, which returns the PNG as image content (scaled to at most 1280px wide) as well as writing it to `reports/`.
 
 ### Verifying vs waiting — pick the right one
 
