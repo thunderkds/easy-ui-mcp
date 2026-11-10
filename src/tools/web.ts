@@ -220,6 +220,19 @@ function acceptsPng(accept: string | null): boolean {
   return tokens.length === 0 || tokens.some((t) => ["image/png", "image/*", ".png", "*/*"].includes(t));
 }
 
+/**
+ * True when clicking `selector` may open a tab or start a download: the element is, or sits
+ * inside, a link with target/download, a button, or a submit control. Only those clicks are
+ * worth waiting a moment for; others return at once (a missed event is still announced on the next response).
+ */
+export async function mayOpenTabOrDownload(page: Page, selector: string): Promise<boolean> {
+  return page
+    .locator(selector)
+    .first()
+    .evaluate((el) => !!el.closest("a[target], a[download], button, input[type=submit], input[type=button], input[type=image]"), undefined, { timeout: 1_000 })
+    .catch(() => false);
+}
+
 export interface UploadResult extends ActionResult {
   file?: string;
   size?: number;

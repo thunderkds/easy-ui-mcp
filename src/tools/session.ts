@@ -9,7 +9,7 @@
 
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { randomUUID } from "node:crypto";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, stat, rm } from "node:fs/promises";
 import path from "node:path";
 
 export interface LoggedAction {
@@ -45,6 +45,16 @@ export const MAX_PAGE_ISSUES = 50;
 
 /** Cap on lines one ui_get_logs call returns (T033). */
 export const MAX_LOG_LINES = 50;
+
+/** Caps on what one session may save from the page under test (a hostile page must not fill the reports volume). */
+export interface SessionLimits {
+  maxDownloadBytes: number;
+  maxDownloads: number;
+}
+export const DEFAULT_SESSION_LIMITS: SessionLimits = { maxDownloadBytes: 25 * 1024 * 1024, maxDownloads: 20 };
+
+/** At most this many notice lines ride one tool response; the rest collapse into "+N more". */
+export const MAX_NOTICES_PER_RESPONSE = 10;
 
 /** Downloads are saved to `<reports dir>/downloads/<session id>/`. */
 const DEFAULT_REPORTS_DIR = path.join(process.cwd(), "reports");
@@ -97,6 +107,7 @@ interface Session extends SessionRecord {
   logCursor: { issues: number; warnings: number };
   downloadCount: number;
   downloadNames: Set<string>;
+  limits: SessionLimits;
   timeoutHandle: ReturnType<typeof setTimeout>;
   /** Label set by the most recent ui_step; stamped onto subsequent actions. */
   currentStep?: string;
@@ -119,7 +130,8 @@ const sessions = new Map<string, Session>();
 export async function startSession(
   target: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
-  reportsDir: string = DEFAULT_REPORTS_DIR
+  reportsDir: string = DEFAULT_REPORTS_DIR,
+  limits: Partial<SessionLimits> = {}
 ): Promise<SessionRecord> {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
@@ -149,15 +161,23 @@ export async function startSession(
     logCursor: { issues: 0, warnings: 0 },
     downloadCount: 0,
     downloadNames: new Set(),
+    limits: { ...DEFAULT_SESSION_LIMITS, ...limits },
     timeoutHandle,
   };
   sessions.set(id, session);
   trackPage(session, page);
   // target=_blank links and window.open: the new tab is tracked but not switched to.
   context.on("page", (opened) => {
+    // The first tab after every tab closed is the blank replacement from onTabClosed.
+    const replacement = session.tabs.length === 0;
     session.tabs.push(opened);
     trackPage(session, opened);
-    session.notices.push(`New tab opened: ${redactUrl(opened.url())} (tab ${session.tabs.length})`);
+    if (replacement) {
+      session.page = opened;
+      session.notices.push("All tabs closed; opened a blank tab");
+    } else {
+      session.notices.push(`New tab opened: ${redactUrl(opened.url())} (tab ${session.tabs.length})`);
+    }
   });
   return toRecord(session);
 }
@@ -190,7 +210,9 @@ function onTabClosed(session: Session, page: Page): void {
   session.tabs.splice(i, 1);
   let notice = `Tab ${i + 1} closed`;
   if (session.tabs.length === 0) {
-    notice += "; no tabs left";
+    // A session with no tab can only end failed, so open a blank one (announced by the context "page" handler).
+    void session.context.newPage().catch(() => undefined);
+    return;
   } else if (session.page === page) {
     session.page = session.tabs[Math.max(0, i - 1)];
     notice += `; now on tab ${session.tabs.indexOf(session.page) + 1}`;
@@ -211,18 +233,29 @@ function safeFileName(suggested: string): string {
 /** Save a download under reports/downloads/<session>/, log it, and announce it on the next response. */
 async function saveDownload(
   session: Session,
-  download: { suggestedFilename(): string; saveAs(target: string): Promise<void> }
+  download: { suggestedFilename(): string; saveAs(target: string): Promise<void>; cancel?(): Promise<void> }
 ): Promise<void> {
   const n = ++session.downloadCount;
   let name = safeFileName(download.suggestedFilename());
   if (session.downloadNames.has(name)) name = `${n}-${name}`;
   session.downloadNames.add(name);
+  // Soft: a download we could not keep is information, not a verdict on the app.
+  const dropped = (detail: string) => {
+    session.actions.push(entry({ args: { file: name }, ok: false, detail, soft: true }));
+    session.notices.push(`${detail}: ${name}`);
+  };
   const entry = (rest: Pick<LoggedAction, "args" | "ok" | "detail" | "soft">): LoggedAction => ({
     timestamp: new Date().toISOString(),
     action: "ui_download",
     ...(session.currentStep ? { step: session.currentStep } : {}),
     ...rest,
   });
+  if (n > session.limits.maxDownloads) {
+    await download.cancel?.().catch(() => undefined);
+    // One line for the first download over the limit; a hostile page must not also flood the log.
+    if (n === session.limits.maxDownloads + 1) dropped(`Download limit reached (${session.limits.maxDownloads} per session), ignoring further downloads`);
+    return;
+  }
   try {
     const dir = path.join(session.reportsDir, "downloads", session.id);
     await mkdir(dir, { recursive: true });
@@ -230,12 +263,16 @@ async function saveDownload(
     await download.saveAs(file);
     const { size } = await stat(file);
     if (!sessions.has(session.id)) return;
-    session.actions.push(entry({ args: { file: name, size, path: file }, ok: true }));
+    if (size > session.limits.maxDownloadBytes) {
+      await rm(file, { force: true });
+      dropped("Download too large, discarded");
+      return;
+    }
+    session.actions.push(entry({ args: { file: name, size, path: path.relative(session.reportsDir, file) }, ok: true }));
     session.notices.push(`Downloaded: ${name} (${size} bytes)`);
   } catch (err) {
     if (!sessions.has(session.id)) return;
     const message = err instanceof Error ? err.message : String(err);
-    // Soft: a download we could not keep is information, not a verdict on the app.
     session.actions.push(entry({ args: { file: name }, ok: false, detail: message, soft: true }));
     session.notices.push(`Download failed: ${name} — ${message}`);
   }
@@ -265,8 +302,10 @@ function attachIssueListeners(session: Session, page: Page): void {
     }
   });
   page.on("pageerror", (err) => record("pageerror", err.message));
-  page.on("requestfailed", (req) => {
+  page.on("requestfailed", async (req) => {
     const reason = req.failure()?.errorText ?? "request failed";
+    // A navigation that turned into a download is aborted by the browser (ERR_ABORTED), not broken.
+    if (reason.includes("ERR_ABORTED") && req.isNavigationRequest() && (await becameDownload(req))) return;
     record("requestfailed", `${req.method()} ${redactUrl(req.url())} — ${reason}`);
   });
   // A 500 is a *successful* request to Playwright, so requestfailed never sees it.
@@ -275,6 +314,12 @@ function attachIssueListeners(session: Session, page: Page): void {
       record("httperror", `${res.status()} ${res.request().method()} ${redactUrl(res.url())}`);
     }
   });
+}
+
+/** True when the response to a navigation was an attachment or a raw byte stream, i.e. the browser downloads it. */
+async function becameDownload(req: { response(): Promise<{ headers(): Record<string, string> } | null> }): Promise<boolean> {
+  const headers = (await req.response().catch(() => null))?.headers() ?? {};
+  return /^\s*attachment/i.test(headers["content-disposition"] ?? "") || /^\s*application\/octet-stream/i.test(headers["content-type"] ?? "");
 }
 
 export type LogsResult = { ok: true; lines: string[]; note?: string } | { ok: false; error: string };
@@ -323,7 +368,9 @@ export function getSessionLogs(
 
 /** Take (and clear) the one-shot notices waiting for the next tool response. */
 export function takeNotices(id: string): string[] {
-  return sessions.get(id)?.notices.splice(0) ?? [];
+  const all = sessions.get(id)?.notices.splice(0) ?? [];
+  if (all.length <= MAX_NOTICES_PER_RESPONSE) return all;
+  return [...all.slice(0, MAX_NOTICES_PER_RESPONSE), `+${all.length - MAX_NOTICES_PER_RESPONSE} more notices`];
 }
 
 export interface TabInfo {
@@ -469,6 +516,7 @@ function toRecord(session: Session): SessionRecord {
     logCursor: _lc,
     downloadCount: _dc,
     downloadNames: _dn,
+    limits: _lim,
     timeoutHandle: _t,
     currentStep: _s,
     ...record

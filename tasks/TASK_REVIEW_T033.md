@@ -69,3 +69,11 @@ tools/list shows 20 tools; the `ui_upload_file` input schema has only `selector`
 **DELTA**: An agent can now read a failed HTTP call (method, status, URL) and console errors while the flow runs, follow and switch between popup tabs, upload the built-in file, drag items, and confirm a download, none of which it could do before.
 
 **WITNESS**: [pending: derived by the Supervisor from `memory/event-trace/T033.jsonl`]
+
+---
+
+## Decisions made during review fixes
+
+- **Settle wait after `ui_click`**: the unconditional 150 ms wait is replaced by a wait only when the clicked element is, or sits inside, `a[target]`, `a[download]`, a button or a submit/button/image input (`mayOpenTabOrDownload`). Reason: racing an event against 150 ms still costs the full 150 ms in the common case where nothing happens, whereas this check costs one in-page evaluate; a popup or download from any other click is not lost, its notice rides the next response.
+- **Download-abort noise**: a navigation that fails with `ERR_ABORTED` is not logged when its response was an attachment or `application/octet-stream` (checked from response headers; Playwright fires `requestfailed` about 1 ms before `download`, so filtering on the download URL would race).
+- **Download caps**: 25 MB per file (deleted, soft action "Download too large, discarded") and 20 per session (first extra one is logged once, later ones are cancelled silently); set per session through `startSession`'s `limits` argument so tests use small caps.

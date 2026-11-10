@@ -17,6 +17,7 @@ import {
   scroll,
   uploadFile,
   drag,
+  mayOpenTabOrDownload,
 } from "../src/tools/web.js";
 
 const FIXTURE_HTML = `
@@ -780,4 +781,21 @@ test("drag fails clearly when `from` or `to` matches nothing or many", async () 
   assert.match((await drag(fixturePage, "#one", "#nope")).error ?? "", /No element matched selector "#nope"/);
   assert.match((await drag(fixturePage, ".m", "#one")).error ?? "", /matched 2 elements/);
   assert.match((await drag(fixturePage, "#one", ".m")).error ?? "", /matched 2 elements/);
+});
+
+// --- T033 review: only clicks that can open a tab or start a download get the settle wait ---
+
+test("mayOpenTabOrDownload is true for target/download links, buttons and submit controls, false for plain elements", async () => {
+  await fixturePage.setContent(
+    `<a id="blank" target="_blank" href="/x"><span id="inner">go</span></a><a id="dl" download href="/y">d</a>
+     <button id="btn">b</button><form><input id="sub" type="submit"></form>
+     <div id="plain">p</div><a id="same" href="#top">same tab</a><input id="chk" type="checkbox">`,
+    { waitUntil: "domcontentloaded" }
+  );
+  for (const sel of ["#blank", "#inner", "#dl", "#btn", "#sub"]) {
+    assert.equal(await mayOpenTabOrDownload(fixturePage, sel), true, sel);
+  }
+  for (const sel of ["#plain", "#same", "#chk", "#missing"]) {
+    assert.equal(await mayOpenTabOrDownload(fixturePage, sel), false, sel);
+  }
 });

@@ -29,6 +29,7 @@ import {
   scroll,
   uploadFile,
   drag,
+  mayOpenTabOrDownload,
   getUploadFileSize,
   UPLOAD_FILE_NAME,
   MAX_WAIT_MS,
@@ -301,13 +302,14 @@ function buildMcpServer(): McpServer {
         await recordAction("ui_click", { selector }, false, "No active page");
         return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
       }
+      const mayOpen = activeSessionId ? await mayOpenTabOrDownload(target, selector) : false;
       const result = await click(target, selector);
       await recordAction("ui_click", { selector }, result.ok, result.error);
       if (!result.ok) {
         return { isError: true, content: [{ type: "text", text: result.error ?? "Click failed" }] };
       }
-      // A click is what opens popups and starts downloads; give the events a moment to land so the notice rides this response.
-      if (activeSessionId) await new Promise((resolve) => setTimeout(resolve, 150));
+      // Only a click that can open a tab or start a download waits for the event, so the notice rides this response; any other click returns at once.
+      if (mayOpen) await new Promise((resolve) => setTimeout(resolve, 150));
       return withNotices({ content: [{ type: "text" as const, text: `Clicked "${selector}"` }] });
     }
   );
