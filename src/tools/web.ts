@@ -435,6 +435,8 @@ interface RawElement {
   id: string;
   /** aria-label of a contenteditable element (Playwright's role=textbox does not match those). */
   editableLabel?: string;
+  /** A <summary>: Playwright gives it no role, so `role=button[name=…]` never matches it. */
+  isSummary?: boolean;
 }
 
 /** What the in-page pass returns per element; `state` is null when every field is default. */
@@ -496,6 +498,10 @@ async function buildSelector(
   }
   if (raw.editableLabel) {
     const candidate = `[contenteditable][aria-label=${quoteSelectorString(raw.editableLabel)}]`;
+    if (await isOnlyTarget(candidate)) return candidate;
+  }
+  if (raw.isSummary && raw.name) {
+    const candidate = `summary:text-is(${quoteSelectorString(raw.name)})`;
     if (await isOnlyTarget(candidate)) return candidate;
   }
   // The role comes from a page attribute; only plain tokens are put in a selector.
@@ -614,7 +620,9 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
                       ? "combobox"
                       : editable
                         ? "textbox"
-                        : tag);
+                        : tag === "summary"
+                          ? "button"
+                          : tag);
           // `labels` resolves <label for> (by id, no CSS escaping) and wrapping labels.
           const labelText = input.labels ? Array.from(input.labels, (l) => l.innerText).join(" ") : "";
           const labelledByText = (el.getAttribute("aria-labelledby") ?? "")
@@ -691,6 +699,7 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
             name: name.length > 80 ? `${name.slice(0, 80)}…` : name,
             testId: el.getAttribute("data-testid") ?? "",
             id: el.id,
+            isSummary: tag === "summary",
             editableLabel: editable ? (el.getAttribute("aria-label") ?? "").trim() : "",
             state: Object.keys(state).length > 0 ? state : null,
           };
@@ -833,6 +842,11 @@ export interface TextResult extends ActionResult {
   text?: string;
 }
 
+/** A blank `ui_get_text` selector means "no selector"; used by the tool so the report records the same. */
+export function textSelectorOrUndefined(selector: string | undefined): string | undefined {
+  return selector?.trim() || undefined;
+}
+
 /**
  * Read the trimmed visible text (`innerText`) of the single element matching
  * `selector`, or of `body` with no selector. Same 0/>1-match failure as `click`.
@@ -844,7 +858,7 @@ export async function getText(page: Page | undefined, selector?: string): Promis
   }
   let text = "";
   // An empty selector means "no selector": the whole page, not a Playwright parse error.
-  const target = selector?.trim() || undefined;
+  const target = textSelectorOrUndefined(selector);
   const result = await onUniqueLocator(page, target ?? "body", async (locator) => {
     // innerText of a hidden element falls back to raw textContent (stale dialog/error text).
     // Not checked for the bare body: an empty page has a zero-size body that is still "the page".

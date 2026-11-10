@@ -16,6 +16,7 @@ import {
   setChecked,
   scroll,
   getText,
+  textSelectorOrUndefined,
 } from "../src/tools/web.js";
 
 const FIXTURE_HTML = `
@@ -729,6 +730,25 @@ test("getPageState gives a contenteditable a short stable selector, not a positi
   assert.equal(await fixturePage.locator(notes.selector).textContent(), "typed");
   // Two identical names stay unique via the positional fallback.
   await assertAllSelectorsUnique((result.elements ?? []).filter((e) => e.name === "Twin"));
+});
+
+test("getPageState lists <summary> as a button with a short selector, not a positional one (T030 AC2)", async () => {
+  const result = await pageStateOf(`<details><summary>More info</summary>a</details><details><summary>Other</summary>b</details>`);
+  const more = byName(result.elements, "More info");
+  assert.ok(more);
+  assert.equal(more.role, "button");
+  assert.ok(!more.selector.includes("nth="), more.selector);
+  assert.equal(await fixturePage.locator(more.selector).count(), 1);
+  assert.equal((await click(fixturePage, more.selector)).ok, true);
+  assert.equal(await fixturePage.evaluate("document.querySelector('details').open"), true);
+  assert.equal(byName((await getPageState(fixturePage)).elements, "More info")?.state?.expanded, true);
+});
+
+test("textSelectorOrUndefined drops a blank ui_get_text selector so the report says 'page text' (T030)", () => {
+  assert.equal(textSelectorOrUndefined(undefined), undefined);
+  assert.equal(textSelectorOrUndefined(""), undefined);
+  assert.equal(textSelectorOrUndefined("   "), undefined);
+  assert.equal(textSelectorOrUndefined("  #total "), "#total");
 });
 
 // --- ui_take_screenshot ---

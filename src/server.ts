@@ -28,6 +28,7 @@ import {
   setChecked,
   scroll,
   getText,
+  textSelectorOrUndefined,
   MAX_WAIT_MS,
 } from "./tools/web.js";
 import {
@@ -569,8 +570,9 @@ function buildMcpServer(): McpServer {
         selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; omit to read the whole page body"),
       },
     },
-    async ({ selector }) => {
+    async ({ selector: rawSelector }) => {
       let text = "";
+      const selector = textSelectorOrUndefined(rawSelector);
       return runInteraction(
         TOOL.getText,
         selector === undefined ? {} : { selector },
