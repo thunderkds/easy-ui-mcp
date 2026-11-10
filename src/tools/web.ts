@@ -55,16 +55,128 @@ async function resolveUniqueLocator(
   return { ok: true, locator };
 }
 
+/** Optional ways to click (T031). All absent = a plain left click on the element's centre. */
+export interface ClickOptions {
+  button?: "left" | "right" | "middle";
+  /** 1 (default), 2 = double-click, 3 = triple-click. */
+  clickCount?: number;
+  modifiers?: Array<"Alt" | "Control" | "Meta" | "Shift" | "ControlOrMeta">;
+  /** Offset from the element's top-left corner, in CSS pixels. */
+  position?: { x: number; y: number };
+  /** Skip Playwright's actionability checks (e.g. click through a transparent overlay). */
+  force?: boolean;
+}
+
 /**
- * Click the single element matching `selector`.
+ * Click the single element matching `selector`, optionally as a right/middle/double/
+ * modifier click, at an offset, or forced.
  * Fails clearly (no silent first-match click) if 0 or >1 elements match.
  */
-export async function click(page: Page, selector: string): Promise<ActionResult> {
+export async function click(
+  page: Page,
+  selector: string,
+  options: ClickOptions = {}
+): Promise<ActionResult> {
+  const resolved = await resolveUniqueLocator(page, selector);
+  if (!resolved.ok) return { ok: false, error: resolved.error };
+  const { button, clickCount, modifiers, position, force } = options;
+  try {
+    await resolved.locator.click({
+      timeout: 5_000,
+      ...(button && { button }),
+      ...(clickCount && { clickCount }),
+      ...(modifiers?.length && { modifiers }),
+      ...(position && { position }),
+      ...(force && { force }),
+    });
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * One sentence for a click, shared by the tool's reply and the report so the two
+ * never disagree: `Right-clicked X`, `Double-clicked X`, `Clicked X (forced)`,
+ * `Clicked X with Shift at 4,4`. `target` is already formatted (quoted or not) by the caller.
+ */
+export function describeClick(target: string, options: ClickOptions = {}): string {
+  const count = options.clickCount === 2 ? "Double" : options.clickCount === 3 ? "Triple" : undefined;
+  const button = options.button === "right" || options.button === "middle" ? options.button : undefined;
+  let verb = "Clicked";
+  if (count && button) verb = `${count} ${button}-clicked`;
+  else if (count) verb = `${count}-clicked`;
+  else if (button) verb = `${button[0].toUpperCase()}${button.slice(1)}-clicked`;
+  let text = `${verb} ${target}`;
+  if (Array.isArray(options.modifiers) && options.modifiers.length > 0) {
+    text += ` with ${options.modifiers.join("+")}`;
+  }
+  const pos = options.position;
+  if (pos && typeof pos.x === "number" && typeof pos.y === "number") text += ` at ${pos.x},${pos.y}`;
+  if (options.force === true) text += " (forced)";
+  return text;
+}
+
+export interface ClickOutsideResult extends ActionResult {
+  /** What the click landed on, e.g. `div#backdrop` or `dialog#d (::backdrop)`. */
+  hit?: string;
+  x?: number;
+  y?: number;
+}
+
+/**
+ * Click a viewport point just outside the single element matching `selector` — how a
+ * user dismisses a modal, drawer or popover by clicking its backdrop. Candidates are
+ * the centres of the four viewport margins around the element, then the viewport
+ * corners; the first whose topmost element is outside the target and is not an
+ * interactive control wins, so a control is never clicked by accident. A modal
+ * `<dialog>`'s `::backdrop` reports the dialog itself as the topmost element, which
+ * is accepted for a point outside the dialog's box.
+ */
+export async function clickOutside(page: Page, selector: string): Promise<ClickOutsideResult> {
   const resolved = await resolveUniqueLocator(page, selector);
   if (!resolved.ok) return { ok: false, error: resolved.error };
   try {
-    await resolved.locator.click({ timeout: 5_000 });
-    return { ok: true };
+    const found = await resolved.locator.evaluate((el) => {
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const r = el.getBoundingClientRect();
+      const midY = Math.min(Math.max((Math.max(r.top, 0) + Math.min(r.bottom, H)) / 2, 1), H - 2);
+      const midX = Math.min(Math.max((Math.max(r.left, 0) + Math.min(r.right, W)) / 2, 1), W - 2);
+      const MIN = 4;
+      const points: Array<[number, number]> = [];
+      if (r.left >= MIN) points.push([r.left / 2, midY]);
+      if (W - r.right >= MIN) points.push([(r.right + W) / 2, midY]);
+      if (r.top >= MIN) points.push([midX, r.top / 2]);
+      if (H - r.bottom >= MIN) points.push([midX, (r.bottom + H) / 2]);
+      points.push([2, 2], [W - 3, 2], [2, H - 3], [W - 3, H - 3]);
+      const interactive =
+        'a[href],button,input,select,textarea,summary,label,iframe,video,audio,[contenteditable=""],[contenteditable="true"],' +
+        '[role="button"],[role="link"],[role="menuitem"],[role="tab"],[role="checkbox"],[role="radio"],[role="switch"],[role="option"]';
+      // No named helper inside: tsx injects `__name(...)` around one, which does not exist in the page.
+      for (const [x, y] of points) {
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) continue;
+        const top = document.elementFromPoint(x, y);
+        if (!top) continue;
+        const onBackdrop = top === el && el.tagName === "DIALOG" && el.matches(":modal");
+        if (!onBackdrop && el.contains(top)) continue;
+        if (top.closest(interactive)) continue;
+        const cls = typeof top.className === "string" ? top.className.trim().split(/\s+/)[0] : "";
+        const label = top.tagName.toLowerCase() + (top.id ? `#${top.id}` : "") + (cls ? `.${cls}` : "");
+        return { x, y, hit: onBackdrop ? `${label} (::backdrop)` : label };
+      }
+      return null;
+    });
+    if (!found) {
+      return {
+        ok: false,
+        error: `No safe point outside "${selector}" to click (it covers the viewport, or every point around it is an interactive control). Try ui_press_key with Escape instead.`,
+      };
+    }
+    await page.mouse.click(found.x, found.y);
+    return { ok: true, hit: found.hit, x: Math.round(found.x), y: Math.round(found.y) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };
