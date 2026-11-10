@@ -482,6 +482,7 @@ test("a missing screenshot file is omitted rather than failing the report", asyn
 // --- T032: context options (viewport, device, colour scheme, locale, timezone) ---
 
 const MEDIA_DARK = "matchMedia('(prefers-color-scheme: dark)').matches";
+const MOBILE_PAGE = "data:text/html,<meta name=viewport content=\"width=device-width\"><p>m</p>"; // a mobile browser lays out at 980px without this tag
 
 test("T032 AC1: viewport and colorScheme apply to the session page", async () => {
   const record = await startSession("t032-viewport", undefined, {
@@ -529,12 +530,14 @@ test("T032 AC2: device sets mobile user agent, touch and size; explicit viewport
   });
   try {
     const page = getSessionPage(phone.id)!;
+    await page.goto(MOBILE_PAGE);
     assert.match((await page.evaluate("navigator.userAgent")) as string, /iPhone/);
     assert.equal(await page.evaluate("'ontouchstart' in window"), true);
     assert.equal(await page.evaluate("innerWidth"), 390);
     assert.equal(await page.evaluate("devicePixelRatio"), 3);
 
     const overridden = getSessionPage(wide.id)!;
+    await overridden.goto(MOBILE_PAGE);
     assert.equal(await overridden.evaluate("innerWidth"), 500);
     assert.match((await overridden.evaluate("navigator.userAgent")) as string, /iPhone/);
   } finally {

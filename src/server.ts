@@ -27,7 +27,16 @@ import {
   hover,
   setChecked,
   scroll,
+  setViewport,
+  typeText,
+  navigateHistory,
   MAX_WAIT_MS,
+  MIN_VIEWPORT_WIDTH,
+  MAX_VIEWPORT_WIDTH,
+  MIN_VIEWPORT_HEIGHT,
+  MAX_VIEWPORT_HEIGHT,
+  MAX_TYPE_DELAY_MS,
+  MAX_INLINE_WIDTH,
 } from "./tools/web.js";
 import {
   startSession,
@@ -54,7 +63,14 @@ const TOOL = {
   hover: "ui_hover",
   setChecked: "ui_set_checked",
   scroll: "ui_scroll",
+  // T032
+  setViewport: "ui_set_viewport",
+  type: "ui_type",
+  navigateHistory: "ui_navigate_history",
 } as const;
+
+/** What `ui_type` leaves in the report in place of the text it typed into a password field. */
+const MASKED_TEXT = "••••";
 
 const SELECTOR_DESCRIPTION =
   "CSS selector, or the `selector` value of an element from ui_get_page_state, passed unchanged";
@@ -156,11 +172,11 @@ function buildMcpServer(): McpServer {
    * fail clearly with no active page, run the action, record it (a failure is hard),
    * and answer with `isError` on failure.
    */
-  async function runInteraction(
+  async function runInteraction<R extends { ok: boolean; error?: string }>(
     name: string,
     args: Record<string, unknown>,
-    act: (target: Page) => Promise<{ ok: boolean; error?: string }>,
-    successText: string
+    act: (target: Page) => Promise<R>,
+    successText: string | ((result: R) => string)
   ) {
     const target = resolvePageForRead();
     if (!target) {
@@ -172,27 +188,62 @@ function buildMcpServer(): McpServer {
     if (!result.ok) {
       return { isError: true, content: [{ type: "text" as const, text: result.error ?? `${name} failed` }] };
     }
-    return { content: [{ type: "text" as const, text: successText }] };
+    return {
+      content: [{ type: "text" as const, text: typeof successText === "function" ? successText(result) : successText }],
+    };
   }
 
   server.registerTool(
     "ui_start_session",
     {
       title: "ui_start_session",
-      description: "Start a session bracket: opens a fresh browser context and begins logging subsequent primitive tool calls into a report.",
-      inputSchema: { target: z.string().describe("Label/URL identifying what this session tests") },
+      description:
+        "Start a session bracket: opens a fresh browser context and begins logging subsequent primitive tool calls into a report. " +
+        "Optionally test at the sizes and settings real users have: `device` (a Playwright device name such as \"iPhone 13\": mobile user agent, touch, pixel ratio and size), " +
+        "`viewport` (overrides the device size), `colorScheme`, `locale`, `timezoneId`. With none of them the browser is a 1280x720 desktop. " +
+        "These apply to the session only; use ui_set_viewport to resize mid-flow.",
+      inputSchema: {
+        target: z.string().describe("Label/URL identifying what this session tests"),
+        viewport: z
+          .object({
+            width: z.number().int().min(MIN_VIEWPORT_WIDTH).max(MAX_VIEWPORT_WIDTH),
+            height: z.number().int().min(MIN_VIEWPORT_HEIGHT).max(MAX_VIEWPORT_HEIGHT),
+          })
+          .optional()
+          .describe(`Page size in CSS pixels (${MIN_VIEWPORT_WIDTH}-${MAX_VIEWPORT_WIDTH} x ${MIN_VIEWPORT_HEIGHT}-${MAX_VIEWPORT_HEIGHT}), e.g. {width: 375, height: 812} for a phone`),
+        device: z.string().optional().describe('Playwright device name, e.g. "iPhone 13", "Pixel 7", "iPad Pro 11"'),
+        colorScheme: z.enum(["light", "dark"]).optional().describe("prefers-color-scheme the page sees"),
+        locale: z.string().optional().describe('Browser locale, e.g. "fr-FR"'),
+        timezoneId: z.string().optional().describe('IANA timezone, e.g. "Asia/Tokyo"'),
+      },
     },
-    async ({ target }) => {
+    async ({ target, viewport, device, colorScheme, locale, timezoneId }) => {
       if (activeSessionId) {
         return {
           isError: true,
           content: [{ type: "text", text: "A session is already active — call ui_end_session first" }],
         };
       }
-      const record = await startSession(target);
+      const settings = {
+        ...(viewport && { viewport }),
+        ...(device !== undefined && { device }),
+        ...(colorScheme && { colorScheme }),
+        ...(locale !== undefined && { locale }),
+        ...(timezoneId !== undefined && { timezoneId }),
+      };
+      let record;
+      try {
+        record = await startSession(target, undefined, settings);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { isError: true, content: [{ type: "text", text: `Could not start the session: ${message}` }] };
+      }
       activeSessionId = record.id;
+      const applied = Object.entries(settings)
+        .map(([key, value]) => `${key} ${typeof value === "object" ? `${value.width}x${value.height}` : value}`)
+        .join(", ");
       return {
-        content: [{ type: "text", text: `Session ${record.id} started for target "${target}"` }],
+        content: [{ type: "text", text: `Session ${record.id} started for target "${target}"${applied ? ` (${applied})` : ""}` }],
       };
     }
   );
@@ -400,18 +451,112 @@ function buildMcpServer(): McpServer {
     {
       title: TOOL.scroll,
       description:
-        "Scroll the single element matching the selector into view; with no selector, scroll the page down by one viewport (call repeatedly to load lazy lists)." +
+        "Scroll one step. With `selector`, bring that element into view. Otherwise scroll by one viewport height (or width) in `direction` (down, up, left, right, or jump to top / bottom, default down): " +
+        "the page, or with `container` the scroll area matching that selector (a chat panel, a virtual table, a carousel). " +
+        "The result says when the end was reached (nothing more to scroll that way): stop looping then. A page or panel with nothing to scroll is not an error." +
         NTH_NOTE,
       inputSchema: {
-        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; omit to scroll the page down one viewport"),
+        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; scrolls that element into view. Do not combine with container or direction"),
+        container: z.string().optional().describe("Selector of the scroll area to scroll (a single element); omit to scroll the page"),
+        direction: z.enum(["down", "up", "left", "right", "top", "bottom"]).optional().describe("Which way to scroll; default down"),
       },
     },
-    async ({ selector }) =>
+    async ({ selector, container, direction }) =>
       runInteraction(
         TOOL.scroll,
-        selector === undefined ? {} : { selector },
-        (target) => scroll(target, selector),
-        selector === undefined ? "Scrolled down one page" : `Scrolled "${selector}" into view`
+        {
+          ...(selector !== undefined && { selector }),
+          ...(container !== undefined && { container }),
+          ...(direction !== undefined && { direction }),
+        },
+        (target) => scroll(target, selector, { container, direction }),
+        (result) => result.message ?? `Scrolled "${selector}" into view`
+      )
+  );
+
+  server.registerTool(
+    TOOL.setViewport,
+    {
+      title: TOOL.setViewport,
+      description:
+        `Resize the current page's viewport (${MIN_VIEWPORT_WIDTH}-${MAX_VIEWPORT_WIDTH} x ${MIN_VIEWPORT_HEIGHT}-${MAX_VIEWPORT_HEIGHT} CSS pixels), e.g. 375x812 for a phone or 768x1024 for a tablet. ` +
+        "Layouts can change when the page is resized, so call ui_get_page_state again afterwards.",
+      inputSchema: {
+        width: z.number().int().min(MIN_VIEWPORT_WIDTH).max(MAX_VIEWPORT_WIDTH).describe("Width in CSS pixels"),
+        height: z.number().int().min(MIN_VIEWPORT_HEIGHT).max(MAX_VIEWPORT_HEIGHT).describe("Height in CSS pixels"),
+      },
+    },
+    async ({ width, height }) =>
+      runInteraction(
+        TOOL.setViewport,
+        { width, height },
+        (target) => setViewport(target, width, height),
+        (result) => result.message ?? `Viewport set to ${width}x${height}`
+      )
+  );
+
+  server.registerTool(
+    TOOL.type,
+    {
+      title: TOOL.type,
+      description:
+        "Type text into the single editable element matching the selector one key at a time, like a user (keydown, input and keyup per character), appending to what is already there. " +
+        "Use it instead of ui_fill for autocomplete, search-as-you-type, masked inputs (phone, card) and OTP boxes. Use the `selector` from ui_get_page_state. " +
+        "Text typed into a password field is never stored in the report." +
+        NTH_NOTE,
+      inputSchema: {
+        selector: z.string().describe(SELECTOR_DESCRIPTION),
+        text: z.string().describe("The text to type"),
+        delayMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(MAX_TYPE_DELAY_MS)
+          .optional()
+          .describe(`Pause between keystrokes in ms (0-${MAX_TYPE_DELAY_MS}, default 0), for fields that debounce input`),
+      },
+    },
+    async ({ selector, text, delayMs }) => {
+      const target = resolvePageForRead();
+      if (!target) {
+        await recordAction(TOOL.type, { selector, text: MASKED_TEXT }, false, "No active page");
+        return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
+      }
+      const result = await typeText(target, selector, text, delayMs);
+      // Only a target positively known not to be a password may have its text kept.
+      const shown = result.masked ? MASKED_TEXT : text;
+      await recordAction(
+        TOOL.type,
+        { selector, text: shown, ...(delayMs ? { delayMs } : {}) },
+        result.ok,
+        result.error
+      );
+      if (!result.ok) {
+        return { isError: true, content: [{ type: "text", text: result.error ?? "Type failed" }] };
+      }
+      return { content: [{ type: "text", text: `Typed "${shown}" into "${selector}"` }] };
+    }
+  );
+
+  server.registerTool(
+    TOOL.navigateHistory,
+    {
+      title: TOOL.navigateHistory,
+      description:
+        "Go back or forward in the browser history, or reload the current page, and report the resulting URL and title. " +
+        "Unlike ui_navigate this keeps the history, so it can check that state survives a reload. " +
+        "Going back or forward with no such history entry is an error that says so.",
+      inputSchema: {
+        action: z.enum(["back", "forward", "reload"]).describe("back, forward, or reload"),
+      },
+    },
+    async ({ action }) =>
+      runInteraction(
+        TOOL.navigateHistory,
+        { action },
+        (target) => navigateHistory(target, action),
+        (result) =>
+          `${action === "back" ? "Went back to" : action === "forward" ? "Went forward to" : "Reloaded"} ${result.url} (title: "${result.title}")`
       )
   );
 
@@ -551,21 +696,37 @@ function buildMcpServer(): McpServer {
     "ui_take_screenshot",
     {
       title: "ui_take_screenshot",
-      description: "Capture the current viewport and save it as a PNG to the reports output.",
-      inputSchema: {},
+      description:
+        "Capture the current viewport and save it as a PNG to the reports output. " +
+        "With `selector`, capture just that element; with `fullPage`, the whole scrollable page (cut at 16000px tall). " +
+        `With \`inline: true\` the image itself is also returned (scaled to at most ${MAX_INLINE_WIDTH}px wide) so you can look at it.` +
+        NTH_NOTE,
+      inputSchema: {
+        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; captures only that element. Not with fullPage"),
+        fullPage: z.boolean().optional().describe("Capture the whole scrollable page, not just the viewport"),
+        inline: z.boolean().optional().describe("Also return the PNG as image content, scaled down"),
+      },
     },
-    async () => {
-      const result = await takeScreenshot(resolvePageForRead(), REPORTS_DIR);
+    async ({ selector, fullPage, inline }) => {
+      const result = await takeScreenshot(resolvePageForRead(), REPORTS_DIR, { selector, fullPage, inline });
       await recordAction(
         "ui_take_screenshot",
-        result.ok ? { path: result.path } : undefined,
+        result.ok
+          ? { path: result.path, ...(selector !== undefined && { selector }), ...(fullPage && { fullPage }) }
+          : undefined,
         result.ok,
         result.ok ? undefined : result.error
       );
       if (!result.ok) {
         return { isError: true, content: [{ type: "text", text: result.error ?? "Screenshot failed" }] };
       }
-      return { content: [{ type: "text", text: `Screenshot saved to ${result.path}` }] };
+      const text = `Screenshot saved to ${result.path}${result.note ? `. ${result.note}` : ""}`;
+      return {
+        content: [
+          { type: "text", text },
+          ...(result.imageBase64 ? [{ type: "image" as const, data: result.imageBase64, mimeType: "image/png" }] : []),
+        ],
+      };
     }
   );
 
