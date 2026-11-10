@@ -71,20 +71,25 @@ const GRAPHITE_MINT_TOKENS: Record<string, string> = {
   'font-mono': '"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace',
 };
 
-/** The AC4 sections, in page order. */
+/** The sections, in page order (T036 regrouped them as overview / guide / reference). */
 const SECTION_IDS = [
   'overview',
+  'how-it-works',
+  'a-session',
+  'before-after',
   'quick-start',
   'another-repo',
   'networking',
-  'tools',
   'writing-a-flow',
+  'several-sessions',
+  'tools',
   'seeing-the-page',
   'overlays-and-dialogs',
   'real-sizes-and-typing',
   'debugging-and-tabs',
   'reports',
   'rest-wrapper',
+  'measured',
   'troubleshooting',
   'development',
 ];
@@ -146,12 +151,17 @@ test('T025 AC6: weights 400/500/600 only, no all-caps, no gradients or drop shad
   assert.match(css, /:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--neon\)[^}]*outline-offset:\s*2px/);
 });
 
-test('T025 AC3/AC9d: the page is self-contained (no external script, stylesheet, import or url())', () => {
+test('T025 AC3/AC9d + T036: no external script, import or url(); the only stylesheet is the IBM Plex fonts', () => {
   const html = page();
   assert.doesNotMatch(html, /<script[^>]*\ssrc\s*=/i, 'no <script src');
-  assert.doesNotMatch(html, /<link[^>]*rel\s*=\s*["']?stylesheet/i, 'no <link rel="stylesheet"');
   assert.doesNotMatch(html, /@import/i);
   assert.doesNotMatch(styleOf(html), /url\(/i);
+  const sheets = [...html.matchAll(/<link\b[^>]*rel\s*=\s*["']?stylesheet[^>]*>/gi)].map((m) => m[0]);
+  assert.equal(sheets.length, 1, 'exactly one external stylesheet');
+  assert.match(sheets[0], /href="https:\/\/fonts\.googleapis\.com\/css2\?[^"]*family=IBM\+Plex\+Sans:wght@400;500;600;700[^"]*"/);
+  assert.match(sheets[0], /family=IBM\+Plex\+Mono:wght@400;500/);
+  assert.match(html, /<link rel="preconnect" href="https:\/\/fonts\.googleapis\.com">/);
+  assert.match(html, /<link rel="preconnect" href="https:\/\/fonts\.gstatic\.com" crossorigin>/);
 });
 
 test('T025 AC1/AC2/AC9e: vercel.json serves site/ with no install or build; requirements.txt is gone', () => {
@@ -214,7 +224,7 @@ test('T025 AC5/AC7: shell and accessibility landmarks', () => {
   assert.match(html, /<main[^>]*id="main"/);
   assert.match(html, /<nav[^>]*aria-label=/, 'labelled nav landmark');
   assert.ok(html.includes('https://github.com/thunderkds/easy-ui-mcp'), 'GitHub link');
-  assert.match(html, />\/\/ getting started</, 'lowercase mono nav group label');
+  assert.match(html, />\/\/ overview</, 'lowercase mono nav group label');
   assert.match(html, />\/\/ reference</);
   for (const m of html.matchAll(/<button\b[^>]*>/g)) {
     assert.match(m[0], /aria-label=|aria-controls=/, `button has an accessible name: ${m[0]}`);
@@ -245,7 +255,7 @@ test('T025 AC10: README links to the docs site source', () => {
 
 /** The Easy Kit family, in the order every sibling site lists it. */
 const FAMILY = [
-  ['Easy Kit', 'https://personal-agentic-claude.vercel.app/'],
+  ['Easy Kit', 'https://easy-kits.vercel.app/'],
   ['Easy Verifier', 'https://easy-verifier.vercel.app/'],
   ['Easy UI', 'https://easy-ui-mcp.vercel.app/'],
   ['Easy Memory', 'https://easy-memory.vercel.app/'],
@@ -267,6 +277,7 @@ test('family nav: header and drawer list the five Easy Kit sites in order, Easy 
     assert.deepEqual(current, ['Easy UI'], 'only Easy UI carries aria-current="page"');
   }
   assert.doesNotMatch(html, /easy-ui\.vercel\.app/, 'never link the unrelated easy-ui.vercel.app');
+  assert.doesNotMatch(html, /personal-agentic-claude/, 'the old Easy Kit address is gone everywhere');
 });
 
 test('phones: a Menu button collapses the sidebar below 720px; without script the sidebar stays open', () => {
@@ -304,4 +315,86 @@ test('desktop: the header lines up with the centered page column instead of the 
     rule.includes(`padding-right: max(var(--space-7), calc((100% - (${shell})) / 2 + var(--space-7)));`),
     `header right edge must follow the shell: ${rule}`,
   );
+});
+
+test('T036: header follows the family pattern: icon tile, "Easy UI", mono chip, bordered GitHub button', () => {
+  const html = page();
+  const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+  assert.match(header, /<svg class="glyph"[^>]*aria-hidden="true"/, 'rounded-square icon tile');
+  assert.match(header, /<rect [^>]*rx="/, 'the icon is a rounded square');
+  assert.match(header, /<span>Easy UI<\/span>/, 'Title-Case product name');
+  assert.match(header, /<span class="chip">ui testing · mcp server<\/span>/, 'mono chip');
+  assert.match(header, /<a class="btn" href="https:\/\/github\.com\/thunderkds\/easy-ui-mcp">GitHub<\/a>/, 'GitHub is a bordered button');
+  assert.doesNotMatch(html, /<title>easy-ui-mcp docs/, 'title no longer says "docs"');
+});
+
+test('T036: hero has the mono tagline, big title, primary + secondary button and three tiles', () => {
+  const html = page();
+  const start = html.indexOf('<section id="overview"');
+  const hero = html.slice(start, html.indexOf('</section>', start));
+  assert.match(hero, /<p class="eyebrow">&gt; /, 'green mono tagline');
+  assert.match(hero, /<h1>Easy UI<\/h1>/);
+  assert.match(hero, /class="btn btn--primary"/, 'primary accent button');
+  assert.match(hero, /class="btn btn--secondary"/, 'secondary bordered button');
+  const tiles = hero.match(/<ul class="strip[^"]*"[^>]*>([\s\S]*?)<\/ul>/)?.[1] ?? '';
+  assert.equal([...tiles.matchAll(/<li>/g)].length, 3, 'three feature tiles');
+  assert.ok(hero.includes('26 tools'), 'hero says "26 tools"');
+});
+
+test('T036: sidebar uses the family groups and marks the section being read', () => {
+  const html = page();
+  const nav = html.slice(html.indexOf('id="sidenav"'), html.indexOf('<main'));
+  const labels = [...nav.matchAll(/<p class="sidenav__label">([^<]+)<\/p>/g)].map((m) => m[1]);
+  assert.deepEqual(labels, ['// easy kit family', '// overview', '// guide', '// reference']);
+  assert.match(html, /\.sidenav__item\.active \{[^}]*border-color: var\(--neon-line\)/, 'active item is an outlined pill');
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? '';
+  assert.match(script, /IntersectionObserver/, 'the script marks the active item');
+});
+
+test('T036: the visuals are present, each with a text equivalent', () => {
+  const html = page();
+  const block = (id: string) => {
+    const start = html.indexOf(`<section id="${id}"`);
+    assert.ok(start > -1, `section #${id} exists`);
+    return html.slice(start, html.indexOf('</section>', start));
+  };
+  // 1. How it works: request lane and return lane
+  const how = block('how-it-works');
+  assert.equal([...how.matchAll(/<ol class="flow/g)].length, 2, 'request lane + return lane');
+  for (const t of ['Claude Code', 'localhost:8765/mcp', 'Docker', 'Playwright', 'Chromium', 'page under test', 'reports/', 'JSON', 'HTML']) {
+    assert.ok(how.toLowerCase().includes(t.toLowerCase()), `how it works shows ${t}`);
+  }
+  // 2. A session: the tools in call order
+  const sess = block('a-session');
+  const order = ['ui_start_session', 'ui_navigate', 'ui_get_page_state', 'ui_click', 'ui_check', 'ui_assert', 'ui_wait_for', 'ui_end_session'];
+  let at = sess.indexOf('<ol class="stages">');
+  assert.ok(at > -1, 'session figure exists');
+  for (const t of order) {
+    const i = sess.indexOf(t, at);
+    assert.ok(i > at, `${t} appears in session-flow order`);
+    at = i;
+  }
+  // 3. Tools map: every tool as one chip, in 8 job groups
+  const tools = block('tools');
+  assert.equal([...tools.matchAll(/<div class="tgroup[ "]/g)].length, 8, 'eight job groups');
+  const chips = [...tools.matchAll(/<li><code>(ui_[a-z_]+)<\/code><\/li>/g)].map((m) => m[1]);
+  assert.deepEqual([...chips].sort(), [...registeredTools()].sort(), 'chips are exactly the registered tools');
+  // 4. Before / after
+  const ba = block('before-after');
+  assert.equal([...ba.matchAll(/class="side side--before"/g)].length, 2);
+  assert.equal([...ba.matchAll(/class="side side--after"/g)].length, 2);
+  assert.ok(ba.includes('>before<') && ba.includes('>after<'), 'sides are labelled in words, not only colour');
+  // 5. Measured: only recorded numbers
+  const m = block('measured');
+  for (const n of ['357 KB', '4.0 KB', '33 ms', '185 ms', '303']) assert.ok(m.includes(n), `measured shows ${n}`);
+  assert.equal([...m.matchAll(/<div class="bar[ "]/g)].length, 4, 'four bars');
+  // 6. Several sessions
+  const several = block('several-sessions');
+  assert.equal([...several.matchAll(/class="session-card"/g)].length, 3, 'three session cards');
+  for (const n of ['MAX_SESSIONS_PER_CONNECTION', '10 min', 'timed_out']) assert.ok(several.includes(n), `several sessions mentions ${n}`);
+  // Every svg is decorative or labelled; no images.
+  assert.doesNotMatch(html, /<img\b/i, 'no images');
+  for (const svg of html.matchAll(/<svg\b[^>]*>/g)) assert.match(svg[0], /aria-hidden="true"|role="img"/, 'every svg is hidden or labelled');
+  // Dense prose is folded.
+  assert.ok([...html.matchAll(/<details class="more">\s*<summary>More detail<\/summary>/g)].length >= 8, 'long prose sits under "More detail"');
 });

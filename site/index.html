@@ -3,12 +3,16 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>easy-ui-mcp docs</title>
-<meta name="description" content="easy-ui-mcp: a Dockerized MCP server that lets Claude Code drive a real browser step by step and get back an HTML report." />
+<title>Easy UI: local UI testing for Claude Code</title>
+<meta name="description" content="Easy UI is a Dockerized MCP server that lets Claude Code drive a real browser step by step and get back a JSON and HTML report." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='7' fill='%230E100F' stroke='%237EDDB0' stroke-width='2'/%3E%3Cpath d='M2 11h28' fill='none' stroke='%237EDDB0' stroke-width='2'/%3E%3Cpath d='M10 18l4 4 8-8' fill='none' stroke='%237EDDB0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   /* Graphite Mint (Easy Kit family). Tokens are declared once here with the exact values from the
      design system's tokens.json; every rule below uses var(--…) and carries no raw colour.
-     Fonts are the token families with system fallbacks: nothing is fetched. */
+     IBM Plex comes from Google Fonts, with system fallbacks if it cannot load. */
   :root {
     --bg: #121413;
     --bg-sunken: #0E100F;
@@ -26,16 +30,20 @@
     --accent: #7EDDB0;
     --accent-hover: #B2EDCF;
     --neon: #3CF5A8;
+    --neon-soft: rgba(60, 245, 168, 0.08);
+    --neon-line: rgba(60, 245, 168, 0.35);
     --on-neon: #0E100F;
     --glow-text: 0 0 12px rgba(60, 245, 168, 0.35);
     --space-1: 4px;
     --space-2: 8px;
     --space-3: 12px;
     --space-4: 16px;
+    --space-5: 20px;
     --space-6: 24px;
     --space-7: 32px;
     --space-8: 40px;
     --space-9: 48px;
+    --space-10: 56px;
     --radius-xs: 4px;
     --radius-sm: 6px;
     --radius-md: 8px;
@@ -53,19 +61,26 @@
 
   a { color: var(--accent); text-decoration: none; }
   a:hover { color: var(--accent-hover); text-decoration: underline; text-underline-offset: 3px; }
-  a:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
+  a:focus-visible, summary:focus-visible, button:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
 
   .skip { position: absolute; left: var(--space-4); top: var(--space-2); transform: translateY(-300%); background: var(--bg-sunken); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-4); color: var(--text-strong); z-index: 20; }
   .skip:focus-visible { transform: none; }
 
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: var(--space-2) var(--space-4); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg-sunken); color: var(--text-strong); font: 500 14px/1.4 var(--font-sans); white-space: nowrap; }
+  .btn:hover { color: var(--text-strong); background: var(--bg-raised); text-decoration: none; }
+  .btn--primary, .btn--primary:hover { background: var(--neon); border-color: var(--neon); color: var(--on-neon); font-weight: 600; }
+  .btn--primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
   /* Header */
   .topbar { position: sticky; top: 0; z-index: 10; height: var(--header-h); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: 0 var(--space-4); background: var(--bg); border-bottom: 1px solid var(--line-header); }
-  .brand { display: flex; align-items: center; gap: var(--space-3); color: var(--text-strong); font: 600 15px/1.4 var(--font-sans); }
+  .topbar__start { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text-strong); font: 600 17px/1.4 var(--font-sans); white-space: nowrap; }
   .brand:hover { color: var(--text-strong); text-decoration: none; }
-  .brand__glyph { font: 500 15px/1 var(--font-mono); color: var(--neon); text-shadow: var(--glow-text); }
-  .brand__tag { font: 400 12px/1.4 var(--font-mono); color: var(--text-muted); }
-  .topbar__link { font: 400 14px/1.4 var(--font-sans); color: var(--text-2); padding: var(--space-2) 0; }
-  .topbar__end { display: flex; align-items: center; gap: var(--space-7); }
+  .glyph { flex: none; color: var(--neon); }
+  .chip { display: none; padding: 3px var(--space-2); border: 1px solid var(--line-strong); border-radius: var(--radius-xs); font: 400 12px/1.4 var(--font-mono); color: var(--text-muted); white-space: nowrap; }
+  .topbar__end { display: flex; align-items: center; gap: var(--space-4); }
+  .topbar .btn { min-height: 0; padding: var(--space-2) 14px; }
 
   /* Easy Kit family nav: in the header from 900px, in the sidebar (the mobile nav) below that */
   .topbar .family-nav { display: none; align-items: center; gap: var(--space-4); font: 400 14px/1.4 var(--font-sans); }
@@ -73,7 +88,7 @@
   .topbar .family-nav a:hover { color: var(--text-strong); text-decoration: none; }
   .family-nav-drawer .sidenav__item { gap: var(--space-2); }
   .family-nav a[aria-current="page"] { color: var(--text-strong); }
-  .family-nav .dot { flex: none; width: 7px; height: 7px; background: var(--line-strong); }
+  .family-nav .dot { flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--line-strong); }
   .family-nav a[aria-current="page"] .dot { background: var(--neon); }
 
   /* Shell */
@@ -81,66 +96,35 @@
   .sidenav { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line-subtle); font: 400 14px/1.4 var(--font-sans); }
   .sidenav__group { display: flex; flex-wrap: wrap; gap: 0 var(--space-1); margin-bottom: var(--space-2); }
   .sidenav__label { flex: 0 0 100%; margin: var(--space-2) 0 0; font: 400 11.5px/1.4 var(--font-mono); color: var(--text-muted); }
-  .sidenav__item { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--space-3); border-radius: var(--radius-sm); color: var(--text-nav); }
+  .sidenav__item { display: inline-flex; align-items: center; min-height: 44px; padding: 0 11px; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-nav); }
   .sidenav__item:hover { background: var(--bg-raised); color: var(--text-strong); text-decoration: none; }
+  .sidenav__item.active { background: var(--neon-soft); border-color: var(--neon-line); color: var(--neon); text-shadow: var(--glow-text); font-weight: 500; }
   .nav-toggle { display: none; align-items: center; min-height: 44px; padding: 0 var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: transparent; color: var(--text-2); font: 400 14px/1.4 var(--font-sans); cursor: pointer; }
   .nav-toggle:hover { color: var(--text-strong); }
 
   /* Phones: with script the sidebar folds behind the Menu button; without script it stays open. */
   @media (max-width: 719px) {
-    .topbar__end { gap: var(--space-4); }
+    .topbar__end { gap: var(--space-2); }
+    .topbar .btn { min-height: 44px; }
     .js .nav-toggle { display: inline-flex; }
     .js .sidenav:not(.is-open) { display: none; }
   }
 
   /* Main column */
-  .main { min-width: 0; padding: var(--space-9) var(--space-4); }
-  .main > * { max-width: var(--content-max); }
-  .eyebrow { margin: 0; font: 400 12.5px/1.4 var(--font-mono); color: var(--neon); text-shadow: var(--glow-text); }
-  h1 { margin: var(--space-2) 0; font: 600 28px/1.2 var(--font-sans); letter-spacing: -0.01em; color: var(--text-strong); }
-  .lede { max-width: 680px; margin: 0 0 var(--space-7); font: 400 17px/1.6 var(--font-sans); color: var(--text-2); }
+  .main { min-width: 0; padding: var(--space-6) var(--space-4) var(--space-9); display: flex; flex-direction: column; gap: var(--space-9); }
+  .main > * { width: 100%; max-width: var(--content-max); }
+  section { scroll-margin-top: calc(var(--header-h) + var(--space-6)); }
+  .eyebrow { margin: 0 0 var(--space-3); font: 400 12.5px/1.4 var(--font-mono); color: var(--neon); text-shadow: var(--glow-text); }
+  h1 { margin: 0 0 var(--space-4); font: 600 32px/1.1 var(--font-sans); letter-spacing: -0.02em; color: var(--text-strong); }
+  .lede { max-width: 680px; margin: 0; font: 400 17px/1.6 var(--font-sans); color: var(--text-2); }
+  .actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-6); }
   h2 { margin: 0 0 var(--space-4); font: 600 20px/1.3 var(--font-sans); color: var(--text-strong); }
-  h3 { margin: var(--space-6) 0 var(--space-2); font: 600 15px/1.4 var(--font-sans); color: var(--text-strong); }
-  p { max-width: 72ch; margin: 0 0 var(--space-4); }
-  ul { max-width: 72ch; margin: 0 0 var(--space-4); padding-left: var(--space-6); }
+  h3 { margin: var(--space-5) 0 var(--space-2); font: 600 15px/1.4 var(--font-sans); color: var(--text-strong); }
+  p { max-width: 72ch; margin: 0 0 var(--space-3); }
+  ul { max-width: 72ch; margin: 0 0 var(--space-3); padding-left: var(--space-5); }
   li { margin-bottom: var(--space-1); }
   strong { font-weight: 600; color: var(--text-strong); }
-  section { margin-top: var(--space-8); padding-top: var(--space-8); border-top: 1px solid var(--line); scroll-margin-top: calc(var(--header-h) + var(--space-4)); }
-  section:first-of-type { margin-top: 0; padding-top: 0; border-top: 0; }
-
-  code { font: 400 0.9em/1.4 var(--font-mono); background: var(--bg-sunken); border-radius: var(--radius-xs); padding: 1px 6px; color: var(--text); }
-  pre { margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); background: var(--bg-sunken); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow-x: auto; font: 400 14px/1.6 var(--font-mono); color: var(--text); }
-  pre code { background: none; padding: 0; font: inherit; color: inherit; }
-  .p { color: var(--neon); user-select: none; }
-  .c { color: var(--text-dim); }
-
-  /* Key facts strip */
-  .strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; margin: var(--space-6) 0 0; }
-  .strip > div { padding: 20px 22px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  .strip > :nth-child(even) { border-left: 1px solid var(--line); }
-  .strip > :nth-child(n+3) { border-top: 1px solid var(--line); }
-  .strip__num { font: 500 28px/1.1 var(--font-mono); color: var(--text-strong); }
-  .strip__num--key { color: var(--neon); text-shadow: var(--glow-text); }
-  .strip__num--text { font-size: 17px; line-height: 31px; }
-  .strip__label { font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
-
-  /* Quick start steps */
-  .steps { list-style: none; margin: 0 0 var(--space-4); padding: 0; max-width: none; }
-  .steps li { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: var(--space-2); margin-bottom: var(--space-4); }
-  .steps__num { font: 400 11.5px/2.2 var(--font-mono); color: var(--neon); text-shadow: var(--glow-text); }
-  .steps p { margin-bottom: var(--space-2); }
-
-  /* Tables */
-  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-md); margin: 0 0 var(--space-4); }
-  table { width: 100%; border-collapse: collapse; font: 400 14px/1.5 var(--font-sans); }
-  th { text-align: left; font: 500 12px/1.4 var(--font-mono); color: var(--text-muted); padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--bg-sunken); white-space: nowrap; }
-  td { padding: 12px 16px; border-bottom: 1px solid var(--line-subtle); color: var(--text); vertical-align: top; min-width: 160px; }
-  .names td:first-child { white-space: nowrap; min-width: 0; }
-  tr:last-child td { border-bottom: 0; }
-  tbody tr:hover td { background: var(--bg-raised); }
-  td code { background: none; padding: 0; }
-
-  .foot { margin-top: var(--space-9); padding-top: var(--space-6); border-top: 1px solid var(--line); font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
+  .caption { font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
 
   @media (min-width: 720px) {
     .topbar { padding-left: max(calc(var(--space-7) + 12px), calc((100% - (calc(var(--sidebar-w) + var(--content-max) + 2 * var(--space-7)))) / 2 + var(--space-7) + 12px)); padding-right: max(var(--space-7), calc((100% - (calc(var(--sidebar-w) + var(--content-max) + 2 * var(--space-7)))) / 2 + var(--space-7))); }
@@ -148,18 +132,195 @@
     .sidenav { position: sticky; top: var(--header-h); align-self: start; height: calc(100vh - var(--header-h)); overflow-y: auto; padding: var(--space-6) var(--space-4) var(--space-6) var(--space-7); border-bottom: 0; border-right: 1px solid var(--line-subtle); }
     .sidenav__group { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; margin-bottom: 28px; }
     .sidenav__label { flex: none; margin: 0; padding: 0 12px var(--space-2); }
-    .sidenav__item { display: flex; min-height: 0; padding: 7px 12px; }
+    .sidenav__item { display: flex; min-height: 0; padding: 6px 11px; }
     .main { padding: var(--space-9) var(--space-7); }
+    h1 { font-size: 44px; }
   }
+
+  code { font: 400 0.9em/1.4 var(--font-mono); background: var(--bg-sunken); border-radius: var(--radius-xs); padding: 1px 6px; color: var(--text); overflow-wrap: anywhere; }
+  pre { margin: 0 0 var(--space-3); padding: var(--space-3) var(--space-4); background: var(--bg-sunken); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow-x: auto; font: 400 14px/1.6 var(--font-mono); color: var(--text); }
+  pre code { background: none; padding: 0; font: inherit; color: inherit; overflow-wrap: normal; }
+  .p { color: var(--neon); user-select: none; }
+  .c { color: var(--text-muted); }
+
+  /* Tiles: bordered box of cells divided by hairlines (1px gap over a line-coloured ground) */
+  .strip { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; max-width: none; margin: var(--space-6) 0 0; padding: 0; list-style: none; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+  section .strip { margin: var(--space-4) 0 var(--space-3); }
+  .strip > li { margin: 0; padding: var(--space-5) 22px; display: flex; flex-direction: column; gap: 6px; min-width: 0; background: var(--bg); }
+  .tile-t { font: 600 15px/1.4 var(--font-sans); color: var(--text-strong); }
+  .tile-b { font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
+  .tile-n { font: 500 28px/1.1 var(--font-mono); color: var(--text-strong); }
+  .tile-n--key { color: var(--neon); text-shadow: var(--glow-text); }
+  @media (min-width: 560px) { .strip--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (min-width: 900px) { .strip--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (min-width: 1100px) { .strip--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+  /* Figure: one bordered box that holds a section's picture */
+  .figure { margin: var(--space-4) 0 var(--space-3); padding: var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-md); }
+  .figure > :last-child { margin-bottom: 0; }
+  .lane + .lane { margin-top: var(--space-6); }
+  .lane-label { margin: 0 0 var(--space-3); font: 400 12px/1.4 var(--font-mono); color: var(--text-muted); }
+  .lane-label strong { font-weight: 500; color: var(--text-strong); }
+
+  /* Flow: boxed nodes joined by arrows. Neon = the main path, grey = the return path or a side path. */
+  .flow { display: flex; gap: 28px; max-width: none; margin: 0; padding: 0; list-style: none; }
+  .flow > li { position: relative; flex: 1 1 0; min-width: 0; margin: 0; padding: 10px var(--space-2); display: flex; flex-direction: column; justify-content: center; gap: 2px; text-align: center; background: var(--bg-sunken); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
+  .flow > li:not(:last-child)::after { content: "\2192"; position: absolute; top: 50%; right: -22px; width: 16px; transform: translateY(-50%); text-align: center; font: 400 16px/1 var(--font-mono); color: var(--text-dim); }
+  .flow--main > li:not(:last-child)::after { color: var(--neon); text-shadow: var(--glow-text); }
+  .node-t { font: 600 14px/1.3 var(--font-sans); color: var(--text-strong); }
+  .node-m { font: 400 12px/1.4 var(--font-mono); color: var(--text-muted); overflow-wrap: anywhere; }
+  .flow-end { border-color: var(--neon-line); }
+
+  /* Three-stage session figure: open, loop, close */
+  .stages { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr); gap: var(--space-7); max-width: none; margin: 0; padding: 0; list-style: none; }
+  .stage { position: relative; margin: 0; padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); }
+  .stage:not(:last-child)::after { content: "\2192"; position: absolute; top: 50%; right: -24px; width: 16px; transform: translateY(-50%); text-align: center; font: 400 16px/1 var(--font-mono); color: var(--neon); text-shadow: var(--glow-text); }
+  .stage--loop { border-color: var(--neon-line); background: var(--neon-soft); }
+  .stage .lane-label { margin-bottom: var(--space-3); }
+  .stage .flow { flex-direction: column; gap: 22px; }
+  .stage .flow > li:not(:last-child)::after { content: "\2193"; top: auto; right: auto; bottom: -20px; left: 50%; transform: translateX(-50%); }
+  .stage-note { margin: var(--space-3) 0 0; font: 400 12px/1.4 var(--font-mono); color: var(--text-muted); }
+
+  /* Below the full-width column (1232px) every flow runs top to bottom so its text stays readable */
+  @media (max-width: 1231px) {
+    .flow { flex-direction: column; gap: 28px; }
+    .flow > li { width: 100%; max-width: 480px; align-self: center; }
+    .flow > li:not(:last-child)::after { content: "\2193"; top: auto; right: auto; bottom: -24px; left: 50%; transform: translateX(-50%); }
+    .stages { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+    .stage:not(:last-child)::after { content: "\2193"; top: auto; right: auto; bottom: -24px; left: 50%; transform: translateX(-50%); }
+    .stage .flow { gap: 22px; }
+    .stage .flow > li { max-width: none; }
+  }
+  @media (min-width: 1100px) { .chip { display: inline-block; } }
+
+  /* Chips and tool groups */
+  .chips { display: flex; flex-wrap: wrap; gap: var(--space-2); max-width: none; margin: 0; padding: 0; list-style: none; }
+  .chips li { margin: 0; }
+  .chips code { display: inline-block; padding: 3px var(--space-2); border: 1px solid var(--line-strong); border-radius: var(--radius-xs); font: 400 12.5px/1.4 var(--font-mono); }
+  .tools-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: var(--space-3); margin: var(--space-4) 0 var(--space-3); }
+  .tgroup { padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); min-width: 0; }
+  .tgroup__label { display: flex; justify-content: space-between; gap: var(--space-2); margin: 0 0 var(--space-2); font: 600 14px/1.4 var(--font-sans); color: var(--text-strong); }
+  @media (min-width: 1100px) {
+    .tools-map { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .tgroup--wide { grid-column: span 2; }
+  }
+  .tgroup__n { font: 400 12px/1.6 var(--font-mono); color: var(--text-muted); }
+
+  /* Before / after */
+  .compare { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); margin: var(--space-4) 0 var(--space-3); }
+  .compare + .compare { margin-top: var(--space-6); }
+  .compare__title { margin: 0 0 var(--space-3); font: 600 15px/1.4 var(--font-sans); color: var(--text-strong); }
+  .side { padding: var(--space-4); border: 1px dashed var(--line-strong); border-radius: var(--radius-md); min-width: 0; }
+  .side--after { border: 1px solid var(--neon-line); background: var(--neon-soft); }
+  .side__tag { margin: 0 0 var(--space-2); font: 500 12px/1.4 var(--font-mono); color: var(--text-muted); }
+  .side--after .side__tag { color: var(--neon); text-shadow: var(--glow-text); }
+  .side__head { margin: 0 0 var(--space-2); font: 600 14px/1.4 var(--font-sans); color: var(--text-strong); }
+  .side pre { margin: 0 0 var(--space-2); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .side p:last-child { margin: 0; font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
+  @media (min-width: 720px) {
+    .compare { grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr); gap: 0; }
+    .compare__title { grid-column: 1 / -1; }
+    .compare .arrow-mid { display: flex; }
+  }
+  .arrow-mid { display: none; align-items: center; justify-content: center; color: var(--neon); font: 400 16px/1 var(--font-mono); text-shadow: var(--glow-text); }
+
+  /* Quick start stepper: the three steps hang on one neon line */
+  .stepper { display: grid; grid-template-columns: minmax(0, 1fr); max-width: none; margin: var(--space-4) 0 var(--space-3); padding: 0; list-style: none; }
+  .stepper > li { margin: 0; min-width: 0; padding: 0 0 var(--space-6) var(--space-5); border-left: 1.5px solid var(--neon); }
+  .stepper > li:last-child { padding-bottom: 0; }
+  .st-head { display: none; }
+  .stepper h3 { margin: 0 0 var(--space-2); }
+  .stepper pre { margin: 0 0 var(--space-2); padding: var(--space-3); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .stepper p { margin: 0; font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
+  @media (min-width: 720px) {
+    .stepper { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .stepper > li { padding: 0 var(--space-5) 0 0; border-left: 0; }
+    .stepper > li:last-child { padding-right: 0; }
+    .st-head { display: flex; align-items: center; gap: 10px; height: 20px; margin-bottom: var(--space-3); }
+    .st-mark { flex: none; width: 9px; height: 9px; border-radius: 2px; background: var(--neon); }
+    .st-line { flex: 1 1 auto; height: 1.5px; margin-right: -14px; background: var(--neon); }
+    .stepper > li:last-child .st-line { display: none; }
+  }
+
+  /* Cards: verify choices, kv lists, anatomy */
+  .cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); max-width: none; margin: var(--space-4) 0 var(--space-3); padding: 0; list-style: none; }
+  .cards > li { margin: 0; padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+  .cards .k { font: 500 14px/1.4 var(--font-mono); color: var(--text-strong); }
+  .cards .out { align-self: flex-start; padding: 2px var(--space-2); border: 1px solid var(--line-strong); border-radius: var(--radius-xs); font: 400 12px/1.5 var(--font-mono); color: var(--text-2); }
+  .cards .out--hard { border-color: var(--neon-line); color: var(--neon); }
+  .cards p { margin: 0; font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
+  @media (min-width: 720px) { .cards--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .callout { max-width: none; margin: var(--space-4) 0 var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--neon-line); border-radius: var(--radius-md); background: var(--neon-soft); }
+  .kv { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; max-width: none; margin: var(--space-4) 0 var(--space-3); background: var(--line); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+  .kv > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px var(--space-4); padding: 10px var(--space-4); background: var(--bg); }
+  .kv dt { margin: 0; font: 500 13px/1.5 var(--font-mono); color: var(--text-strong); overflow-wrap: anywhere; }
+  .kv dd { margin: 0; font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
+  @media (min-width: 720px) { .kv > div { grid-template-columns: 170px minmax(0, 1fr); } }
+
+  /* Several sessions */
+  .conn .node-t, .conn .node-m { display: block; }
+  .conn { max-width: 420px; margin: 0 auto; padding: 10px var(--space-3); text-align: center; background: var(--bg-sunken); border: 1px solid var(--neon-line); border-radius: var(--radius-sm); }
+  .conn-arrow { max-width: none; margin: var(--space-2) 0; text-align: center; font: 400 12px/1.4 var(--font-mono); color: var(--text-muted); }
+  .conn-arrow span { color: var(--neon); font-size: 16px; text-shadow: var(--glow-text); }
+  .sessions { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-3); max-width: none; margin: 0; padding: 0; list-style: none; }
+  .session-card { margin: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg-sunken); min-width: 0; }
+  .session-card ul { margin: var(--space-2) 0 0; padding: 0; list-style: none; font: 400 12.5px/1.6 var(--font-mono); color: var(--text-muted); }
+  .session-card li { margin: 0; }
+  .session-card--no { border-style: dashed; background: none; }
+  .session-card .node-t { display: block; }
+  .session-card--no .node-t { color: var(--text-2); }
+
+  /* Bars (measured) */
+  .chart { display: grid; gap: var(--space-5); margin: var(--space-4) 0 var(--space-3); padding: var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-md); }
+  .chart__title { margin: 0; font: 600 15px/1.4 var(--font-sans); color: var(--text-strong); }
+  .bar-top { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px var(--space-3); margin-bottom: var(--space-2); }
+  .bar-name { font: 600 14px/1.4 var(--font-sans); color: var(--text-strong); }
+  .bar-ctx { font: 400 13px/1.4 var(--font-sans); color: var(--text-muted); }
+  .bar-val { margin-left: auto; font: 500 20px/1.1 var(--font-mono); color: var(--text-strong); white-space: nowrap; }
+  .bar-val--key { color: var(--neon); text-shadow: var(--glow-text); }
+  .bar { height: 10px; border-radius: 5px; background: var(--bg-sunken); overflow: hidden; }
+  .bar > span { display: block; height: 100%; border-radius: 5px; background: var(--neon); }
+  .bar--ref > span { background: var(--text-dim); }
+  .w-kb-357, .w-ms-185 { width: 100%; }
+  .w-kb-4 { width: 1.12%; min-width: 6px; }
+  .w-ms-33 { width: 17.84%; }
+  .chart .caption { margin: 0; max-width: none; }
+
+  /* Report name anatomy */
+  .name-parts { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); max-width: none; margin: 0 0 var(--space-3); padding: 0; list-style: none; font: 400 13px/1.5 var(--font-sans); color: var(--text-muted); }
+  .name-parts li { margin: 0; }
+  .name-parts code { color: var(--neon); background: none; padding: 0 var(--space-1) 0 0; }
+
+  /* Folded detail */
+  .more { margin-top: var(--space-4); border-top: 1px solid var(--line); }
+  .more > summary { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: var(--space-3) 0; cursor: pointer; list-style: none; font: 400 12.5px/1.4 var(--font-mono); color: var(--text-muted); }
+  .more > summary::-webkit-details-marker { display: none; }
+  .more > summary::before { content: "+"; width: 12px; text-align: center; color: var(--text-2); }
+  .more[open] > summary::before { content: "\2212"; }
+  .more > summary:hover { color: var(--text-strong); }
+  .more-body { padding: var(--space-1) 0; }
+  .more-body > :last-child { margin-bottom: 0; }
+  .more-body h3:first-child { margin-top: 0; }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-md); margin: var(--space-3) 0; }
+  table { width: 100%; border-collapse: collapse; font: 400 14px/1.5 var(--font-sans); }
+  th { text-align: left; font: 500 12px/1.4 var(--font-mono); color: var(--text-muted); padding: 10px var(--space-4); border-bottom: 1px solid var(--line); background: var(--bg-sunken); white-space: nowrap; }
+  td { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line-subtle); color: var(--text); vertical-align: top; min-width: 160px; }
+  .names td:first-child { white-space: nowrap; min-width: 0; }
+  tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: var(--bg-raised); }
+  td code { background: none; padding: 0; }
+
+  .foot { padding-top: var(--space-6); border-top: 1px solid var(--line); font: 400 13.5px/1.5 var(--font-sans); color: var(--text-muted); }
+  .foot p { margin: 0; }
+
   @media (min-width: 900px) {
     .topbar .family-nav { display: flex; }
     .sidenav .family-nav-drawer { display: none; }
   }
-  @media (min-width: 1024px) {
+  @media (min-width: 1100px) {
     .topbar .family-nav { gap: var(--space-6); }
-    .strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .strip > :nth-child(n) { border-left: 1px solid var(--line); border-top: 0; }
-    .strip > :first-child { border-left: 0; }
   }
 </style>
 </head>
@@ -167,20 +328,22 @@
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="topbar">
-  <a class="brand" href="#overview">
-    <span class="brand__glyph" aria-hidden="true">&gt;_</span>
-    <span>easy-ui-mcp</span>
-    <span class="brand__tag">docs</span>
-  </a>
+  <div class="topbar__start">
+    <a class="brand" href="#overview">
+      <svg class="glyph" width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="1" y="1" width="24" height="24" rx="5"/><path d="M1 8h24"/><path d="M8 15l3.5 3.5L18 12"/></svg>
+      <span>Easy UI</span>
+    </a>
+    <span class="chip">ui testing · mcp server</span>
+  </div>
   <div class="topbar__end">
     <nav class="family-nav" aria-label="Easy Kit family">
-      <a href="https://personal-agentic-claude.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Kit</a>
+      <a href="https://easy-kits.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Kit</a>
       <a href="https://easy-verifier.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Verifier</a>
       <a href="https://easy-ui-mcp.vercel.app/" aria-current="page"><span class="dot" aria-hidden="true"></span>Easy UI</a>
       <a href="https://easy-memory.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Memory</a>
       <a href="https://easy-personal.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Personal</a>
     </nav>
-    <a class="topbar__link" href="https://github.com/thunderkds/easy-ui-mcp">GitHub</a>
+    <a class="btn" href="https://github.com/thunderkds/easy-ui-mcp">GitHub</a>
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="sidenav">Menu</button>
   </div>
 </header>
@@ -189,32 +352,37 @@
   <nav class="sidenav" id="sidenav" aria-label="Documentation">
     <nav class="family-nav family-nav-drawer sidenav__group" aria-label="Easy Kit family (menu)">
       <p class="sidenav__label">// easy kit family</p>
-      <a class="sidenav__item" href="https://personal-agentic-claude.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Kit</a>
+      <a class="sidenav__item" href="https://easy-kits.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Kit</a>
       <a class="sidenav__item" href="https://easy-verifier.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Verifier</a>
       <a class="sidenav__item" href="https://easy-ui-mcp.vercel.app/" aria-current="page"><span class="dot" aria-hidden="true"></span>Easy UI</a>
       <a class="sidenav__item" href="https://easy-memory.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Memory</a>
       <a class="sidenav__item" href="https://easy-personal.vercel.app/"><span class="dot" aria-hidden="true"></span>Easy Personal</a>
     </nav>
     <div class="sidenav__group">
-      <p class="sidenav__label">// getting started</p>
+      <p class="sidenav__label">// overview</p>
       <a class="sidenav__item" href="#overview">Overview</a>
+      <a class="sidenav__item" href="#how-it-works">How it works</a>
+      <a class="sidenav__item" href="#a-session">A session</a>
+      <a class="sidenav__item" href="#before-after">Before and after</a>
+    </div>
+    <div class="sidenav__group">
+      <p class="sidenav__label">// guide</p>
       <a class="sidenav__item" href="#quick-start">Quick start</a>
       <a class="sidenav__item" href="#another-repo">Use from another repo</a>
       <a class="sidenav__item" href="#networking">Networking</a>
+      <a class="sidenav__item" href="#writing-a-flow">Writing a flow</a>
+      <a class="sidenav__item" href="#several-sessions">Several sessions</a>
     </div>
     <div class="sidenav__group">
       <p class="sidenav__label">// reference</p>
       <a class="sidenav__item" href="#tools">Tools</a>
-      <a class="sidenav__item" href="#writing-a-flow">Writing a flow</a>
       <a class="sidenav__item" href="#seeing-the-page">Seeing the page</a>
       <a class="sidenav__item" href="#overlays-and-dialogs">Overlays and dialogs</a>
       <a class="sidenav__item" href="#real-sizes-and-typing">Sizes and typing</a>
       <a class="sidenav__item" href="#debugging-and-tabs">Debugging and tabs</a>
       <a class="sidenav__item" href="#reports">Reports</a>
       <a class="sidenav__item" href="#rest-wrapper">REST wrapper</a>
-    </div>
-    <div class="sidenav__group">
-      <p class="sidenav__label">// operating</p>
+      <a class="sidenav__item" href="#measured">Measured</a>
       <a class="sidenav__item" href="#troubleshooting">Troubleshooting</a>
       <a class="sidenav__item" href="#development">Development</a>
     </div>
@@ -223,41 +391,151 @@
   <main class="main" id="main">
     <section id="overview">
       <p class="eyebrow">&gt; local ui testing for claude code</p>
-      <h1>easy-ui-mcp</h1>
+      <h1>Easy UI</h1>
       <p class="lede">A Dockerized MCP server that lets an AI agent such as Claude Code drive a real browser step by step and get back a JSON and HTML report with screenshots.</p>
-      <p>It exposes 26 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
-      <div class="strip">
-        <div><div class="strip__num strip__num--key">26</div><div class="strip__label">MCP tools</div></div>
-        <div><div class="strip__num">8765</div><div class="strip__label">port on localhost</div></div>
-        <div><div class="strip__num strip__num--text">Chromium</div><div class="strip__label">the only browser (v1)</div></div>
-        <div><div class="strip__num">0</div><div class="strip__label">LLM calls on the server</div></div>
+      <div class="actions">
+        <a class="btn btn--primary" href="https://github.com/thunderkds/easy-ui-mcp">View the source on GitHub</a>
+        <a class="btn btn--secondary" href="#quick-start">Quick start</a>
+      </div>
+      <ul class="strip strip--3" aria-label="Highlights">
+        <li><span class="tile-t">Real browser</span><span class="tile-b">Playwright Chromium inside Docker, the only browser in v1. Claude Code decides what to click; the server performs and logs each action.</span></li>
+        <li><span class="tile-t">26 tools over MCP</span><span class="tile-b">HTTP/SSE on localhost:8765. Primitive actions, checks and page reads, with no test scripts to write.</span></li>
+        <li><span class="tile-t">No LLM in the container</span><span class="tile-b">No server-side model calls or API keys. Every session ends with a JSON and HTML report.</span></li>
+      </ul>
+    </section>
+
+    <section id="how-it-works">
+      <h2>How it works</h2>
+      <p>Claude Code sends one tool call at a time. The server never decides what to do next.</p>
+      <div class="figure">
+        <div class="lane">
+          <p class="lane-label"><strong>request</strong> · one tool call, left to right</p>
+          <ol class="flow flow--main">
+            <li><span class="node-t">Claude Code</span><span class="node-m">decides each step</span></li>
+            <li><span class="node-t">MCP over HTTP</span><span class="node-m">localhost:8765/mcp</span></li>
+            <li><span class="node-t">easy-ui-mcp</span><span class="node-m">Node server in Docker</span></li>
+            <li><span class="node-t">Playwright</span><span class="node-m">headless Chromium</span></li>
+            <li><span class="node-t">Page under test</span><span class="node-m">your app, on the host</span></li>
+          </ol>
+        </div>
+        <div class="lane">
+          <p class="lane-label"><strong>return</strong> · the answer and the evidence</p>
+          <ol class="flow">
+            <li><span class="node-t">Page responds</span><span class="node-m">what Chromium sees</span></li>
+            <li><span class="node-t">Playwright</span><span class="node-m">returns the outcome</span></li>
+            <li><span class="node-t">easy-ui-mcp logs it</span><span class="node-m">every action, server-side</span></li>
+            <li><span class="node-t">Claude Code reads</span><span class="node-m">the result text</span></li>
+            <li class="flow-end"><span class="node-t">reports/</span><span class="node-m">JSON + HTML on ui_end_session</span></li>
+          </ol>
+        </div>
+      </div>
+      <details class="more">
+        <summary>More detail</summary>
+        <div class="more-body">
+          <p>It exposes 26 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
+          <p>The reports directory is volume-mounted, so the JSON and HTML land in <code>./reports/</code> on your machine. A thin REST wrapper (<code>POST /api/run-test</code>) covers callers that cannot speak MCP.</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="a-session">
+      <h2>A session</h2>
+      <p>Every flow is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>. In between, look, act and check as many times as the flow needs.</p>
+      <div class="figure">
+        <ol class="stages">
+          <li class="stage">
+            <p class="lane-label"><strong>1</strong> · open</p>
+            <ol class="flow">
+              <li><span class="node-t">Start</span><span class="node-m">ui_start_session</span></li>
+              <li><span class="node-t">Label (optional)</span><span class="node-m">ui_step</span></li>
+              <li><span class="node-t">Go to the page</span><span class="node-m">ui_navigate</span></li>
+            </ol>
+          </li>
+          <li class="stage stage--loop">
+            <p class="lane-label"><strong>2</strong> · loop, as often as needed</p>
+            <ol class="flow flow--main">
+              <li><span class="node-t">Look</span><span class="node-m">ui_get_page_state</span></li>
+              <li><span class="node-t">Act</span><span class="node-m">ui_click · ui_fill · ui_type · …</span></li>
+              <li><span class="node-t">Check</span><span class="node-m">ui_check · ui_assert · ui_wait_for</span></li>
+            </ol>
+            <p class="stage-note">repeat until the flow is done</p>
+          </li>
+          <li class="stage">
+            <p class="lane-label"><strong>3</strong> · close</p>
+            <ol class="flow">
+              <li><span class="node-t">End</span><span class="node-m">ui_end_session</span></li>
+              <li class="flow-end"><span class="node-t">Report</span><span class="node-m">JSON + HTML in reports/</span></li>
+            </ol>
+          </li>
+        </ol>
+      </div>
+      <p class="caption">A hard failure (<code>ui_assert</code> false, a <code>ui_wait_for</code> timeout) marks the whole session failed; <code>ui_check</code> only records an observation. See Writing a flow.</p>
+    </section>
+
+    <section id="before-after">
+      <h2>Before and after</h2>
+      <p>What changes for the agent once the server tells it what the page looks like.</p>
+      <div class="compare">
+        <p class="compare__title">Choosing a selector</p>
+        <div class="side side--before">
+          <p class="side__tag">before</p>
+          <p class="side__head">Guess a CSS selector</p>
+<pre><code>ui_click  selector: ".btn.primary"</code></pre>
+          <p><code>ui_click</code> fails unless exactly one element matches, so a guess that matches 0 or 3 is a wasted call.</p>
+        </div>
+        <div class="arrow-mid" aria-hidden="true">&rarr;</div>
+        <div class="side side--after">
+          <p class="side__tag">after</p>
+          <p class="side__head">Ask the page, pass the selector unchanged</p>
+<pre><code>ui_get_page_state
+ -&gt; {"role": "button", "name": "Sign in",
+     "selector": "[data-testid=\"signin\"]"}
+ui_click  selector: [data-testid="signin"]</code></pre>
+          <p>Every selector is checked against the live page before it is returned.</p>
+        </div>
+      </div>
+      <div class="compare">
+        <p class="compare__title">A native dialog</p>
+        <div class="side side--before">
+          <p class="side__tag">before</p>
+          <p class="side__head">The confirm blocks the page</p>
+<pre><code>ui_click  selector: "button:text-is(\"Delete\")"
+ -&gt; waits on a dialog nobody can answer</code></pre>
+          <p>A browser <code>confirm</code> stalls the click that opened it.</p>
+        </div>
+        <div class="arrow-mid" aria-hidden="true">&rarr;</div>
+        <div class="side side--after">
+          <p class="side__tag">after</p>
+          <p class="side__head">The call returns at once, you answer</p>
+<pre><code>ui_click   selector: "button:text-is(\"Delete\")"
+ -&gt; Browser is waiting on a confirm dialog: "Delete?"
+ui_dialog  action: "accept"</code></pre>
+          <p>The reply to <code>ui_dialog</code> says what the click did next.</p>
+        </div>
       </div>
     </section>
 
     <section id="quick-start">
       <h2>Quick start</h2>
-      <ol class="steps">
+      <ol class="stepper">
         <li>
-          <span class="steps__num">01</span>
-          <div>
-            <p>Build and start the container.</p>
+          <div class="st-head" aria-hidden="true"><span class="st-mark"></span><span class="st-line"></span></div>
+          <h3>01 · Build and start</h3>
 <pre><code><span class="p">$</span> docker compose up -d --build</code></pre>
-          </div>
+          <p>Builds the image and starts the container.</p>
         </li>
         <li>
-          <span class="steps__num">02</span>
-          <div>
-            <p>Check that it is alive.</p>
+          <div class="st-head" aria-hidden="true"><span class="st-mark"></span><span class="st-line"></span></div>
+          <h3>02 · Check it is alive</h3>
 <pre><code><span class="p">$</span> curl http://localhost:8765/health
 <span class="c"># {"status":"ok"}</span></code></pre>
-          </div>
+          <p>Port 8765 on localhost.</p>
         </li>
         <li>
-          <span class="steps__num">03</span>
-          <div>
-            <p>Connect Claude Code.</p>
+          <div class="st-head" aria-hidden="true"><span class="st-mark"></span><span class="st-line"></span></div>
+          <h3>03 · Connect Claude Code</h3>
 <pre><code><span class="p">$</span> claude mcp add --transport http easy-ui-mcp http://localhost:8765/mcp</code></pre>
-          </div>
+          <p>Registers the MCP server for this project.</p>
         </li>
       </ol>
       <p>Then ask Claude Code to navigate to a page and take a screenshot. It will call the tools below and report back.</p>
@@ -272,54 +550,39 @@
 
     <section id="networking">
       <h2>Networking</h2>
-      <p>The container runs with <code>network_mode: host</code> in <code>docker-compose.yml</code>, not a published port on a bridge network. This is required: the browser Playwright drives inside the container must reach <code>localhost:&lt;port&gt;</code> on your host machine, where the dev server of the app you are testing runs. On a default bridge network the container has no route back to the host, so targets such as <code>http://localhost:8766</code> hang or fail with <code>ERR_CONNECTION_REFUSED</code>.</p>
-      <p>Where <code>network_mode: host</code> is not available (for example Docker Desktop on macOS or Windows), use <code>host.docker.internal</code> as the hostname instead of <code>localhost</code> when calling <code>ui_navigate</code>, and add this to <code>docker-compose.yml</code>:</p>
+      <p>The browser lives inside the container, so it must reach <code>localhost:&lt;port&gt;</code> on your machine, where your app's dev server runs. The container therefore uses the host network.</p>
+      <div class="figure">
+        <ol class="flow flow--main">
+          <li><span class="node-t">Chromium</span><span class="node-m">in the container, network_mode: host</span></li>
+          <li><span class="node-t">localhost:&lt;port&gt;</span><span class="node-m">the same network as your machine</span></li>
+          <li class="flow-end"><span class="node-t">Your dev server</span><span class="node-m">for example http://localhost:8766</span></li>
+        </ol>
+      </div>
+      <details class="more">
+        <summary>More detail</summary>
+        <div class="more-body">
+          <p>The container runs with <code>network_mode: host</code> in <code>docker-compose.yml</code>, not a published port on a bridge network. This is required: the browser Playwright drives inside the container must reach <code>localhost:&lt;port&gt;</code> on your host machine, where the dev server of the app you are testing runs. On a default bridge network the container has no route back to the host, so targets such as <code>http://localhost:8766</code> hang or fail with <code>ERR_CONNECTION_REFUSED</code>.</p>
+          <p>Where <code>network_mode: host</code> is not available (for example Docker Desktop on macOS or Windows), use <code>host.docker.internal</code> as the hostname instead of <code>localhost</code> when calling <code>ui_navigate</code>, and add this to <code>docker-compose.yml</code>:</p>
 <pre><code>extra_hosts:
   - "host.docker.internal:host-gateway"</code></pre>
-    </section>
-
-    <section id="tools">
-      <h2>Tools</h2>
-      <p>All 26 tools. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
-      <div class="table-wrap">
-        <table class="names">
-          <thead><tr><th scope="col">tool</th><th scope="col">purpose</th></tr></thead>
-          <tbody>
-            <tr><td><code>ui_start_session</code></td><td>Open a fresh browser context and start logging into a report. Optional device, viewport, color scheme, locale and timezone.</td></tr>
-            <tr><td><code>ui_end_session</code></td><td>Write the JSON and HTML report and return their paths.</td></tr>
-            <tr><td><code>ui_step</code></td><td>Label what you are about to do; following actions are grouped under it in the report.</td></tr>
-            <tr><td><code>ui_navigate</code></td><td>Navigate the browser to a URL.</td></tr>
-            <tr><td><code>ui_get_page_state</code></td><td>Return URL, title, up to 200 visible interactive elements (custom widgets included) with ready-to-use selectors and their state, the open dialogs, the focused element, and visible alert messages.</td></tr>
-            <tr><td><code>ui_get_text</code></td><td>Read the visible text of one element, or of the whole page, to check a value, heading or error.</td></tr>
-            <tr><td><code>ui_take_screenshot</code></td><td>Capture the viewport, one element or the full page as a PNG in the reports output; optionally return the image so the agent can look at it.</td></tr>
-            <tr><td><code>ui_click</code></td><td>Click the single element matching a selector; optionally right, double or modifier click, at an offset, or forced.</td></tr>
-            <tr><td><code>ui_click_outside</code></td><td>Click just outside an element, such as a modal backdrop, to close it the way a user would.</td></tr>
-            <tr><td><code>ui_dialog</code></td><td>Answer a native alert, confirm or prompt the browser is holding open, or pre-set the answer for the next one.</td></tr>
-            <tr><td><code>ui_fill</code></td><td>Fill the single input matching a selector with a value.</td></tr>
-            <tr><td><code>ui_select_option</code></td><td>Choose an option of a <code>&lt;select&gt;</code> by value or visible label.</td></tr>
-            <tr><td><code>ui_press_key</code></td><td>Press a key or combo such as Enter, Tab, Escape or Control+a, on an element or on whatever has focus.</td></tr>
-            <tr><td><code>ui_hover</code></td><td>Move the pointer over an element to reveal hover content such as dropdown menus.</td></tr>
-            <tr><td><code>ui_set_checked</code></td><td>Set a checkbox or radio button to checked or unchecked.</td></tr>
-            <tr><td><code>ui_scroll</code></td><td>Scroll an element into view, or one step in any direction on the page or inside a scroll area; says when the end is reached.</td></tr>
-            <tr><td><code>ui_set_viewport</code></td><td>Resize the page, for example to a 375px phone or a tablet.</td></tr>
-            <tr><td><code>ui_type</code></td><td>Type into an input one key at a time, like a user (autocomplete, masked inputs, OTP boxes).</td></tr>
-            <tr><td><code>ui_navigate_history</code></td><td>Go back, go forward or reload, keeping the browser history.</td></tr>
-            <tr><td><code>ui_get_logs</code></td><td>Read the console errors, page errors, failed requests and HTTP 4xx/5xx responses captured so far, mid-flow.</td></tr>
-            <tr><td><code>ui_tabs</code></td><td>List, switch to or close the session's browser tabs (popups and <code>target=_blank</code> links open new ones).</td></tr>
-            <tr><td><code>ui_upload_file</code></td><td>Upload the built-in <code>default_draft.png</code> to a file input or to the chooser a button opens. Takes no path.</td></tr>
-            <tr><td><code>ui_drag</code></td><td>Drag one element onto another: drag-and-drop lists, kanban cards, sortables.</td></tr>
-            <tr><td><code>ui_assert</code></td><td>Hard check of a JS expression: false fails the whole session.</td></tr>
-            <tr><td><code>ui_check</code></td><td>Soft check of a JS expression: recorded in the report, the run continues.</td></tr>
-            <tr><td><code>ui_wait_for</code></td><td>Poll a JS expression until it is true; a timeout fails the session.</td></tr>
-          </tbody>
-        </table>
-      </div>
+        </div>
+      </details>
     </section>
 
     <section id="writing-a-flow">
       <h2>Writing a flow</h2>
-      <h3>Label your steps</h3>
-      <p><code>ui_step(label)</code> groups everything that follows under a plain-language heading until the next <code>ui_step</code>. The label is the report's only caller-authored statement of intent. A session with no <code>ui_step</code> calls still renders, under one implicit group.</p>
+      <p>A session is marked failed if any hard action fails, so how you verify decides whether the report tells the truth.</p>
+      <ul class="cards cards--3">
+        <li><span class="k">ui_assert</span><span class="out out--hard">false: the session fails</span><p>A claim about the app: "the toggle is now on".</p></li>
+        <li><span class="k">ui_check</span><span class="out">false: recorded, the run continues</span><p>An observation for the report that should not condemn the run.</p></li>
+        <li><span class="k">ui_wait_for</span><span class="out out--hard">false: keeps polling; a timeout fails</span><p>Waiting for the page to render or settle.</p></li>
+      </ul>
+      <p class="callout"><strong>Never</strong> call <code>ui_assert</code> in a retry loop to wait for something: the first false result permanently fails the run even if the app is fine. That is what <code>ui_wait_for</code> is for. For <code>ui_check</code> and <code>ui_wait_for</code>, a condition that cannot run at all (no page open, or the expression throws) is always a hard failure.</p>
+      <details class="more">
+        <summary>More detail</summary>
+        <div class="more-body">
+          <h3>Label your steps</h3>
+          <p><code>ui_step(label)</code> groups everything that follows under a plain-language heading until the next <code>ui_step</code>. The label is the report's only caller-authored statement of intent. A session with no <code>ui_step</code> calls still renders, under one implicit group.</p>
 <pre><code>ui_start_session  target: "Account Access toggle smoke"
 ui_step           label:  "Open the Settings page"
 ui_navigate       ...
@@ -328,122 +591,300 @@ ui_step           label:  "Turn Manual Invoice access on"
 ui_click          ...
 ui_assert         ...
 ui_end_session</code></pre>
+          <h3>Use the selector from page state</h3>
+          <p><code>ui_get_page_state</code> returns each visible interactive element as <code>{role, name, selector}</code>. Every selector is checked against the live page before it is returned, so pass it unchanged to the interaction tools instead of guessing a CSS selector. A selector containing <code>nth=</code> is positional: call <code>ui_get_page_state</code> again after the page changes before reusing it.</p>
+<pre><code>{"role": "button", "name": "Sign in", "selector": "[data-testid=\"signin\"]"}
+ui_click  selector: [data-testid="signin"]</code></pre>
+          <p>Page state also reports what the page looks like right now. An element may carry a <code>state</code> with only its non-default fields (<code>disabled</code>, <code>checked</code>, <code>value</code>, <code>expanded</code>, <code>selected</code>, <code>pressed</code>, <code>required</code>, <code>invalid</code>; a password value is never returned). <code>overlays</code> lists each open dialog topmost first and is absent when none is open. <code>focused</code> names the element holding focus. Custom widgets such as comboboxes, switches and rich-text editors are listed too. To read text, call <code>ui_get_text</code>.</p>
+        </div>
+      </details>
+    </section>
 
-      <h3>Run several sessions side by side</h3>
-      <p>One connection can hold several open sessions (up to 3; set <code>MAX_SESSIONS_PER_CONNECTION</code> to change it), for example to compare two URLs. <code>ui_start_session</code> returns a session id; pass it as <code>session_id</code> to any other tool to choose the session it acts on. Each session has its own browser, page, step label and report.</p>
+    <section id="several-sessions">
+      <h2>Several sessions</h2>
+      <p>One connection can hold several open sessions, for example to compare two URLs. Each has its own browser, page, step label and report.</p>
+      <div class="figure">
+        <div class="conn"><span class="node-t">One MCP connection</span><span class="node-m">Claude Code</span></div>
+        <p class="conn-arrow"><span aria-hidden="true">&darr;</span> up to 3 sessions (<code>MAX_SESSIONS_PER_CONNECTION</code>), each picked with <code>session_id</code></p>
+        <ul class="sessions">
+          <li class="session-card"><span class="node-t">Session A</span><ul><li>own browser</li><li>own page</li><li>own step label</li><li>own report</li></ul></li>
+          <li class="session-card"><span class="node-t">Session B</span><ul><li>own browser</li><li>own page</li><li>own step label</li><li>own report</li></ul></li>
+          <li class="session-card"><span class="node-t">Session C</span><ul><li>own browser</li><li>own page</li><li>own step label</li><li>own report</li></ul></li>
+          <li class="session-card--no session-card"><span class="node-t">A 4th session</span><ul><li>refused: the cap is 3</li><li>end one first</li></ul></li>
+        </ul>
+      </div>
+      <ul class="strip strip--3">
+        <li><span class="tile-t">Idle 10 min</span><span class="tile-b">The session is closed automatically and its report is written with status <code>timed_out</code>.</span></li>
+        <li><span class="tile-t">Connection closes</span><span class="tile-b">Every session it still owns is ended and reported.</span></li>
+        <li><span class="tile-t">One owner</span><span class="tile-b">A session is reachable only from the connection that started it.</span></li>
+      </ul>
+      <details class="more">
+        <summary>More detail</summary>
+        <div class="more-body">
+          <p>One connection can hold several open sessions (up to 3; set <code>MAX_SESSIONS_PER_CONNECTION</code> to change it), for example to compare two URLs. <code>ui_start_session</code> returns a session id; pass it as <code>session_id</code> to any other tool to choose the session it acts on. Each session has its own browser, page, step label and report.</p>
 <pre><code>ui_start_session  target: "staging"      -&gt; Session &lt;id-A&gt; started
 ui_start_session  target: "production"   -&gt; Session &lt;id-B&gt; started
 ui_navigate       url: ...  session_id: &lt;id-A&gt;
 ui_navigate       url: ...  session_id: &lt;id-B&gt;
 ui_end_session    session_id: &lt;id-A&gt;
 ui_end_session    session_id: &lt;id-B&gt;</code></pre>
-      <p>With exactly one open session <code>session_id</code> can be left out. With several open, leaving it out is an error that lists the open ids. A session is reachable only from the connection that started it. A session with no tool call for 10 minutes (<code>SESSION_TIMEOUT_MS</code>) is closed automatically and its report is written with status <code>timed_out</code>; when a connection closes, every session it still owns is ended and reported.</p>
+          <p>With exactly one open session <code>session_id</code> can be left out. With several open, leaving it out is an error that lists the open ids. A session is reachable only from the connection that started it. A session with no tool call for 10 minutes (<code>SESSION_TIMEOUT_MS</code>) is closed automatically and its report is written with status <code>timed_out</code>; when a connection closes, every session it still owns is ended and reported.</p>
+        </div>
+      </details>
+    </section>
 
-      <h3>Use the selector from page state</h3>
-      <p><code>ui_get_page_state</code> returns each visible interactive element as <code>{role, name, selector}</code>. Every selector is checked against the live page before it is returned, so pass it unchanged to the interaction tools instead of guessing a CSS selector. A selector containing <code>nth=</code> is positional: call <code>ui_get_page_state</code> again after the page changes before reusing it.</p>
-<pre><code>{"role": "button", "name": "Sign in", "selector": "[data-testid=\"signin\"]"}
-ui_click  selector: [data-testid="signin"]</code></pre>
-      <p>Page state also reports what the page looks like right now. An element may carry a <code>state</code> with only its non-default fields (<code>disabled</code>, <code>checked</code>, <code>value</code>, <code>expanded</code>, <code>selected</code>, <code>pressed</code>, <code>required</code>, <code>invalid</code>; a password value is never returned). <code>overlays</code> lists each open dialog topmost first and is absent when none is open. <code>focused</code> names the element holding focus. Custom widgets such as comboboxes, switches and rich-text editors are listed too. To read text, call <code>ui_get_text</code>.</p>
-
-      <h3>Verifying vs waiting</h3>
-      <p>A session is marked failed if any hard action fails, so how you verify decides whether the report tells the truth.</p>
-      <div class="table-wrap">
-        <table class="names">
-          <thead><tr><th scope="col">tool</th><th scope="col">condition false means</th><th scope="col">use it for</th></tr></thead>
-          <tbody>
-            <tr><td><code>ui_assert</code></td><td>The session fails.</td><td>A claim about the app: "the toggle is now on".</td></tr>
-            <tr><td><code>ui_check</code></td><td>Recorded and shown; the run continues.</td><td>An observation for the report that should not condemn the run.</td></tr>
-            <tr><td><code>ui_wait_for</code></td><td>Keeps polling; timing out fails the session.</td><td>Waiting for the page to render or settle.</td></tr>
-          </tbody>
-        </table>
+    <section id="tools">
+      <h2>Tools</h2>
+      <p>All 26 tools, grouped by the job they do. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
+      <div class="tools-map">
+        <div class="tgroup"><p class="tgroup__label"><span>Session</span><span class="tgroup__n">3</span></p><ul class="chips"><li><code>ui_start_session</code></li><li><code>ui_step</code></li><li><code>ui_end_session</code></li></ul></div>
+        <div class="tgroup"><p class="tgroup__label"><span>Navigate</span><span class="tgroup__n">3</span></p><ul class="chips"><li><code>ui_navigate</code></li><li><code>ui_navigate_history</code></li><li><code>ui_scroll</code></li></ul></div>
+        <div class="tgroup"><p class="tgroup__label"><span>Read the page</span><span class="tgroup__n">3</span></p><ul class="chips"><li><code>ui_get_page_state</code></li><li><code>ui_get_text</code></li><li><code>ui_take_screenshot</code></li></ul></div>
+        <div class="tgroup tgroup--wide"><p class="tgroup__label"><span>Act</span><span class="tgroup__n">8</span></p><ul class="chips"><li><code>ui_click</code></li><li><code>ui_fill</code></li><li><code>ui_type</code></li><li><code>ui_select_option</code></li><li><code>ui_press_key</code></li><li><code>ui_hover</code></li><li><code>ui_set_checked</code></li><li><code>ui_drag</code></li></ul></div>
+        <div class="tgroup"><p class="tgroup__label"><span>Sizes</span><span class="tgroup__n">1</span></p><ul class="chips"><li><code>ui_set_viewport</code></li></ul></div>
+        <div class="tgroup"><p class="tgroup__label"><span>Check and wait</span><span class="tgroup__n">3</span></p><ul class="chips"><li><code>ui_check</code></li><li><code>ui_assert</code></li><li><code>ui_wait_for</code></li></ul></div>
+        <div class="tgroup"><p class="tgroup__label"><span>Dialogs and overlays</span><span class="tgroup__n">2</span></p><ul class="chips"><li><code>ui_dialog</code></li><li><code>ui_click_outside</code></li></ul></div>
+        <div class="tgroup"><p class="tgroup__label"><span>Tabs, files and logs</span><span class="tgroup__n">3</span></p><ul class="chips"><li><code>ui_tabs</code></li><li><code>ui_upload_file</code></li><li><code>ui_get_logs</code></li></ul></div>
       </div>
-      <p><strong>Never</strong> call <code>ui_assert</code> in a retry loop to wait for something: the first false result permanently fails the run even if the app is fine. That is what <code>ui_wait_for</code> is for. For <code>ui_check</code> and <code>ui_wait_for</code>, a condition that cannot run at all (no page open, or the expression throws) is always a hard failure.</p>
+      <details class="more">
+        <summary>What each tool does</summary>
+        <div class="more-body">
+          <div class="table-wrap">
+            <table class="names">
+              <thead><tr><th scope="col">tool</th><th scope="col">purpose</th></tr></thead>
+              <tbody>
+                <tr><td><code>ui_start_session</code></td><td>Open a fresh browser context and start logging into a report. Optional device, viewport, color scheme, locale and timezone.</td></tr>
+                <tr><td><code>ui_end_session</code></td><td>Write the JSON and HTML report and return their paths.</td></tr>
+                <tr><td><code>ui_step</code></td><td>Label what you are about to do; following actions are grouped under it in the report.</td></tr>
+                <tr><td><code>ui_navigate</code></td><td>Navigate the browser to a URL.</td></tr>
+                <tr><td><code>ui_get_page_state</code></td><td>Return URL, title, up to 200 visible interactive elements (custom widgets included) with ready-to-use selectors and their state, the open dialogs, the focused element, and visible alert messages.</td></tr>
+                <tr><td><code>ui_get_text</code></td><td>Read the visible text of one element, or of the whole page, to check a value, heading or error.</td></tr>
+                <tr><td><code>ui_take_screenshot</code></td><td>Capture the viewport, one element or the full page as a PNG in the reports output; optionally return the image so the agent can look at it.</td></tr>
+                <tr><td><code>ui_click</code></td><td>Click the single element matching a selector; optionally right, double or modifier click, at an offset, or forced.</td></tr>
+                <tr><td><code>ui_click_outside</code></td><td>Click just outside an element, such as a modal backdrop, to close it the way a user would.</td></tr>
+                <tr><td><code>ui_dialog</code></td><td>Answer a native alert, confirm or prompt the browser is holding open, or pre-set the answer for the next one.</td></tr>
+                <tr><td><code>ui_fill</code></td><td>Fill the single input matching a selector with a value.</td></tr>
+                <tr><td><code>ui_select_option</code></td><td>Choose an option of a <code>&lt;select&gt;</code> by value or visible label.</td></tr>
+                <tr><td><code>ui_press_key</code></td><td>Press a key or combo such as Enter, Tab, Escape or Control+a, on an element or on whatever has focus.</td></tr>
+                <tr><td><code>ui_hover</code></td><td>Move the pointer over an element to reveal hover content such as dropdown menus.</td></tr>
+                <tr><td><code>ui_set_checked</code></td><td>Set a checkbox or radio button to checked or unchecked.</td></tr>
+                <tr><td><code>ui_scroll</code></td><td>Scroll an element into view, or one step in any direction on the page or inside a scroll area; says when the end is reached.</td></tr>
+                <tr><td><code>ui_set_viewport</code></td><td>Resize the page, for example to a 375px phone or a tablet.</td></tr>
+                <tr><td><code>ui_type</code></td><td>Type into an input one key at a time, like a user (autocomplete, masked inputs, OTP boxes).</td></tr>
+                <tr><td><code>ui_navigate_history</code></td><td>Go back, go forward or reload, keeping the browser history.</td></tr>
+                <tr><td><code>ui_get_logs</code></td><td>Read the console errors, page errors, failed requests and HTTP 4xx/5xx responses captured so far, mid-flow.</td></tr>
+                <tr><td><code>ui_tabs</code></td><td>List, switch to or close the session's browser tabs (popups and <code>target=_blank</code> links open new ones).</td></tr>
+                <tr><td><code>ui_upload_file</code></td><td>Upload the built-in <code>default_draft.png</code> to a file input or to the chooser a button opens. Takes no path.</td></tr>
+                <tr><td><code>ui_drag</code></td><td>Drag one element onto another: drag-and-drop lists, kanban cards, sortables.</td></tr>
+                <tr><td><code>ui_assert</code></td><td>Hard check of a JS expression: false fails the whole session.</td></tr>
+                <tr><td><code>ui_check</code></td><td>Soft check of a JS expression: recorded in the report, the run continues.</td></tr>
+                <tr><td><code>ui_wait_for</code></td><td>Poll a JS expression until it is true; a timeout fails the session.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
     </section>
 
     <section id="seeing-the-page">
       <h2>Seeing the page</h2>
-      <p>Before you click, ask the page what it looks like right now. <code>ui_get_page_state</code> lists up to 200 visible interactive elements, each with a verified <code>selector</code> and, when it differs from the default, its <code>state</code>. Custom widgets are included: <code>combobox</code>, <code>listbox</code>, <code>option</code>, <code>switch</code>, <code>slider</code>, <code>spinbutton</code>, <code>searchbox</code>, <code>treeitem</code>, <code>summary</code>, <code>contenteditable</code> regions, and anything with a role and <code>tabindex &gt;= 0</code>.</p>
-      <p><code>overlays</code> lists each open dialog as <code>{role, name, selector, modal}</code>, topmost first. The key is absent when nothing is open, so a modal opening or closing shows up as the key appearing or disappearing. <code>focused</code> is <code>{role, name, selector}</code> for the element holding focus, and is absent when focus is on the page body, in an iframe or in a shadow root.</p>
-      <p><code>ui_get_text</code> reads text: the trimmed visible text of one element, or of the whole page body with no selector, cut at 4000 characters with a note of the real length. It fails on 0 or more than 1 match and on an element that is not visible. The text it reads is returned to you but not stored in the report.</p>
+      <p>Before you click, ask the page what it looks like right now. <code>ui_get_page_state</code> returns:</p>
+      <dl class="kv">
+        <div><dt>url, title</dt><dd>Where the browser is.</dd></div>
+        <div><dt>elements</dt><dd>Up to 200 visible interactive elements, each with a verified <code>selector</code> and, when it differs from the default, its <code>state</code>. Custom widgets included.</dd></div>
+        <div><dt>messages</dt><dd>Visible alert and status text, such as validation errors.</dd></div>
+        <div><dt>overlays</dt><dd>Each open dialog, topmost first. Absent when nothing is open.</dd></div>
+        <div><dt>focused</dt><dd>The element holding focus. Absent on the page body, in an iframe or in a shadow root.</dd></div>
+      </dl>
+      <p><code>ui_get_text</code> reads text: one element, or the whole page, cut at 4000 characters.</p>
 <pre><code>ui_get_page_state
 ui_get_text       selector: "[data-testid=\"order-total\"]"
 ui_get_text</code></pre>
+      <details class="more">
+        <summary>More detail</summary>
+        <div class="more-body">
+          <p>Before you click, ask the page what it looks like right now. <code>ui_get_page_state</code> lists up to 200 visible interactive elements, each with a verified <code>selector</code> and, when it differs from the default, its <code>state</code>. Custom widgets are included: <code>combobox</code>, <code>listbox</code>, <code>option</code>, <code>switch</code>, <code>slider</code>, <code>spinbutton</code>, <code>searchbox</code>, <code>treeitem</code>, <code>summary</code>, <code>contenteditable</code> regions, and anything with a role and <code>tabindex &gt;= 0</code>.</p>
+          <p><code>overlays</code> lists each open dialog as <code>{role, name, selector, modal}</code>, topmost first. The key is absent when nothing is open, so a modal opening or closing shows up as the key appearing or disappearing. <code>focused</code> is <code>{role, name, selector}</code> for the element holding focus, and is absent when focus is on the page body, in an iframe or in a shadow root.</p>
+          <p><code>ui_get_text</code> reads text: the trimmed visible text of one element, or of the whole page body with no selector, cut at 4000 characters with a note of the real length. It fails on 0 or more than 1 match and on an element that is not visible. The text it reads is returned to you but not stored in the report.</p>
+        </div>
+      </details>
     </section>
 
     <section id="overlays-and-dialogs">
       <h2>Closing overlays and answering dialogs</h2>
-      <h3>Click outside</h3>
-      <p><code>ui_click_outside(selector)</code> clicks just outside the element you name (pass the modal panel, not the backdrop) and says what it hit, the way a user dismisses a modal by clicking its backdrop. If nothing safe exists around it, it fails and suggests <code>ui_press_key</code> with <code>Escape</code>.</p>
-      <p><code>ui_click</code> also takes optional <code>button</code> (<code>right</code> fires <code>contextmenu</code>), <code>clickCount</code> (2 = double-click), <code>modifiers</code> (for example <code>["Shift"]</code>), <code>position</code> (an offset inside the element) and <code>force</code> (click through a covering element). Without them it is a plain left click.</p>
-      <h3>Native dialogs</h3>
-      <p>A browser <code>alert</code>, <code>confirm</code>, <code>prompt</code> or <code>beforeunload</code> blocks the page, so the server holds it open and asks you. The call that opened it returns at once with <code>Browser is waiting on a confirm dialog: "Delete?"</code>. Every other tool is refused until you answer with <code>ui_dialog</code> (<code>accept</code> or <code>dismiss</code>, plus <code>text</code> for a prompt); its reply tells you what the interrupted action did next.</p>
-      <p>Calling <code>ui_dialog</code> when nothing is waiting pre-sets the answer for the next dialog, which is then answered without pausing: use it in scripted flows. A dialog left unanswered for <code>DIALOG_TIMEOUT_MS</code> (default 120000) is dismissed and the next response says so. Every dialog is logged in the report with who answered it.</p>
+      <p>A browser <code>alert</code>, <code>confirm</code>, <code>prompt</code> or <code>beforeunload</code> blocks the page, so the server holds it open and asks you.</p>
+      <div class="figure">
+        <ol class="flow flow--main">
+          <li><span class="node-t">Click</span><span class="node-m">ui_click</span></li>
+          <li><span class="node-t">Dialog opens</span><span class="node-m">the call returns at once: "Browser is waiting on a confirm dialog"</span></li>
+          <li><span class="node-t">Other tools refused</span><span class="node-m">until you answer</span></li>
+          <li class="flow-end"><span class="node-t">Answer</span><span class="node-m">ui_dialog accept or dismiss</span></li>
+        </ol>
+      </div>
+      <p>For a modal, <code>ui_click_outside(selector)</code> clicks just outside the panel you name, the way a user clicks the backdrop.</p>
 <pre><code>ui_click          selector: "button:text-is(\"Delete\")"
 <span class="c"># -&gt; Browser is waiting on a confirm dialog: "Delete?"</span>
 ui_dialog         action: "accept"
 ui_click_outside  selector: "[role=\"dialog\"]"</code></pre>
+      <details class="more">
+        <summary>More detail</summary>
+        <div class="more-body">
+          <h3>Click outside</h3>
+          <p><code>ui_click_outside(selector)</code> clicks just outside the element you name (pass the modal panel, not the backdrop) and says what it hit, the way a user dismisses a modal by clicking its backdrop. If nothing safe exists around it, it fails and suggests <code>ui_press_key</code> with <code>Escape</code>.</p>
+          <p><code>ui_click</code> also takes optional <code>button</code> (<code>right</code> fires <code>contextmenu</code>), <code>clickCount</code> (2 = double-click), <code>modifiers</code> (for example <code>["Shift"]</code>), <code>position</code> (an offset inside the element) and <code>force</code> (click through a covering element). Without them it is a plain left click.</p>
+          <h3>Native dialogs</h3>
+          <p>A browser <code>alert</code>, <code>confirm</code>, <code>prompt</code> or <code>beforeunload</code> blocks the page, so the server holds it open and asks you. The call that opened it returns at once with <code>Browser is waiting on a confirm dialog: "Delete?"</code>. Every other tool is refused until you answer with <code>ui_dialog</code> (<code>accept</code> or <code>dismiss</code>, plus <code>text</code> for a prompt); its reply tells you what the interrupted action did next.</p>
+          <p>Calling <code>ui_dialog</code> when nothing is waiting pre-sets the answer for the next dialog, which is then answered without pausing: use it in scripted flows. A dialog left unanswered for <code>DIALOG_TIMEOUT_MS</code> (default 120000) is dismissed and the next response says so. Every dialog is logged in the report with who answered it.</p>
+        </div>
+      </details>
     </section>
 
     <section id="real-sizes-and-typing">
       <h2>Real sizes and typing</h2>
-      <p><code>ui_start_session</code> takes optional <code>device</code> (a Playwright device name such as <code>"iPhone 13"</code>: mobile user agent, touch, pixel ratio, size), <code>viewport</code> <code>{width, height}</code> (overrides the device size), <code>colorScheme</code> (<code>light</code> or <code>dark</code>), <code>locale</code> and <code>timezoneId</code>. An unknown device is an error that lists the valid names. With none of them the browser is a 1280x720 desktop. They apply to that session only, and appear in the report header. <code>ui_set_viewport(width, height)</code> resizes mid-flow (320-3840 by 320-2160); layouts can change, so call <code>ui_get_page_state</code> again afterwards.</p>
+      <p><code>ui_start_session</code> takes these optional settings. They apply to that session only and appear in the report header.</p>
+      <dl class="kv">
+        <div><dt>device</dt><dd>A Playwright device name such as <code>"iPhone 13"</code>: mobile user agent, touch, pixel ratio, size. An unknown name is an error that lists the valid ones.</dd></div>
+        <div><dt>viewport</dt><dd><code>{width, height}</code>; overrides the device size.</dd></div>
+        <div><dt>colorScheme</dt><dd><code>light</code> or <code>dark</code>.</dd></div>
+        <div><dt>locale, timezoneId</dt><dd>The language and time zone the page sees.</dd></div>
+        <div><dt>(none of them)</dt><dd>A 1280x720 desktop.</dd></div>
+      </dl>
+      <p><code>ui_set_viewport(width, height)</code> resizes mid-flow (320-3840 by 320-2160). <code>ui_type</code> types key by key, for autocomplete and OTP boxes.</p>
 <pre><code>ui_start_session  target: "checkout on a phone"  device: "iPhone 13"  colorScheme: "dark"
 ui_set_viewport   width: 768  height: 1024</code></pre>
-      <p><code>ui_fill</code> sets the whole value at once. <code>ui_type(selector, text, delayMs?)</code> types key by key (<code>keydown</code>, <code>input</code> and <code>keyup</code> per character, appended to what is there), for autocomplete, search-as-you-type, masked inputs and OTP boxes. The report only says how many characters were typed, and the text is replaced by <code>••••</code> when the target is a password, one-time-code or card-number field.</p>
-      <p><code>ui_navigate_history(action)</code> with <code>back</code>, <code>forward</code> or <code>reload</code> keeps the history and form state that a second <code>ui_navigate</code> would lose. <code>ui_scroll</code> also takes <code>container</code> (a scroll area such as a chat panel or virtual table) and <code>direction</code> (<code>down</code>, <code>up</code>, <code>left</code>, <code>right</code>, <code>top</code>, <code>bottom</code>), moves one step per call and says when the end is reached, so a loop over a lazy list knows when to stop.</p>
-      <p><code>ui_take_screenshot</code> also takes <code>selector</code> (just that element), <code>fullPage</code> (the whole page, cut at 16000 device pixels tall and 3840px wide) and <code>inline: true</code>, which returns the PNG as image content (scaled to fit 1280x8000px) as well as writing it to <code>reports/</code>.</p>
+      <details class="more">
+        <summary>More detail</summary>
+        <div class="more-body">
+          <p><code>ui_start_session</code> takes optional <code>device</code> (a Playwright device name such as <code>"iPhone 13"</code>: mobile user agent, touch, pixel ratio, size), <code>viewport</code> <code>{width, height}</code> (overrides the device size), <code>colorScheme</code> (<code>light</code> or <code>dark</code>), <code>locale</code> and <code>timezoneId</code>. An unknown device is an error that lists the valid names. With none of them the browser is a 1280x720 desktop. They apply to that session only, and appear in the report header. <code>ui_set_viewport(width, height)</code> resizes mid-flow (320-3840 by 320-2160); layouts can change, so call <code>ui_get_page_state</code> again afterwards.</p>
+          <p><code>ui_fill</code> sets the whole value at once. <code>ui_type(selector, text, delayMs?)</code> types key by key (<code>keydown</code>, <code>input</code> and <code>keyup</code> per character, appended to what is there), for autocomplete, search-as-you-type, masked inputs and OTP boxes. The report only says how many characters were typed, and the text is replaced by <code>••••</code> when the target is a password, one-time-code or card-number field.</p>
+          <p><code>ui_navigate_history(action)</code> with <code>back</code>, <code>forward</code> or <code>reload</code> keeps the history and form state that a second <code>ui_navigate</code> would lose. <code>ui_scroll</code> also takes <code>container</code> (a scroll area such as a chat panel or virtual table) and <code>direction</code> (<code>down</code>, <code>up</code>, <code>left</code>, <code>right</code>, <code>top</code>, <code>bottom</code>), moves one step per call and says when the end is reached, so a loop over a lazy list knows when to stop.</p>
+          <p><code>ui_take_screenshot</code> also takes <code>selector</code> (just that element), <code>fullPage</code> (the whole page, cut at 16000 device pixels tall and 3840px wide) and <code>inline: true</code>, which returns the PNG as image content (scaled to fit 1280x8000px) as well as writing it to <code>reports/</code>.</p>
 <pre><code>ui_type             selector: "[name=\"city\"]"  text: "Han"  delayMs: 50
 ui_navigate_history action: "reload"
 ui_take_screenshot  selector: "[role=\"dialog\"]"  inline: true</code></pre>
+        </div>
+      </details>
     </section>
 
     <section id="debugging-and-tabs">
       <h2>Debugging and working across tabs</h2>
-      <p><code>ui_get_logs</code> reads the browser problems captured so far while the flow runs: console errors, uncaught page errors, failed requests and HTTP 4xx/5xx responses (method and URL, never bodies or headers). <code>since: last</code> (default) returns only what is new, <code>start</code> returns everything, and <code>level: warning</code> adds console warnings. Repeats are grouped as <code>×N</code>, at most 50 lines per call. Use it when an action seemed to do nothing.</p>
-      <p>A <code>target=_blank</code> link or <code>window.open</code> popup opens a tab the session tracks: the next response says <code>New tab opened: &lt;url&gt; (tab 2)</code>, but the session does not switch to it. <code>ui_tabs</code> with <code>list</code>, <code>switch</code> or <code>close</code> moves between tabs (numbered from 1), and every other tool acts on the current tab.</p>
-      <p><code>ui_upload_file(selector)</code> uploads one built-in file, <code>default_draft.png</code> (a tiny PNG), to a file input or to the chooser a button opens. It takes no path, so no other file in the container can be sent to the site under test. <code>ui_drag(from, to)</code> drags one element onto another, for HTML5 drag-and-drop and pointer-based sortables.</p>
-      <p>Downloads are saved to <code>reports/downloads/&lt;session&gt;/</code>, logged as an action and announced on the next response. A session keeps at most 20 downloads of up to 25 MB each; a download over either cap is discarded and the next response says so (once, for the count cap). Tabs, logs and downloads exist only inside a <code>ui_start_session</code> bracket and belong to one session: with several open, pass <code>session_id</code>.</p>
+      <p>When an action seemed to do nothing, or the flow leaves the page, these four tools show why.</p>
+      <ul class="strip strip--4">
+        <li><span class="tile-t">Logs</span><span class="tile-b"><code>ui_get_logs</code> reads console errors, page errors, failed requests and HTTP 4xx/5xx so far, at most 50 lines per call.</span></li>
+        <li><span class="tile-t">Tabs</span><span class="tile-b"><code>ui_tabs</code> lists, switches or closes tabs. A new tab is announced; the session does not switch on its own.</span></li>
+        <li><span class="tile-t">Files</span><span class="tile-b"><code>ui_upload_file</code> sends one built-in file, <code>default_draft.png</code>. It takes no path. <code>ui_drag</code> drags one element onto another.</span></li>
+        <li><span class="tile-t">Downloads</span><span class="tile-b">Saved to <code>reports/downloads/</code>, at most 20 per session of up to 25 MB each.</span></li>
+      </ul>
 <pre><code>ui_click          selector: "a:text-is(\"Invoice (opens in a new tab)\")"
 <span class="c"># -&gt; ... New tab opened: https://app.test/invoice/42 (tab 2)</span>
 ui_tabs           action: "switch"  index: 2
-ui_get_logs       since: "start"
-ui_upload_file    selector: "input[type=file]"
+ui_get_logs       since: "start"</code></pre>
+      <details class="more">
+        <summary>More detail</summary>
+        <div class="more-body">
+          <p><code>ui_get_logs</code> reads the browser problems captured so far while the flow runs: console errors, uncaught page errors, failed requests and HTTP 4xx/5xx responses (method and URL, never bodies or headers). <code>since: last</code> (default) returns only what is new, <code>start</code> returns everything, and <code>level: warning</code> adds console warnings. Repeats are grouped as <code>×N</code>, at most 50 lines per call. Use it when an action seemed to do nothing.</p>
+          <p>A <code>target=_blank</code> link or <code>window.open</code> popup opens a tab the session tracks: the next response says <code>New tab opened: &lt;url&gt; (tab 2)</code>, but the session does not switch to it. <code>ui_tabs</code> with <code>list</code>, <code>switch</code> or <code>close</code> moves between tabs (numbered from 1), and every other tool acts on the current tab.</p>
+          <p><code>ui_upload_file(selector)</code> uploads one built-in file, <code>default_draft.png</code> (a tiny PNG), to a file input or to the chooser a button opens. It takes no path, so no other file in the container can be sent to the site under test. <code>ui_drag(from, to)</code> drags one element onto another, for HTML5 drag-and-drop and pointer-based sortables.</p>
+          <p>Downloads are saved to <code>reports/downloads/&lt;session&gt;/</code>, logged as an action and announced on the next response. A session keeps at most 20 downloads of up to 25 MB each; a download over either cap is discarded and the next response says so (once, for the count cap). Tabs, logs and downloads exist only inside a <code>ui_start_session</code> bracket and belong to one session: with several open, pass <code>session_id</code>.</p>
+<pre><code>ui_upload_file    selector: "input[type=file]"
 ui_drag           from: "[data-testid=\"card-1\"]"  to: "[data-testid=\"column-done\"]"</code></pre>
+        </div>
+      </details>
     </section>
 
     <section id="reports">
       <h2>Reports</h2>
       <p>Reports are written to <code>./reports/</code> on the host (the directory is volume-mounted) and named:</p>
 <pre><code>session-&lt;YYYYMMDD-HHMMSS&gt;-&lt;slug&gt;-&lt;id8&gt;.{json,html}</code></pre>
-      <p>That is the UTC start time, a readable slug of the session target, and the first 8 characters of the session id. <code>reports/index.html</code> lists the sessions, newest first and capped at 500 (older reports stay on disk, unlisted), and is rewritten after every report.</p>
-      <p>An HTML report shows:</p>
-      <ul>
-        <li>a verdict box: status, target, step, action and failure counts, and duration;</li>
-        <li>the run as labelled steps, with per-step outcomes and elapsed time;</li>
-        <li>browser problems: console errors, uncaught page errors and network-level request failures, captured automatically and never changing the verdict (up to 50 per session);</li>
-        <li>the raw action log, collapsed behind a disclosure.</li>
+      <ul class="name-parts">
+        <li><code>&lt;YYYYMMDD-HHMMSS&gt;</code>UTC start time</li>
+        <li><code>&lt;slug&gt;</code>readable slug of the session target</li>
+        <li><code>&lt;id8&gt;</code>first 8 characters of the session id</li>
       </ul>
-      <p>HTTP 4xx/5xx responses are captured as <code>httperror</code> (status, method and URL without the query string). Auto-failure screenshots are budgeted per session (<code>FAILURE_SCREENSHOT_BUDGET</code>, default 3), and identical screenshot content is embedded only once.</p>
+      <p>An HTML report shows:</p>
+      <ul class="strip strip--4">
+        <li><span class="tile-t">Verdict box</span><span class="tile-b">Status, target, step, action and failure counts, and duration.</span></li>
+        <li><span class="tile-t">Labelled steps</span><span class="tile-b">The run as steps, with per-step outcomes and elapsed time.</span></li>
+        <li><span class="tile-t">Browser problems</span><span class="tile-b">Console errors, page errors and failed requests, up to 50 per session. They never change the verdict.</span></li>
+        <li><span class="tile-t">Raw action log</span><span class="tile-b">Collapsed behind a disclosure.</span></li>
+      </ul>
+      <details class="more">
+        <summary>More detail</summary>
+        <div class="more-body">
+          <p>That is the UTC start time, a readable slug of the session target, and the first 8 characters of the session id. <code>reports/index.html</code> lists the sessions, newest first and capped at 500 (older reports stay on disk, unlisted), and is rewritten after every report.</p>
+          <p>An HTML report shows a verdict box (status, target, step, action and failure counts, and duration); the run as labelled steps, with per-step outcomes and elapsed time; browser problems (console errors, uncaught page errors and network-level request failures, captured automatically and never changing the verdict, up to 50 per session); and the raw action log, collapsed behind a disclosure.</p>
+          <p>HTTP 4xx/5xx responses are captured as <code>httperror</code> (status, method and URL without the query string). Auto-failure screenshots are budgeted per session (<code>FAILURE_SCREENSHOT_BUDGET</code>, default 3), and identical screenshot content is embedded only once.</p>
+        </div>
+      </details>
     </section>
 
     <section id="rest-wrapper">
       <h2>REST wrapper</h2>
-      <p>For callers that cannot speak MCP, <code>POST /api/run-test</code> runs one navigate-and-screenshot test and returns a report. For multi-step flows, drive the MCP tools from Claude Code instead.</p>
+      <p>For callers that cannot speak MCP, one request runs one navigate-and-screenshot test. For multi-step flows, drive the MCP tools from Claude Code instead.</p>
+      <div class="figure">
+        <ol class="flow flow--main">
+          <li><span class="node-t">Any HTTP client</span><span class="node-m">curl, a script</span></li>
+          <li><span class="node-t">POST /api/run-test</span><span class="node-m">a URL and an optional label</span></li>
+          <li><span class="node-t">One test</span><span class="node-m">navigate and screenshot</span></li>
+          <li class="flow-end"><span class="node-t">JSON</span><span class="node-m">status, report_url, screenshots, logs</span></li>
+        </ol>
+      </div>
 <pre><code><span class="p">$</span> curl -s -X POST http://localhost:8765/api/run-test \
     -H "Content-Type: application/json" \
     -d '{"app_url_or_package": "https://example.com", "flow_description": "Smoke test", "platform": "web"}'</code></pre>
-      <div class="table-wrap">
-        <table class="names">
-          <thead><tr><th scope="col">field</th><th scope="col">required</th><th scope="col">description</th></tr></thead>
-          <tbody>
-            <tr><td><code>app_url_or_package</code></td><td>yes</td><td>URL to navigate to. Non-empty string, else 400.</td></tr>
-            <tr><td><code>flow_description</code></td><td>no</td><td>Label for the run in reports. Defaults to the URL.</td></tr>
-            <tr><td><code>platform</code></td><td>no</td><td>Only <code>"web"</code> is supported in v1; anything else returns 400.</td></tr>
-            <tr><td><code>timeout</code></td><td>no</td><td>Milliseconds, a positive number. Default 30000.</td></tr>
-          </tbody>
-        </table>
+      <details class="more">
+        <summary>More detail</summary>
+        <div class="more-body">
+          <p><code>POST /api/run-test</code> runs one navigate-and-screenshot test and returns a report.</p>
+          <div class="table-wrap">
+            <table class="names">
+              <thead><tr><th scope="col">field</th><th scope="col">required</th><th scope="col">description</th></tr></thead>
+              <tbody>
+                <tr><td><code>app_url_or_package</code></td><td>yes</td><td>URL to navigate to. Non-empty string, else 400.</td></tr>
+                <tr><td><code>flow_description</code></td><td>no</td><td>Label for the run in reports. Defaults to the URL.</td></tr>
+                <tr><td><code>platform</code></td><td>no</td><td>Only <code>"web"</code> is supported in v1; anything else returns 400.</td></tr>
+                <tr><td><code>timeout</code></td><td>no</td><td>Milliseconds, a positive number. Default 30000.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>The response is JSON with <code>status</code> (<code>passed</code>, <code>failed</code> or <code>timeout</code>), <code>report_url</code>, <code>screenshots</code> and <code>logs</code>. <code>report_url</code> is a path inside the container: read the report from the host under <code>./reports/</code> using its basename. <code>GET /health</code> returns <code>{"status":"ok"}</code>.</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="measured">
+      <h2>Measured</h2>
+      <p>Numbers recorded while building this, and limits read from the code.</p>
+      <ul class="strip strip--4">
+        <li><span class="tile-n tile-n--key">26</span><span class="tile-b">tools registered in <code>src/server.ts</code></span></li>
+        <li><span class="tile-n">303</span><span class="tile-b">tests, 303 passing in the last full run (T035)</span></li>
+        <li><span class="tile-n">200</span><span class="tile-b">elements at most in one page state</span></li>
+        <li><span class="tile-n">3</span><span class="tile-b">sessions at most per connection</span></li>
+      </ul>
+      <div class="chart">
+        <p class="chart__title">Report size after a soft-check run</p>
+        <div>
+          <div class="bar-top"><span class="bar-name">Before</span><span class="bar-ctx">largest report seen</span><span class="bar-val">357 KB</span></div>
+          <div class="bar bar--ref" aria-hidden="true"><span class="w-kb-357"></span></div>
+        </div>
+        <div>
+          <div class="bar-top"><span class="bar-name">After</span><span class="bar-ctx">live soft-check report</span><span class="bar-val bar-val--key">4.0 KB</span></div>
+          <div class="bar" aria-hidden="true"><span class="w-kb-4"></span></div>
+        </div>
+        <p class="caption">T013. The bloat was one full-screen PNG captured on soft failures; a soft failure no longer captures one. Before, reports ran 144-357 KB.</p>
       </div>
-      <p>The response is JSON with <code>status</code> (<code>passed</code>, <code>failed</code> or <code>timeout</code>), <code>report_url</code>, <code>screenshots</code> and <code>logs</code>. <code>report_url</code> is a path inside the container: read the report from the host under <code>./reports/</code> using its basename. <code>GET /health</code> returns <code>{"status":"ok"}</code>.</p>
+      <div class="chart">
+        <p class="chart__title">Wait after a <code>ui_click</code></p>
+        <div>
+          <div class="bar-top"><span class="bar-name">Plain element</span><span class="bar-ctx">a div</span><span class="bar-val bar-val--key">~33 ms</span></div>
+          <div class="bar" aria-hidden="true"><span class="w-ms-33"></span></div>
+        </div>
+        <div>
+          <div class="bar-top"><span class="bar-name">Likely opener</span><span class="bar-ctx">a button, or a link with target or download</span><span class="bar-val">~185 ms</span></div>
+          <div class="bar bar--ref" aria-hidden="true"><span class="w-ms-185"></span></div>
+        </div>
+        <p class="caption">T033 re-verify. Only clicks that may open a tab or start a download wait a moment for it; the rest return at once.</p>
+      </div>
     </section>
 
     <section id="troubleshooting">
@@ -469,12 +910,17 @@ ui_drag           from: "[data-testid=\"card-1\"]"  to: "[data-testid=\"column-d
 <span class="p">$</span> docker compose stop
 <span class="p">$</span> npm test
 <span class="p">$</span> docker compose up -d</code></pre>
-      <p>A single test file can be run on its own:</p>
+      <details class="more">
+        <summary>More detail</summary>
+        <div class="more-body">
+          <p>A single test file can be run on its own:</p>
 <pre><code><span class="p">$</span> node --import tsx --test test/&lt;file&gt;.test.ts</code></pre>
-      <p>This page is plain static HTML in <code>site/index.html</code>. Vercel serves the <code>site/</code> directory as-is, with no install and no build (see <code>vercel.json</code>).</p>
+          <p>This page is plain static HTML in <code>site/index.html</code>. Vercel serves the <code>site/</code> directory as-is, with no install and no build (see <code>vercel.json</code>).</p>
+        </div>
+      </details>
     </section>
 
-    <p class="foot">easy-ui-mcp v0.1.0. Source and issues on <a href="https://github.com/thunderkds/easy-ui-mcp">GitHub</a>.</p>
+    <footer class="foot"><p>Easy UI (easy-ui-mcp) v0.1.0. Source and issues on <a href="https://github.com/thunderkds/easy-ui-mcp">GitHub</a>.</p></footer>
   </main>
 </div>
 <script>
@@ -488,6 +934,24 @@ ui_drag           from: "[data-testid=\"card-1\"]"  to: "[data-testid=\"column-d
     }
     toggle.addEventListener('click', function () { setOpen(!nav.classList.contains('is-open')); });
     nav.addEventListener('click', function (e) { if (e.target.closest('a')) setOpen(false); });
+
+    // Mark the sidebar item of the section being read.
+    if ('IntersectionObserver' in window) {
+      var items = {};
+      [].forEach.call(nav.querySelectorAll('a[href^="#"]'), function (a) { items[a.getAttribute('href').slice(1)] = a; });
+      var current = null;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          var a = items[entry.target.id];
+          if (!entry.isIntersecting || !a) return;
+          if (current) { current.classList.remove('active'); current.removeAttribute('aria-current'); }
+          a.classList.add('active');
+          a.setAttribute('aria-current', 'location');
+          current = a;
+        });
+      }, { rootMargin: '-80px 0px -65% 0px' });
+      [].forEach.call(document.querySelectorAll('main section[id]'), function (s) { io.observe(s); });
+    }
   })();
 </script>
 </body>
