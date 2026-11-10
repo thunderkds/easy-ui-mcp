@@ -14,6 +14,7 @@
 
 
 ### In Progress
+- [ ] **T036** — Docs-site index page in the Easy Kit family style, with flows and charts | backend-developer | ? | Risk: Low | ? | **Started 2026-11-10**: frontend-developer, worktree off main
 
 ### Ready for Review
 
