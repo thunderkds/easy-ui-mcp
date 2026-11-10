@@ -1,5 +1,5 @@
 # PROJECT_KANBAN.md
-**Last updated**: 2026-10-30
+**Last updated**: 2026-11-10
 
 > Compact task board. Full context lives in `PROJECT_SPEC.md`. Update this file whenever a task status changes.
 
@@ -12,7 +12,13 @@
 ### Todo
 > Re-prioritized 2026-10-30 by user direction. Focus: **executable, simple, easy for an agent to drive, readable results**. Web first; Android and human-in-the-loop on hold. Listed in pickup order. T017–T019 and T021 are draft scope from the 2026-10-30 investigation — Brainstorm: `BRAINSTORMING_LOG_agent-ergonomics.md` (paths chosen provisionally by Supervisor, pending user approval). TASK_GUIDEs generated 2026-10-30.
 
+- [ ] **T030** — See the page — overlays, element state, widgets, focus, `ui_get_text` | backend-developer | C2 | Risk: Medium | P0 | Requested by user 2026-11-10 (full browser-action audit). Guide: `tasks/TASK_GUIDE_T030.md`. Brainstorm: `BRAINSTORMING_LOG_browser-actions.md`
+- [ ] **T031** — Close and answer — click outside, `ui_click` options, native dialogs | backend-developer | C2 | Risk: Medium | P0 | Requested by user 2026-11-10 (full browser-action audit). Guide: `tasks/TASK_GUIDE_T031.md`. Brainstorm: `BRAINSTORMING_LOG_browser-actions.md`. D1 decided 2026-11-10: an unanswered native dialog is held and the agent is asked (`ui_dialog`), with a safety-timeout dismiss
+- [ ] **T032** — Real users, real sizes — viewport, device, typing, history, panel scroll, screenshots | backend-developer | C2 | Risk: Medium | P1 | Requested by user 2026-11-10 (full browser-action audit). Guide: `tasks/TASK_GUIDE_T032.md`. Brainstorm: `BRAINSTORMING_LOG_browser-actions.md`
+- [ ] **T033** — Debug and multi-page — logs, HTTP errors, tabs, upload, drag, downloads | backend-developer | C2 | Risk: Medium | P1 | Requested by user 2026-11-10 (full browser-action audit). Guide: `tasks/TASK_GUIDE_T033.md`. Brainstorm: `BRAINSTORMING_LOG_browser-actions.md`. D1 decided 2026-11-10: uploads use one built-in file `assets/default_draft.png`, no path input
+
 ### In Progress
+- [ ] **T029** — Multiple concurrent sessions on one MCP connection: optional `session_id` on every session-aware tool, so one agent can run two sessions side by side and compare them; no-`session_id` single-session use unchanged; unused sessions auto-close after an idle timeout (report kept) | backend-developer | C2 | Risk: Medium | P1 | Requested by user 2026-11-10. Guide: `tasks/TASK_GUIDE_T029.md`. D1–D5 approved by user 2026-11-10; brainstorm `BRAINSTORMING_LOG_multi-session.md` done. Option A approved 2026-11-10. **Started 2026-11-10**: worktree `../easy-ui-mcp-T029`, branch `task/T029-multi-session` @ d4b1a40. Shares `src/server.ts` with T030–T033 — merge order to be decided
 
 ### Ready for Review
 
