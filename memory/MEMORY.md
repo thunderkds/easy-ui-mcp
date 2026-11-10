@@ -49,3 +49,10 @@
 - [Doc-drift test guards tool lists (T023)](../test/docs-tools.test.ts) — every `registerTool` name must appear in README + RUNBOOK and RUNBOOK's "all N tools" must match; adding a tool means updating both docs
 - [Vercel = static docs page only (T025)](decisions.md#architecture) — `vercel.json` serves `site/` with no install/build; root `requirements.txt` (prose) moved to `docs/original-plan.md` because Vercel read it as Python deps
 - [`npm test` needs port 8765 free](learnings.md#gotchas) — stop the Docker container first; tests spawn their own server on the hard-coded port
+- [`innerText` of hidden nodes is stale; `<summary>`/contenteditable have no Playwright role](learnings.md#gotchas) — check `isVisible()` before reading text; use `summary:text-is`/`[contenteditable][aria-label]` selectors (T030)
+- [No `git rebase` while any task is on the board](learnings.md#gotchas) — parallel batches integrate by `git merge --no-ff <task branch>` into main, resolving conflicts in the merge (T030–T033)
+- [Inline images: cap both sides; caps in device px; mask OTP/card text](learnings.md#gotchas) — 1280×8000 API limit, divide by DPR, mask by `autocomplete`/text-security and never echo typed text in reports (T032)
+- [Download/HTTP-error events race in Playwright](learnings.md#gotchas) — `requestfailed ERR_ABORTED` fires before `download`: filter by headers; 500s only via `response`; reopen a tab when the last closes (T033)
+- [Held dialogs: opt-in, and the agent is slower than action timeouts](learnings.md#gotchas) — hold only for `ui_start_session` (REST cannot answer); log a dialog-opening click as ok; soften only while pending (T031)
+- [Harness lock covers `agents/`/`skills/`, not the `.claude/` symlinks](learnings.md#gotchas) — rebuild the lock from `git ls-files` after a kit sync; keep project policy guards in `docs/MULTI_AGENT.md`, not kit-owned AGENTS.md (T034)
+- [T029–T034 merged to main 2026-11-10](decisions.md#architecture) — multi-session, page state/`ui_get_text`, dialogs/click-outside, viewport/device/typing, logs/tabs/downloads (26 tools); harness sync committed; `npm test` 302/302
