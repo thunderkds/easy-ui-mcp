@@ -22,6 +22,19 @@ Then ask Claude Code to navigate to a page and take a screenshot — it will cal
 
 **Using this from another repo?** MCP registration is per-project — run `claude mcp add` from that repo's root too (the container above only needs to run once, shared across repos). See [AGENTS.md → Using easy-ui-mcp From Another Repo](AGENTS.md#using-easy-ui-mcp-from-another-repo) for the full required steps.
 
+## Running over stdio (Glama, `mcp-proxy`)
+
+Hosts that wrap a stdio MCP server, such as Glama's `mcp-proxy`, run `dist/stdio.js` instead of the HTTP server. It speaks the same tools over stdin/stdout, binds no port, and exits when stdin closes.
+
+```bash
+# build
+pnpm install && pnpm build && pnpm exec playwright install --with-deps chromium
+# start
+mcp-proxy -- node dist/stdio.js
+```
+
+One stdio connection is one client, so the legacy shared page (the one `ui_navigate` uses without a session) is not shared with anyone else. The Docker/HTTP flow above is unchanged.
+
 ## Networking
 
 The container runs with `network_mode: host` in `docker-compose.yml` (not a published port on a bridge
