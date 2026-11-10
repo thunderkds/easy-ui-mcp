@@ -34,6 +34,7 @@
     --neon-line: rgba(60, 245, 168, 0.35);
     --on-neon: #0E100F;
     --glow-text: 0 0 12px rgba(60, 245, 168, 0.35);
+    --glow-dot: 0 0 8px #3cf5a8;
     --space-1: 4px;
     --space-2: 8px;
     --space-3: 12px;
@@ -89,7 +90,7 @@
   .family-nav-drawer .sidenav__item { gap: var(--space-2); }
   .family-nav a[aria-current="page"] { color: var(--text-strong); }
   .family-nav .dot { flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--line-strong); }
-  .family-nav a[aria-current="page"] .dot { background: var(--neon); }
+  .family-nav a[aria-current="page"] .dot { background: var(--neon); box-shadow: var(--glow-dot); }
 
   /* Shell */
   .shell { max-width: calc(var(--sidebar-w) + var(--content-max) + 2 * var(--space-7)); margin: 0 auto; }

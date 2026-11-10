@@ -51,6 +51,7 @@ const GRAPHITE_MINT_TOKENS: Record<string, string> = {
   'on-neon': '#0E100F',
   warn: '#E3B66B',
   'glow-text': '0 0 12px rgba(60, 245, 168, 0.35)',
+  'glow-dot': '0 0 8px #3cf5a8',
   'space-1': '4px',
   'space-2': '8px',
   'space-3': '12px',
@@ -144,7 +145,14 @@ test('T025 AC6: weights 400/500/600 only, no all-caps, no gradients or drop shad
   }
   assert.doesNotMatch(css, /text-transform|uppercase|small-caps/i);
   assert.doesNotMatch(css, /gradient\(/i);
-  assert.doesNotMatch(css, /box-shadow/i, 'no box-shadow (glow-box is not used on this page)');
+  for (const m of css.matchAll(/box-shadow\s*:\s*([^;]+);/g)) {
+    assert.equal(m[1].trim(), 'var(--glow-dot)', 'box-shadow is only the current-site dot glow token');
+  }
+  assert.match(
+    css,
+    /\.family-nav a\[aria-current="page"\] \.dot\s*\{[^}]*box-shadow:\s*var\(--glow-dot\)/,
+    'the current-site dot glows like the sibling sites',
+  );
   for (const m of css.matchAll(/text-shadow\s*:\s*([^;]+);/g)) {
     assert.equal(m[1].trim(), 'var(--glow-text)', 'text-shadow is only the neon glow token');
   }
