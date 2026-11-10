@@ -116,3 +116,7 @@
 **Gotcha**: Since the Easy Kit sync (kit d1b8b52, commits 1539ccb/91c5d6e/5ec9bd0) `.claude/agents -> ../agents` and `.claude/skills -> ../skills` are symlinks. `.claude/harness-lock.json` (147 files) locks the real roots `agents`, `skills`, `packs`, `scripts`, `.claude/hooks`, `.cursor/rules`, `docs/claude-md`, `templates` plus `.claude/sensitive-paths.txt`, AGENTS.md, CLAUDE.md; `test/harness-snapshot.test.ts` asserts exactly that set and the two symlinks. No generator lives in the repo — after a kit sync, rebuild the lock from `git ls-files` sha256 (keep `kit_commit`/`claude_md_source`). Project-owned policy guards belong in `docs/MULTI_AGENT.md` (not locked), never in kit-owned AGENTS.md, which a sync rewrites.
 **Files**: `.claude/harness-lock.json`, `test/harness-snapshot.test.ts`, `test/codex-mapping.test.ts`, `docs/MULTI_AGENT.md`
 **Source**: T034 (user: "fix the harness tests too"), full `npm test` 302/302 after.
+
+### 2026-11-10 — The merge gate reads the board before a chained command runs (T035)
+**Gotcha**: `pre_bash_block_unsafe_merge.py` evaluates PROJECT_KANBAN.md and the Evidence rows *before* the Bash call executes, so "commit evidence && move row to Ready for Review && git merge" in one call is refused as a whole (nothing in it runs). Do the evidence commit and the board move in their own calls, then the merge. The verify row's Notes cell must itself contain the word "pass" (see the corrected-regex entry above).
+**Source**: T035 merge, 2026-11-10.

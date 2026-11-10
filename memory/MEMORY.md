@@ -56,3 +56,4 @@
 - [Held dialogs: opt-in, and the agent is slower than action timeouts](learnings.md#gotchas) — hold only for `ui_start_session` (REST cannot answer); log a dialog-opening click as ok; soften only while pending (T031)
 - [Harness lock covers `agents/`/`skills/`, not the `.claude/` symlinks](learnings.md#gotchas) — rebuild the lock from `git ls-files` after a kit sync; keep project policy guards in `docs/MULTI_AGENT.md`, not kit-owned AGENTS.md (T034)
 - [T029–T034 merged to main 2026-11-10](decisions.md#architecture) — multi-session, page state/`ui_get_text`, dialogs/click-outside, viewport/device/typing, logs/tabs/downloads (26 tools); harness sync committed; `npm test` 302/302
+- [Merge gate reads the board before a chained command runs](learnings.md#gotchas) — commit evidence and move the row in separate calls before `git merge` (T035)
