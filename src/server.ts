@@ -158,6 +158,18 @@ async function getPage(): Promise<Page> {
   return page;
 }
 
+/** Closes the shared legacy browser, if one was launched. Used by the SIGTERM handler and src/stdio.ts. */
+export async function closeBrowser(): Promise<void> {
+  if (browser) await browser.close();
+}
+
+/** Session endings started by a closed connection (see `onclose` in buildMcpServer). src/stdio.ts
+ * waits for them before exiting, so the process does not leave before the reports are written. */
+const closing = new Set<Promise<void>>();
+export async function settleClosing(): Promise<void> {
+  await Promise.all(closing);
+}
+
 /** Returns the current page without creating one (undefined if ui_navigate hasn't run yet). */
 function currentPage(): Page | undefined {
   return page && !page.isClosed() ? page : undefined;
@@ -174,7 +186,7 @@ const OPENER_TOOLS = new Set(["ui_click", "ui_press_key"]);
 /** Replies standing in for a call a dialog interrupted; ui_dialog states them as they are. */
 const interruptedReplies = new WeakSet<object>();
 
-function buildMcpServer(): McpServer {
+export function buildMcpServer(): McpServer {
   const server = new McpServer({ name: "easy-ui-mcp", version: "0.1.0" });
 
   // The sessions this connection owns (T029). It can reach no others.
@@ -200,7 +212,7 @@ function buildMcpServer(): McpServer {
   // (A client that vanishes without closing is caught by the idle timer instead.)
   server.server.onclose = () => {
     for (const id of owned.drain()) {
-      void endSession(id).then(async (record) => {
+      const ending = endSession(id).then(async (record) => {
         if (!record) return;
         try {
           await writeReports(record, REPORTS_DIR);
@@ -208,6 +220,8 @@ function buildMcpServer(): McpServer {
           console.error(`[session ${id}] could not write the report after the connection closed:`, err);
         }
       });
+      closing.add(ending);
+      void ending.finally(() => closing.delete(ending));
     }
   };
 
@@ -1216,11 +1230,14 @@ app.get("/health", (_req, res) => {
 // session/tool/report primitives as the MCP tools above.
 app.post("/api/run-test", handleRunTest);
 
-app.listen(PORT, () => {
-  console.log(`easy-ui-mcp server listening on http://localhost:${PORT}`);
-});
+// src/stdio.ts sets EASY_UI_MCP_NO_HTTP before importing this module: no port, no SIGTERM handler.
+if (!process.env.EASY_UI_MCP_NO_HTTP) {
+  app.listen(PORT, () => {
+    console.log(`easy-ui-mcp server listening on http://localhost:${PORT}`);
+  });
 
-process.on("SIGTERM", async () => {
-  if (browser) await browser.close();
-  process.exit(0);
-});
+  process.on("SIGTERM", async () => {
+    await closeBrowser();
+    process.exit(0);
+  });
+}
