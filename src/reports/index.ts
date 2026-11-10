@@ -5,6 +5,7 @@ import { mkdir, writeFile, rename, readFile, readdir, rm } from "node:fs/promise
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { LoggedAction, SessionRecord } from "../tools/session.js";
+import { describeClick, type ClickOptions } from "../tools/web.js";
 
 export interface ReportPaths {
   jsonPath: string;
@@ -361,7 +362,18 @@ export function describe(action: LoggedAction): string {
     case "ui_navigate":
       return `Opened ${arg(action, "url") ?? "the page"}`;
     case "ui_click":
-      return `Clicked ${selector ?? "an element"}`;
+      return describeClick(selector ?? "an element", action.args as ClickOptions | undefined);
+    case "ui_click_outside": {
+      const hit = arg(action, "hit");
+      return `Clicked outside ${selector ?? "an element"}${hit ? ` (on ${hit})` : ""}`;
+    }
+    case "dialog": {
+      // Never repeat text typed into a prompt — it can be a secret, same rule as ui_fill.
+      const verdict = action.args?.answer === "accept" ? "accepted" : "dismissed";
+      return `Browser ${arg(action, "type") ?? "native"} dialog "${arg(action, "message") ?? ""}" — ${verdict} (answered by ${arg(action, "answeredBy") ?? "unknown"})`;
+    }
+    case "ui_dialog":
+      return `Set the next dialog to be ${action.args?.action === "dismiss" ? "dismissed" : "accepted"}`;
     case "ui_fill":
       // Never repeat entered values in the human-facing report: inputs commonly
       // contain passwords, tokens, and other secrets. The selector is enough to

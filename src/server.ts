@@ -8,6 +8,7 @@
 
 import express from "express";
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { chromium, type Browser, type Page } from "playwright";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -27,7 +28,10 @@ import {
   hover,
   setChecked,
   scroll,
+  clickOutside,
+  describeClick,
   MAX_WAIT_MS,
+  type ClickOptions,
 } from "./tools/web.js";
 import {
   startSession,
@@ -39,6 +43,12 @@ import {
   claimFailureScreenshot,
   setCurrentStep,
   getCurrentStep,
+  attachDialogHandler,
+  raceDialog,
+  answerDialog,
+  waitingDialogText,
+  takeDialogNotices,
+  type DialogCall,
   type LoggedAction,
 } from "./tools/session.js";
 import { writeReports } from "./reports/index.js";
@@ -54,6 +64,8 @@ const TOOL = {
   hover: "ui_hover",
   setChecked: "ui_set_checked",
   scroll: "ui_scroll",
+  clickOutside: "ui_click_outside",
+  dialog: "ui_dialog",
 } as const;
 
 const SELECTOR_DESCRIPTION =
@@ -85,6 +97,7 @@ async function getPage(): Promise<Page> {
   }
   if (!page || page.isClosed()) {
     page = await browser.newPage();
+    attachDialogHandler(page);
   }
   return page;
 }
@@ -93,6 +106,16 @@ async function getPage(): Promise<Page> {
 function currentPage(): Page | undefined {
   return page && !page.isClosed() ? page : undefined;
 }
+
+/** Which running tool call a native dialog may take over (T031); read by recordAction. */
+const callContext = new AsyncLocalStorage<DialogCall>();
+
+type ToolResponse = { isError?: boolean; content: Array<{ type: "text"; text: string }> };
+
+/** Tools that never refuse and never race a dialog: they are the way out of one, or never touch the page. */
+const DIALOG_EXEMPT_TOOLS = new Set(["ui_start_session", "ui_end_session", "ui_step", TOOL.dialog]);
+/** Tools that may create the legacy page, so the dialog listener must exist before they run. */
+const PAGE_CREATING_TOOLS = new Set(["ui_navigate"]);
 
 function buildMcpServer(): McpServer {
   const server = new McpServer({ name: "easy-ui-mcp", version: "0.1.0" });
@@ -135,6 +158,12 @@ function buildMcpServer(): McpServer {
     soft?: boolean
   ): Promise<void> {
     if (!activeSessionId) return;
+    // A call a native dialog took over (T031) hits its own timeout while the page is
+    // blocked, so a failure here says nothing about the app: keep it, but do not fail the run.
+    if (!ok && !soft && callContext.getStore()?.abandoned) {
+      soft = true;
+      detail = `Interrupted by a native dialog; outcome unknown (${detail ?? "no detail"})`;
+    }
     const entry: LoggedAction = { timestamp: new Date().toISOString(), action: name, args, ok, detail };
     if (soft) entry.soft = true;
     const step = getCurrentStep(activeSessionId);
@@ -174,6 +203,51 @@ function buildMcpServer(): McpServer {
     }
     return { content: [{ type: "text" as const, text: successText }] };
   }
+
+  /**
+   * Every tool goes through this (T031, decision D1): a native dialog blocks the page, so
+   * while one is waiting every tool but the exempt ones is refused, and a call that opens
+   * one returns at once with "waiting" instead of hanging until its own timeout. The
+   * abandoned call keeps running; ui_dialog collects its result. Notices (e.g. a dialog the
+   * safety timeout dismissed) ride on the next response.
+   */
+  const registerTool = server.registerTool.bind(server) as (
+    name: string,
+    config: unknown,
+    handler: (args: unknown) => Promise<ToolResponse>
+  ) => unknown;
+  (server as unknown as { registerTool: typeof registerTool }).registerTool = (name, config, handler) =>
+    registerTool(name, config, async (args: unknown): Promise<ToolResponse> => {
+      const target = PAGE_CREATING_TOOLS.has(name) ? await resolvePageForWrite() : resolvePageForRead();
+      const withNotices = (res: ToolResponse): ToolResponse => {
+        const notices = takeDialogNotices(target);
+        return notices.length === 0
+          ? res
+          : { ...res, content: [...res.content, ...notices.map((text) => ({ type: "text" as const, text }))] };
+      };
+      if (DIALOG_EXEMPT_TOOLS.has(name)) return withNotices(await handler(args));
+
+      const waiting = waitingDialogText(target);
+      if (waiting) return { isError: true, content: [{ type: "text", text: waiting }] };
+
+      const outcome = await raceDialog(target, (call) =>
+        callContext.run(call, async () => {
+          const res = await handler(args);
+          if (!(call.abandoned && res.isError)) return res;
+          const why = res.content.map((c) => c.text).join(" ");
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `The call was interrupted by a native dialog and its own outcome is unknown (${why}). Check the page with ui_get_page_state.`,
+              },
+            ],
+          };
+        })
+      );
+      if (outcome.kind === "waiting") return { content: [{ type: "text", text: outcome.text }] };
+      return withNotices(outcome.value);
+    });
 
   server.registerTool(
     "ui_start_session",
@@ -268,25 +342,123 @@ function buildMcpServer(): McpServer {
       title: "ui_click",
       description:
         "Click the single element matching the given selector. The selector may be a CSS selector or the `selector` value from ui_get_page_state, passed unchanged." +
-        ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.',
+        ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.' +
+        " Optional: `button` (right/middle), `clickCount` 2 for a double-click, `modifiers` for Shift/Control-click, `position` for an offset inside the element, `force` to click through an element covering it." +
+        " If the click opens a native alert/confirm/prompt, the reply says the browser is waiting: answer it with ui_dialog.",
       inputSchema: {
         selector: z
           .string()
           .describe("CSS selector, or the `selector` value of an element from ui_get_page_state"),
+        button: z.enum(["left", "right", "middle"]).optional().describe("Mouse button (default left); right fires contextmenu"),
+        clickCount: z.number().int().min(1).max(3).optional().describe("2 = double-click, 3 = triple-click (default 1)"),
+        modifiers: z
+          .array(z.enum(["Alt", "Control", "Meta", "Shift", "ControlOrMeta"]))
+          .optional()
+          .describe("Keys held during the click, e.g. [\"Shift\"] for a range select"),
+        position: z
+          .object({ x: z.number(), y: z.number() })
+          .optional()
+          .describe("Click this offset from the element's top-left corner, in CSS pixels (default: its centre)"),
+        force: z
+          .boolean()
+          .optional()
+          .describe("Skip the check that nothing covers the element (e.g. a transparent overlay); the click lands on whatever is on top"),
+      },
+    },
+    async ({ selector, button, clickCount, modifiers, position, force }) => {
+      // Only options the caller set are logged, so the report never claims a default as a choice.
+      const options: ClickOptions = {
+        ...(button !== undefined && { button }),
+        ...(clickCount !== undefined && { clickCount }),
+        ...(modifiers !== undefined && { modifiers }),
+        ...(position !== undefined && { position }),
+        ...(force !== undefined && { force }),
+      };
+      const args = { selector, ...options };
+      const target = resolvePageForRead();
+      if (!target) {
+        await recordAction("ui_click", args, false, "No active page");
+        return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
+      }
+      const result = await click(target, selector, options);
+      await recordAction("ui_click", args, result.ok, result.error);
+      if (!result.ok) {
+        return { isError: true, content: [{ type: "text", text: result.error ?? "Click failed" }] };
+      }
+      return { content: [{ type: "text", text: describeClick(`"${selector}"`, options) }] };
+    }
+  );
+
+  server.registerTool(
+    TOOL.clickOutside,
+    {
+      title: TOOL.clickOutside,
+      description:
+        "Click just outside the single element matching the selector, the way a user closes a modal, drawer or popover by clicking its backdrop. Picks a point whose topmost element is not inside the target and not a control, and says what it hit. " +
+        "Pass the dialog panel, not the backdrop. Fails if no safe point exists (the element fills the viewport): use ui_press_key with Escape then." +
+        NTH_NOTE,
+      inputSchema: {
+        selector: z.string().describe(SELECTOR_DESCRIPTION + " of the modal/panel to click outside of"),
       },
     },
     async ({ selector }) => {
       const target = resolvePageForRead();
       if (!target) {
-        await recordAction("ui_click", { selector }, false, "No active page");
+        await recordAction(TOOL.clickOutside, { selector }, false, "No active page");
         return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
       }
-      const result = await click(target, selector);
-      await recordAction("ui_click", { selector }, result.ok, result.error);
+      const result = await clickOutside(target, selector);
+      await recordAction(TOOL.clickOutside, result.ok ? { selector, hit: result.hit } : { selector }, result.ok, result.error);
       if (!result.ok) {
-        return { isError: true, content: [{ type: "text", text: result.error ?? "Click failed" }] };
+        return { isError: true, content: [{ type: "text", text: result.error ?? "Click outside failed" }] };
       }
-      return { content: [{ type: "text", text: `Clicked "${selector}"` }] };
+      return {
+        content: [{ type: "text", text: `Clicked outside "${selector}" at ${result.x},${result.y} (on ${result.hit})` }],
+      };
+    }
+  );
+
+  server.registerTool(
+    TOOL.dialog,
+    {
+      title: TOOL.dialog,
+      description:
+        "Answer a native browser dialog (alert, confirm, prompt, beforeunload). When a tool call opens one, its reply says \"Browser is waiting on a <type> dialog\" and every other tool is refused until you answer here. " +
+        "`accept` = OK / Leave; `dismiss` = Cancel / Stay; for a prompt add `text`. The reply also reports what the interrupted action did next. " +
+        "With no dialog waiting, this pre-sets the answer for the NEXT dialog, which is then answered at once (one answer, used once). An unanswered dialog is dismissed after a safety timeout.",
+      inputSchema: {
+        action: z.enum(["accept", "dismiss"]).describe("accept = OK / Leave; dismiss = Cancel / Stay"),
+        text: z.string().optional().describe("Text to enter into a prompt dialog (accept only)"),
+      },
+    },
+    async ({ action, text }) => {
+      const target = resolvePageForRead();
+      if (!target) {
+        await recordAction(TOOL.dialog, { action }, false, "No active page");
+        return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
+      }
+      const outcome = await answerDialog(target, action, action === "accept" ? text : undefined);
+      if (outcome.kind === "waiting") return { content: [{ type: "text", text: outcome.text }] };
+      const answered = outcome.value;
+      if (answered.preset) {
+        await recordAction(TOOL.dialog, { action }, true);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `No dialog is waiting. The next dialog will be ${action === "accept" ? "accepted" : "dismissed"} without pausing.`,
+            },
+          ],
+        };
+      }
+      const lines = [`${action === "accept" ? "Accepted" : "Dismissed"} the ${answered.type} dialog "${answered.message}".`];
+      const done = answered.result as ToolResponse | undefined;
+      if (answered.stillRunning) {
+        lines.push("The action that opened it is still running — check the page with ui_get_page_state.");
+      } else if (done?.content) {
+        lines.push(`The interrupted call then returned: ${done.content.map((c) => c.text).join(" ")}`);
+      }
+      return { content: [{ type: "text", text: lines.join(" ") }] };
     }
   );
 

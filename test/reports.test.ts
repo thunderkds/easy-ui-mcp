@@ -95,6 +95,38 @@ test("describe renders a readable sentence for each T019 interaction (AC7)", () 
   assert.equal(describe(action({ action: "ui_scroll" })), "Scrolled down one page");
 });
 
+test("describe renders the T031 click options, click-outside and dialog actions (AC6/AC7)", () => {
+  assert.equal(describe(action({ action: "ui_click", args: { selector: "#row-3", button: "right" } })), "Right-clicked #row-3");
+  assert.equal(describe(action({ action: "ui_click", args: { selector: "#cell", clickCount: 2 } })), "Double-clicked #cell");
+  assert.equal(
+    describe(action({ action: "ui_click", args: { selector: "#row", modifiers: ["Shift"], force: true } })),
+    "Clicked #row with Shift (forced)"
+  );
+  assert.equal(describe(action({ action: "ui_click", args: { selector: "#x", button: "left" } })), "Clicked #x");
+  assert.equal(
+    describe(action({ action: "ui_click_outside", args: { selector: "#panel", hit: "div#backdrop" } })),
+    "Clicked outside #panel (on div#backdrop)"
+  );
+  assert.equal(describe(action({ action: "ui_click_outside", args: { selector: "#panel" } })), "Clicked outside #panel");
+  assert.equal(
+    describe(action({ action: "dialog", args: { type: "confirm", message: "Delete?", answer: "accept", answeredBy: "agent" } })),
+    'Browser confirm dialog "Delete?" — accepted (answered by agent)'
+  );
+  assert.equal(
+    describe(action({ action: "dialog", args: { type: "prompt", message: "Name?", answer: "accept", text: "secret", answeredBy: "pre-set" } })),
+    'Browser prompt dialog "Name?" — accepted (answered by pre-set)',
+    "text entered into a prompt is never repeated in the report"
+  );
+  assert.equal(
+    describe(action({ action: "dialog", args: { type: "alert", message: "Hi", answer: "dismiss", answeredBy: "timeout" } })),
+    'Browser alert dialog "Hi" — dismissed (answered by timeout)'
+  );
+  assert.equal(
+    describe(action({ action: "ui_dialog", args: { action: "accept" } })),
+    "Set the next dialog to be accepted"
+  );
+});
+
 test("describe truncates long values in the T019 sentences and keeps them to one line (AC7)", () => {
   const long = "x".repeat(500);
   const text = describe(action({ action: "ui_select_option", args: { selector: "#s", value: long } }));
