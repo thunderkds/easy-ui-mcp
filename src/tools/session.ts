@@ -229,7 +229,7 @@ const dialogStates = new WeakMap<Page, DialogState>();
 
 async function settleDialog(
   state: DialogState,
-  d: Pick<PendingDialog, "dialog" | "type" | "message"> & { answeredAt?: number },
+  d: Pick<PendingDialog, "dialog" | "type" | "message"> & { answeredAt?: number; answer?: DialogAnswer },
   answer: DialogAnswer,
   text: string | undefined,
   answeredBy: DialogAnsweredBy
@@ -247,6 +247,7 @@ async function settleDialog(
     ok: true,
   });
   d.answeredAt = Date.now();
+  d.answer = answer;
   try {
     if (answer === "accept") await d.dialog.accept(text);
     else await d.dialog.dismiss();
@@ -321,7 +322,16 @@ export type GuardedCall<T> = { kind: "done"; value: T } | { kind: "waiting"; tex
 export interface DialogCall {
   abandoned: boolean;
   /** The dialog that took the call over (set with `abandoned`). */
-  dialog?: { type: DialogType; message: string; answeredAt?: number };
+  dialog?: { type: DialogType; message: string; answeredAt?: number; answer?: DialogAnswer };
+}
+
+/** A Playwright error as one readable line: ANSI colour codes and the multi-line "Call log:" dropped. */
+export function cleanError(raw: string | undefined): string {
+  if (!raw) return "";
+  // eslint-disable-next-line no-control-regex
+  const plain = raw.replace(/\u001b\[[0-9;]*m/g, "");
+  const head = plain.split(/\r?\n\s*Call log:/)[0];
+  return head.split(/\r?\n/)[0].trim();
 }
 
 /** Tools whose own action is what opens a dialog: a click or key press that "timed out" did its job. */
@@ -345,12 +355,20 @@ export function interruptedByDialog(page: Page | undefined, call: DialogCall | u
  * succeeded, or settled after the answer, are returned unchanged.
  */
 export function applyDialogInterruption(page: Page | undefined, call: DialogCall | undefined, entry: LoggedAction): LoggedAction {
-  if (entry.ok || entry.soft || !interruptedByDialog(page, call)) return entry;
-  if (OPENER_TOOLS.has(entry.action) && /Timeout \d+ms exceeded/.test(entry.detail ?? "")) {
+  if (entry.ok || entry.soft || !call?.abandoned) return entry;
+  // Dismissing a "Leave site?" prompt is a deliberate Stay: Playwright rejects the navigation
+  // that raised it with ERR_ABORTED, which is the expected outcome, not a failure.
+  if (call.dialog?.type === "beforeunload" && call.dialog.answer === "dismiss" && /ERR_ABORTED/.test(entry.detail ?? "")) {
+    const { detail: _detail, ...rest } = entry;
+    return { ...rest, ok: true, args: { ...entry.args, stayedOn: page?.url() ?? "" } };
+  }
+  const detail = cleanError(entry.detail) || undefined;
+  if (!interruptedByDialog(page, call)) return { ...entry, detail };
+  if (OPENER_TOOLS.has(entry.action) && /Timeout \d+ms exceeded/.test(detail ?? "")) {
     const { detail: _detail, ...rest } = entry;
     return { ...rest, ok: true, args: { ...entry.args, opensDialog: call!.dialog!.type } };
   }
-  return { ...entry, soft: true, detail: `Interrupted by a native dialog; outcome unknown (${entry.detail ?? "no detail"})` };
+  return { ...entry, soft: true, detail: `Interrupted by a native dialog; outcome unknown (${detail ?? "no detail"})` };
 }
 
 /**

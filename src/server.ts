@@ -45,6 +45,7 @@ import {
   getCurrentStep,
   attachDialogHandler,
   applyDialogInterruption,
+  cleanError,
   interruptedByDialog,
   quoteDialogText,
   raceDialog,
@@ -472,14 +473,22 @@ function buildMcpServer(): McpServer {
       ];
       const done = answered.result as ToolResponse | undefined;
       const now = await pageNow(target);
+      const interrupted = done?.content ? interruptedReplies.has(done) : false;
+      const failed = Boolean(done?.isError) && !interrupted;
+      const said = cleanError(done?.content?.map((c) => c.text).join(" "));
       if (answered.type === "beforeunload" && action === "dismiss") {
+        // The navigation that raised the prompt is rejected with ERR_ABORTED: that is the Stay.
         lines.push(`Stayed on ${now}.`);
+        if (failed && !/ERR_ABORTED/.test(said)) lines.push(`The interrupted call failed: ${said}`);
       } else {
         if (answered.stillRunning) {
           lines.push("The action that opened it is still running.");
+        } else if (interrupted) {
+          lines.push(said);
+        } else if (failed) {
+          lines.push(`The interrupted call failed: ${said}`);
         } else if (done?.content) {
-          const said = done.content.map((c) => c.text).join(" ");
-          lines.push(interruptedReplies.has(done) ? said : `The interrupted call then returned: ${said}`);
+          lines.push(`The interrupted call then returned: ${said}`);
         }
         lines.push(`Page now: ${now}.`);
       }

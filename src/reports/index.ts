@@ -354,6 +354,12 @@ function arg(action: LoggedAction, name: string): string | undefined {
  * in the renderer to unit-test.
  */
 export function describe(action: LoggedAction): string {
+  const stayed = action.args?.stayedOn;
+  if (typeof stayed === "string") {
+    return action.action === "ui_navigate"
+      ? `Stayed on ${truncate(stayed)} (navigation to ${arg(action, "url") ?? "another page"} cancelled by the page)`
+      : `${describeAction(action)} (stayed on ${truncate(stayed)})`;
+  }
   const text = describeAction(action);
   const opened = action.args?.opensDialog;
   return typeof opened === "string" ? `${text} (opened ${opened === "alert" ? "an" : "a"} ${truncate(opened)} dialog)` : text;

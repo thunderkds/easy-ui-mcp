@@ -20,6 +20,7 @@ import {
   waitingDialogText,
   takeDialogNotices,
   applyDialogInterruption,
+  cleanError,
   type DialogCall,
   type LoggedAction,
 } from "../src/tools/session.js";
@@ -836,6 +837,65 @@ test("T031 P3: page-controlled dialog text is quoted and truncated in replies, a
     assert.equal(out.text.split("\n").length, 1, "the page cannot add lines to a server message");
   }
   assert.match(waitingDialogText(page) ?? "", /^An alert dialog is waiting: "line1\\n/);
+  await answerDialog(page, "accept");
+  await endSession(id);
+});
+
+test("T031 AC13: dismissing a beforeunload keeps the session passed; the cancelled navigation is logged ok as a stay", async () => {
+  const record = await startSession("dialog-stay", undefined, { holdDialogs: true });
+  const page = getSessionPage(record.id)!;
+  await page.setContent(`<button id="b">b</button><script>window.onbeforeunload = (e) => { e.preventDefault(); e.returnValue = ''; };</script>`);
+  await page.click("#b"); // beforeunload only fires after a user gesture
+  const target = "data:text/html,<title>Away</title>away";
+  let logged: LoggedAction | undefined;
+  let rejectedWith = "";
+  const out = await raceDialog(page, async (call) => {
+    const r = await navigate(page, target);
+    rejectedWith = r.ok ? "" : r.error ?? "";
+    logged = applyDialogInterruption(page, call, {
+      timestamp: "t",
+      action: "ui_navigate",
+      args: { url: target },
+      ok: r.ok,
+      detail: r.ok ? r.url : r.error,
+    });
+    logAction(record.id, logged);
+    if (isFatalOutcome(logged)) markFailed(record.id);
+    return r;
+  });
+  assert.equal(out.kind, "waiting");
+  const answered = await answerDialog(page, "dismiss");
+  assert.equal(answered.kind, "done");
+  assert.match(rejectedWith, /ERR_ABORTED/, "Playwright rejects the cancelled navigation");
+  assert.equal(logged?.ok, true);
+  assert.equal(logged?.soft, undefined);
+  assert.equal(logged?.args?.stayedOn, page.url());
+  const ended = await endSession(record.id);
+  assert.equal(ended!.status, "passed", "a deliberate Stay is not a failure");
+});
+
+test("T031 P3: cleanError drops ANSI escapes and the Playwright call log", () => {
+  const raw = "\u001b[2mpage.goto: net::ERR_FAILED\u001b[22m at http://x/\nCall log:\n\u001b[2m  - navigating to\u001b[22m \"http://x/\"\n";
+  assert.equal(cleanError(raw), "page.goto: net::ERR_FAILED at http://x/");
+  assert.equal(cleanError("first line\nsecond line"), "first line");
+  assert.equal(cleanError(undefined), "");
+});
+
+test("T031 P3: the soft detail of an interrupted call carries the cleaned error, not the call log", async () => {
+  const { id, page } = await holdingSession("dialog-clean");
+  let logged: LoggedAction | undefined;
+  await raceDialog(page, async (call) => {
+    await page.click("#del", { timeout: 300 }).catch(() => undefined);
+    logged = applyDialogInterruption(page, call, {
+      timestamp: "t",
+      action: "ui_wait_for",
+      args: {},
+      ok: false,
+      detail: "\u001b[2mTimeout 5000ms exceeded\u001b[22m.\nCall log:\n  - waiting",
+    });
+  });
+  await new Promise((r) => setTimeout(r, 700));
+  assert.equal(logged?.detail, "Interrupted by a native dialog; outcome unknown (Timeout 5000ms exceeded.)");
   await answerDialog(page, "accept");
   await endSession(id);
 });

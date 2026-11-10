@@ -143,6 +143,17 @@ test("describe notes the dialog a click or key press opened, with the right arti
   );
 });
 
+test("describe says a navigation was cancelled by the page and the agent stayed (T031)", () => {
+  assert.equal(
+    describe(action({ action: "ui_navigate", args: { url: "http://b/", stayedOn: "http://a/" } })),
+    "Stayed on http://a/ (navigation to http://b/ cancelled by the page)"
+  );
+  assert.equal(
+    describe(action({ action: "ui_click", args: { selector: "#link", stayedOn: "http://a/" } })),
+    "Clicked #link (stayed on http://a/)"
+  );
+});
+
 test("describe truncates long values in the T019 sentences and keeps them to one line (AC7)", () => {
   const long = "x".repeat(500);
   const text = describe(action({ action: "ui_select_option", args: { selector: "#s", value: long } }));
