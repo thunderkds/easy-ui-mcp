@@ -22,6 +22,9 @@ import {
   setViewport,
   typeText,
   navigateHistory,
+  uploadFile,
+  drag,
+  mayOpenTabOrDownload,
 } from "../src/tools/web.js";
 import { createServer, type Server } from "node:http";
 import { readFileSync, readdirSync } from "node:fs";
@@ -1482,4 +1485,125 @@ test("takeScreenshot inline leaves a small image unscaled, and works for an elem
       rmSync(SHOT_DIR, { recursive: true, force: true });
     }
   });
+});
+// --- T033: ui_upload_file (built-in default_draft.png only, D1) ---
+
+const UPLOAD_PRINT =
+  "document.querySelectorAll('input[type=file]').forEach((i) => i.addEventListener('change', () => { document.getElementById('out').textContent = i.files[0].name + ' ' + i.files[0].size; }));";
+
+test("uploadFile sends default_draft.png to a plain file input and names the file and size", async () => {
+  await fixturePage.setContent(
+    `<input id="f" type="file"><p id="out"></p><script>${UPLOAD_PRINT}</script>`,
+    { waitUntil: "domcontentloaded" }
+  );
+  const result = await uploadFile(fixturePage, "#f");
+  assert.equal(result.ok, true);
+  assert.equal(result.file, "default_draft.png");
+  assert.ok(result.size! > 0 && result.size! < 5 * 1024, `size ${result.size}`);
+  assert.equal(result.warning, undefined);
+  assert.equal(await fixturePage.textContent("#out"), `default_draft.png ${result.size}`);
+});
+
+test("uploadFile drives a hidden input behind a styled Upload button via the file chooser", async () => {
+  await fixturePage.setContent(
+    `<button id="up" onclick="document.getElementById('h').click()">Upload</button>
+     <input id="h" type="file" hidden><p id="out"></p><script>${UPLOAD_PRINT}</script>`,
+    { waitUntil: "domcontentloaded" }
+  );
+  const result = await uploadFile(fixturePage, "#up");
+  assert.equal(result.ok, true, result.error);
+  assert.equal(await fixturePage.textContent("#out"), `default_draft.png ${result.size}`);
+});
+
+test("uploadFile warns when the input's accept excludes images, but still uploads", async () => {
+  await fixturePage.setContent(
+    `<input id="csv" type="file" accept=".csv"><p id="out"></p><script>${UPLOAD_PRINT}</script>`,
+    { waitUntil: "domcontentloaded" }
+  );
+  const result = await uploadFile(fixturePage, "#csv");
+  assert.equal(result.ok, true);
+  assert.match(result.warning ?? "", /accept="\.csv".*excludes images/);
+  assert.equal(await fixturePage.textContent("#out"), `default_draft.png ${result.size}`);
+});
+
+test("uploadFile accepts image/* and .png without a warning", async () => {
+  await fixturePage.setContent(`<input id="img" type="file" accept="image/*,.pdf">`, { waitUntil: "domcontentloaded" });
+  assert.equal((await uploadFile(fixturePage, "#img")).warning, undefined);
+});
+
+test("uploadFile fails clearly on a click that opens no file chooser, and on 0 / >1 matches", async () => {
+  await fixturePage.setContent(`<button id="b">no chooser</button><input type="file" class="two"><input type="file" class="two">`, {
+    waitUntil: "domcontentloaded",
+  });
+  const noChooser = await uploadFile(fixturePage, "#b");
+  assert.equal(noChooser.ok, false);
+  assert.match(noChooser.error ?? "", /did not open a file chooser/);
+  assert.match((await uploadFile(fixturePage, "#missing")).error ?? "", /No element matched selector "#missing"/);
+  assert.match((await uploadFile(fixturePage, ".two")).error ?? "", /matched 2 elements/);
+});
+
+test("uploadFile takes no path argument: the file can never come from tool input", () => {
+  assert.equal(uploadFile.length, 2, "uploadFile(page, selector) only");
+});
+
+// --- T033: ui_drag ---
+
+test("drag reorders an HTML5 drag-and-drop list", async () => {
+  await fixturePage.setContent(
+    `<ul id="list"><li draggable="true" id="A">A</li><li draggable="true" id="B">B</li><li draggable="true" id="C">C</li></ul>
+     <script>
+       var dragged;
+       for (const li of document.querySelectorAll('li')) {
+         li.addEventListener('dragstart', () => { dragged = li; });
+         li.addEventListener('dragover', (e) => e.preventDefault());
+         li.addEventListener('drop', (e) => { e.preventDefault(); li.after(dragged); });
+       }
+     </script>`,
+    { waitUntil: "domcontentloaded" }
+  );
+  assert.deepEqual(await drag(fixturePage, "#A", "#C"), { ok: true });
+  assert.deepEqual(await fixturePage.$$eval("li", (els) => els.map((e) => e.id)), ["B", "C", "A"]);
+});
+
+test("drag reorders a pointer-events sortable", async () => {
+  await fixturePage.setContent(
+    `<ul id="list" style="user-select:none"><li id="A">A</li><li id="B">B</li><li id="C">C</li></ul>
+     <script>
+       var dragged = null;
+       document.addEventListener('pointerdown', (e) => { dragged = e.target.closest('li'); });
+       document.addEventListener('pointerup', (e) => {
+         const over = document.elementFromPoint(e.clientX, e.clientY)?.closest('li');
+         if (dragged && over && over !== dragged) over.after(dragged);
+         dragged = null;
+       });
+     </script>`,
+    { waitUntil: "domcontentloaded" }
+  );
+  assert.deepEqual(await drag(fixturePage, "#A", "#C"), { ok: true });
+  assert.deepEqual(await fixturePage.$$eval("li", (els) => els.map((e) => e.id)), ["B", "C", "A"]);
+});
+
+test("drag fails clearly when `from` or `to` matches nothing or many", async () => {
+  await fixturePage.setContent(`<i class="m">1</i><i class="m">2</i><b id="one">x</b>`, { waitUntil: "domcontentloaded" });
+  assert.match((await drag(fixturePage, "#nope", "#one")).error ?? "", /No element matched selector "#nope"/);
+  assert.match((await drag(fixturePage, "#one", "#nope")).error ?? "", /No element matched selector "#nope"/);
+  assert.match((await drag(fixturePage, ".m", "#one")).error ?? "", /matched 2 elements/);
+  assert.match((await drag(fixturePage, "#one", ".m")).error ?? "", /matched 2 elements/);
+});
+
+// --- T033 review: only clicks that can open a tab or start a download get the settle wait ---
+
+test("mayOpenTabOrDownload is true for target/download links, buttons and submit controls, false for plain elements", async () => {
+  await fixturePage.setContent(
+    `<a id="blank" target="_blank" href="/x"><span id="inner">go</span></a><a id="dl" download href="/y">d</a>
+     <button id="btn">b</button><form><input id="sub" type="submit"></form>
+     <div id="plain">p</div><a id="same" href="#top">same tab</a><input id="chk" type="checkbox">`,
+    { waitUntil: "domcontentloaded" }
+  );
+  for (const sel of ["#blank", "#inner", "#dl", "#btn", "#sub"]) {
+    assert.equal(await mayOpenTabOrDownload(fixturePage, sel), true, sel);
+  }
+  for (const sel of ["#plain", "#same", "#chk", "#missing"]) {
+    assert.equal(await mayOpenTabOrDownload(fixturePage, sel), false, sel);
+  }
 });

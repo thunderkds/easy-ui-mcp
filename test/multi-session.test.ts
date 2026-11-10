@@ -580,3 +580,57 @@ describe("idle auto-close through the server", () => {
     assert.equal(report.json.status, "timed_out");
   });
 });
+
+// ---------------------------------------------------------------------------
+// T033 — tabs, notices and logs belong to one session
+// ---------------------------------------------------------------------------
+
+describe("T033: tabs and notices are per session", () => {
+  before(() => startServer({ SESSION_TIMEOUT_MS: "600000", MAX_SESSIONS_PER_CONNECTION: "3" }));
+  after(async () => {
+    await closeAllConnections();
+    await stopServer();
+  });
+
+  /** Every text block of a reply: the notices ride as an extra block after the main one. */
+  async function replyTexts(conn: Conn, name: string, args: Record<string, unknown>): Promise<string> {
+    const result = (await conn.client.callTool({ name, arguments: args })) as { content: { type: string; text: string }[] };
+    return result.content.map((c) => c.text).join("\n");
+  }
+
+  test("a popup opened in A is announced on A's replies only, and ui_tabs list on B still shows 1 tab", async () => {
+    const conn = await connect();
+    const a = await conn.start("tabs-A");
+    const b = await conn.start("tabs-B");
+    await conn.call("ui_navigate", { url: pageUrl('<a id="l" target="_blank" href="about:blank">open</a>'), session_id: a });
+    await conn.call("ui_navigate", { url: PAGE_TWO, session_id: b });
+
+    const click = await replyTexts(conn, "ui_click", { selector: "#l", session_id: a });
+    // B speaks in between: it must never carry A's notice, whether or not A's has been delivered yet.
+    const bReply = await replyTexts(conn, "ui_get_page_state", { session_id: b });
+    assert.doesNotMatch(bReply, /New tab opened/);
+    const aReply = /New tab opened/.test(click) ? click : await replyTexts(conn, "ui_get_page_state", { session_id: a });
+    assert.match(aReply, /New tab opened: about:blank \(tab 2\)/);
+
+    const tabsA = JSON.parse((await conn.call("ui_tabs", { action: "list", session_id: a })).text);
+    const tabsB = JSON.parse((await conn.call("ui_tabs", { action: "list", session_id: b })).text);
+    assert.equal(tabsA.length, 2);
+    assert.equal(tabsB.length, 1);
+
+    // the notice was delivered once: A's next reply no longer carries it
+    assert.doesNotMatch(await replyTexts(conn, "ui_get_page_state", { session_id: a }), /New tab opened/);
+
+    // logs are per session too
+    await conn.call("ui_navigate", { url: pageUrl("<script>console.error('only in A')</script>"), session_id: a });
+    await sleep(300);
+    assert.match((await conn.call("ui_get_logs", { since: "start", session_id: a })).text, /only in A/);
+    assert.doesNotMatch((await conn.call("ui_get_logs", { since: "start", session_id: b })).text, /only in A/);
+
+    await conn.call("ui_end_session", { session_id: a });
+    await conn.call("ui_end_session", { session_id: b });
+    for (const id of [a, b]) {
+      const report = reportFor(id);
+      assert.ok(report, `report for ${id}`);
+    }
+  });
+});

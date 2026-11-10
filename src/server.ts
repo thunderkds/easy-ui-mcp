@@ -36,6 +36,11 @@ import {
   setViewport,
   typeText,
   navigateHistory,
+  uploadFile,
+  drag,
+  mayOpenTabOrDownload,
+  getUploadFileSize,
+  UPLOAD_FILE_NAME,
   MAX_WAIT_MS,
   type ClickOptions,
   MIN_VIEWPORT_WIDTH,
@@ -70,6 +75,11 @@ import {
   waitingDialogText,
   takeDialogNotices,
   type DialogCall,
+  getSessionLogs,
+  takeNotices,
+  listTabs,
+  switchTab,
+  closeTab,
   type LoggedAction,
   type SessionRecord,
 } from "./tools/session.js";
@@ -94,6 +104,10 @@ const TOOL = {
   setViewport: "ui_set_viewport",
   type: "ui_type",
   navigateHistory: "ui_navigate_history",
+  getLogs: "ui_get_logs",
+  tabs: "ui_tabs",
+  uploadFile: "ui_upload_file",
+  drag: "ui_drag",
 } as const;
 
 /** What `ui_type` leaves in the report in place of the text it typed into a password field. */
@@ -237,7 +251,8 @@ function buildMcpServer(): McpServer {
         ? await getPage()
         : currentPage();
     const withNotices = (res: ToolResponse): ToolResponse => {
-      const notices = takeDialogNotices(target);
+      // Dialog notices (T031) plus what the session's browser did since the last reply: new tab, download (T033).
+      const notices = [...takeDialogNotices(target), ...(sessionId ? takeNotices(sessionId) : [])];
       return notices.length === 0
         ? res
         : { ...res, content: [...res.content, ...notices.map((text) => ({ type: "text" as const, text }))] };
@@ -513,11 +528,14 @@ function buildMcpServer(): McpServer {
         await recordAction("ui_click", args, false, "No active page");
         return { isError: true, content: [{ type: "text", text: "No active page — call ui_navigate first" }] };
       }
+      const mayOpen = callSessionId() ? await mayOpenTabOrDownload(target, selector) : false;
       const result = await click(target, selector, options);
       await recordAction("ui_click", args, result.ok, result.error);
       if (!result.ok) {
         return { isError: true, content: [{ type: "text", text: result.error ?? "Click failed" }] };
       }
+      // Only a click that can open a tab or start a download waits for the event, so the notice rides this reply; any other click returns at once.
+      if (mayOpen) await new Promise((resolve) => setTimeout(resolve, 150));
       return { content: [{ type: "text", text: describeClick(`"${selector}"`, options) }] };
     }
   );
@@ -842,6 +860,98 @@ function buildMcpServer(): McpServer {
         (result) =>
           `${action === "back" ? "Went back to" : action === "forward" ? "Went forward to" : "Reloaded"} ${result.url} (title: "${result.title}")`
       )
+  );
+
+  registerSessionTool(
+    TOOL.uploadFile,
+    {
+      title: TOOL.uploadFile,
+      description:
+        `Upload the built-in test file ${UPLOAD_FILE_NAME} (a tiny PNG) to the single element matching the selector: an input[type=file] (hidden ones work), or a button/label whose click opens the file chooser. Takes no path: this is the only file it can ever upload. If the input's accept excludes images the response says so.` +
+        NTH_NOTE,
+      inputSchema: { selector: z.string().describe(SELECTOR_DESCRIPTION) },
+    },
+    async ({ selector }) => {
+      const size = await getUploadFileSize();
+      return runInteraction(
+        TOOL.uploadFile,
+        size === undefined ? { selector, file: UPLOAD_FILE_NAME } : { selector, file: UPLOAD_FILE_NAME, size },
+        (target) => uploadFile(target, selector),
+        (result) =>
+          `Uploaded ${UPLOAD_FILE_NAME} (${size} bytes) to "${selector}"` +
+          (result.warning ? `. Warning: ${result.warning}` : "")
+      );
+    }
+  );
+
+  registerSessionTool(
+    TOOL.drag,
+    {
+      title: TOOL.drag,
+      description:
+        "Drag the single element matching `from` onto the single element matching `to` with real pointer events: reorders HTML5 drag-and-drop lists, kanban cards and pointer-based sortables. Use the `selector` values from ui_get_page_state." +
+        NTH_NOTE,
+      inputSchema: {
+        from: z.string().describe(SELECTOR_DESCRIPTION + " of the element to pick up"),
+        to: z.string().describe(SELECTOR_DESCRIPTION + " of the element to drop onto"),
+      },
+    },
+    async ({ from, to }) =>
+      runInteraction(TOOL.drag, { from, to }, (target) => drag(target, from, to), `Dragged "${from}" onto "${to}"`)
+  );
+
+  registerSessionTool(
+    TOOL.getLogs,
+    {
+      title: TOOL.getLogs,
+      description:
+        "Read the browser problems captured in this session so far: console errors, uncaught page errors, failed requests and HTTP 4xx/5xx responses (method + URL, never bodies or headers). Use it when an action seemed to do nothing. `since: last` (default) returns only what is new since the previous call; `start` returns everything. Pass level: warning to include console warnings. Repeats are grouped (×N); at most 50 lines.",
+      inputSchema: {
+        since: z.enum(["start", "last"]).optional().describe("last (default): new since the previous ui_get_logs; start: everything"),
+        level: z.enum(["error", "warning"]).optional().describe("error (default), or warning to also include console warnings"),
+      },
+    },
+    async ({ since, level }) => {
+      const args = { since: since ?? "last", level: level ?? "error" };
+      const sessionId = callSessionId();
+      if (!sessionId) {
+        return { isError: true, content: [{ type: "text" as const, text: "No active session — call ui_start_session first" }] };
+      }
+      const result = getSessionLogs(sessionId, args);
+      await recordAction(TOOL.getLogs, args, result.ok, result.ok ? `${result.lines.length} line(s)` : result.error);
+      if (!result.ok) return { isError: true, content: [{ type: "text" as const, text: result.error }] };
+      const body = result.lines.length === 0 ? "No new browser issues" : result.lines.join("\n");
+      return { content: [{ type: "text" as const, text: result.note ? `${body}\n${result.note}` : body }] };
+    }
+  );
+
+  registerSessionTool(
+    TOOL.tabs,
+    {
+      title: TOOL.tabs,
+      description:
+        "Manage browser tabs of this session (numbered from 1). A link with target=_blank or window.open opens a new tab, announced on the next tool response but not switched to. list: index, url, title, current. switch: make that tab the one every tool acts on. close: close that tab (default: the current one) and fall back to the previous one; the last tab cannot be closed.",
+      inputSchema: {
+        action: z.enum(["list", "switch", "close"]).describe("list, switch or close"),
+        index: z.number().int().optional().describe("Tab number from `list` (required for switch)"),
+      },
+    },
+    async ({ action, index }) => {
+      const args = index === undefined ? { action } : { action, index };
+      const sessionId = callSessionId();
+      if (!sessionId) {
+        return { isError: true, content: [{ type: "text" as const, text: "No active session — call ui_start_session first" }] };
+      }
+      if (action === "list") {
+        const tabs = await listTabs(sessionId);
+        await recordAction(TOOL.tabs, args, true);
+        return { content: [{ type: "text" as const, text: JSON.stringify(tabs) }] };
+      }
+      const result = action === "switch" ? await switchTab(sessionId, index) : await closeTab(sessionId, index);
+      await recordAction(TOOL.tabs, args, result.ok, result.ok ? undefined : result.error);
+      if (!result.ok) return { isError: true, content: [{ type: "text" as const, text: result.error }] };
+      return { content: [{ type: "text" as const, text: result.message }] };
+    }
   );
 
   registerSessionTool(

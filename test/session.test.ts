@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, rmSync, readFileSync, mkdirSync, copyFileSync } from "node:fs";
+import { existsSync, rmSync, readFileSync, readdirSync, mkdirSync, copyFileSync } from "node:fs";
 import path from "node:path";
+import http from "node:http";
 import {
   startSession,
   type SessionSettings,
@@ -28,6 +29,11 @@ import {
   cleanError,
   type DialogCall,
   type LoggedAction,
+  getSessionLogs,
+  takeNotices,
+  listTabs,
+  switchTab,
+  closeTab,
 } from "../src/tools/session.js";
 import { chromium } from "playwright";
 import { waitForCondition, classifyCheckOutcome, click, navigate } from "../src/tools/web.js";
@@ -1193,4 +1199,386 @@ test("T032 AC4: a session with no settings has no settings line", async () => {
   const ended = await endSession(record.id);
   const { htmlPath } = await writeReports(ended!, TMP_REPORTS_DIR);
   assert.doesNotMatch(readFileSync(htmlPath, "utf8"), /class="meta settings"/);
+});
+
+// ---------------------------------------------------------------------------
+// T033 — debug logs, HTTP errors, tabs, downloads
+// ---------------------------------------------------------------------------
+
+/** Local fixture server on an OS-assigned port, torn down after `fn` (T022 teardown rule). */
+async function withFixture(
+  handler: (req: http.IncomingMessage, res: http.ServerResponse) => void,
+  fn: (base: string) => Promise<void>
+): Promise<void> {
+  const server = http.createServer(handler);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as { port: number };
+  try {
+    await fn(`http://127.0.0.1:${port}`);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+async function until(check: () => boolean | Promise<boolean>, ms = 5000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error("condition not met in time");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/** Notices are drained by takeNotices; collect them across polls. */
+function noticeCollector(id: string): { all: string[]; poll: () => string[] } {
+  const all: string[] = [];
+  return { all, poll: () => (all.push(...takeNotices(id)), all) };
+}
+
+const POPUP_SITE = (req: http.IncomingMessage, res: http.ServerResponse) => {
+  res.setHeader("content-type", "text/html");
+  if (req.url === "/api/data?token=secret") {
+    res.statusCode = 500;
+    res.end("boom");
+  } else if (req.url === "/popup") {
+    res.end("<title>Popup page</title><p id='in-popup'>in popup</p>");
+  } else {
+    res.end(`<title>Opener</title><a id="l" target="_blank" href="/popup">open</a>
+      <script>fetch("/api/data?token=secret"); console.error("render failed");</script>`);
+  }
+};
+
+test("AC1/AC2: an HTTP 500 is captured as an httperror (query stripped) and ui_get_logs reads it mid-flow", async () => {
+  await withFixture(POPUP_SITE, async (base) => {
+    const record = await startSession("http-errors");
+    const page = getSessionPage(record.id)!;
+    await page.goto(base);
+    // Polling with since:"start" also moves the `last` cursor, so keep the final poll as the read under test.
+    let first = getSessionLogs(record.id, { since: "start" });
+    await until(() => ((first = getSessionLogs(record.id, { since: "start" })).lines?.length ?? 0) >= 2);
+    assert.equal(first.ok, true);
+    const text = first.lines!.join("\n");
+    assert.match(text, /render failed/);
+    assert.match(text, /500 GET http:\/\/127\.0\.0\.1:\d+\/api\/data/);
+    assert.doesNotMatch(text, /secret/, "query strings may hold tokens and must not be logged");
+
+    const second = getSessionLogs(record.id, {});
+    assert.deepEqual(second.lines, [], "`last` returns only issues since the previous call");
+    const again = getSessionLogs(record.id, { since: "start" });
+    assert.equal(again.lines!.length, first.lines!.length, "`start` returns everything");
+
+    const ended = await endSession(record.id);
+    assert.equal(ended!.status, "passed", "an HTTP error never fails the session");
+    assert.ok(ended!.issues!.some((i) => i.kind === "httperror" && i.text.startsWith("500 GET ")));
+  });
+});
+
+test("AC2: ui_get_logs groups repeats, caps at 50 lines with a note, and gates warnings on level", async () => {
+  const record = await startSession("log-shape");
+  const page = getSessionPage(record.id)!;
+  await page.setContent(`<script>
+    for (let i = 0; i < 3; i++) console.error("favicon missing");
+    console.warn("deprecated api");
+  </script>`);
+  await until(() => (getSessionLogs(record.id, { since: "start" }).lines?.length ?? 0) >= 1);
+
+  const errors = getSessionLogs(record.id, { since: "start" });
+  assert.deepEqual(errors.lines, ["console: favicon missing ×3"]);
+
+  // The errors call did not read the warnings, so a later level:"warning" call still gets them.
+  const unread = getSessionLogs(record.id, { level: "warning" });
+  assert.deepEqual(unread.lines, ["warning: deprecated api"]);
+  const everything = getSessionLogs(record.id, { since: "start", level: "warning" });
+  assert.equal(everything.lines!.length, 2);
+  await endSession(record.id);
+});
+
+test("AC2: ui_get_logs output is capped at 50 lines with a truncation note", async () => {
+  const record = await startSession("log-cap");
+  const page = getSessionPage(record.id)!;
+  await page.setContent(`<script>
+    for (let i = 0; i < ${MAX_PAGE_ISSUES + 10}; i++) console.error("distinct " + i);
+    for (let i = 0; i < 5; i++) console.warn("warn " + i);
+  </script>`);
+  await until(() => getSessionLogs(record.id, { since: "start", level: "warning" }).lines!.length >= 50);
+  const capped = getSessionLogs(record.id, { since: "start", level: "warning" });
+  assert.equal(capped.lines!.length, 50);
+  assert.match(capped.note ?? "", /truncated/i);
+  await endSession(record.id);
+});
+
+test("ui_get_logs on an unknown session is an error, not a crash", () => {
+  assert.equal(getSessionLogs("does-not-exist", {}).ok, false);
+});
+
+test("AC3/AC4: a _blank popup is announced once, listed, switchable and closable", async () => {
+  await withFixture(POPUP_SITE, async (base) => {
+    const record = await startSession("tabs");
+    const notices = noticeCollector(record.id);
+    const first = getSessionPage(record.id)!;
+    await first.goto(base);
+    assert.deepEqual(takeNotices(record.id), []);
+    await first.click("#l");
+    await until(() => notices.poll().length > 0);
+    assert.deepEqual(notices.all, [`New tab opened: ${base}/popup (tab 2)`]);
+    assert.deepEqual(takeNotices(record.id), [], "a notice is delivered once");
+
+    const tabs = await listTabs(record.id);
+    assert.deepEqual(
+      tabs!.map((t) => [t.index, t.current]),
+      [[1, true], [2, false]]
+    );
+    assert.equal(tabs![1].url, `${base}/popup`);
+    assert.equal(tabs![1].title, "Popup page");
+
+    assert.equal((await switchTab(record.id, 2)).ok, true);
+    assert.equal(await getSessionPage(record.id)!.locator("#in-popup").count(), 1);
+    assert.equal((await listTabs(record.id))![1].current, true);
+
+    assert.equal((await switchTab(record.id, 3)).ok, false);
+    assert.equal((await switchTab(record.id, 0)).ok, false);
+
+    assert.equal((await closeTab(record.id, 2)).ok, true);
+    assert.equal(getSessionPage(record.id), first, "closing the current tab falls back to the previous tab");
+    assert.equal((await listTabs(record.id))!.length, 1);
+
+    const last = await closeTab(record.id, 1);
+    assert.equal(last.ok, false, "closing the last tab is an error");
+    assert.equal((await listTabs(record.id))!.length, 1);
+    await endSession(record.id);
+  });
+});
+
+test("AC5: later tabs feed the same issue list, and ending the session closes every tab", async () => {
+  await withFixture(
+    (req, res) => {
+      res.setHeader("content-type", "text/html");
+      if (req.url === "/popup") res.end(`<script>console.error("popup broke")</script>`);
+      else res.end(`<a id="l" target="_blank" href="/popup">open</a>`);
+    },
+    async (base) => {
+      const record = await startSession("tab-issues");
+      const page = getSessionPage(record.id)!;
+      await page.goto(base);
+      await page.click("#l");
+      await until(() => getSessionLogs(record.id, { since: "start" }).lines!.some((l) => l.includes("popup broke")));
+      const context = page.context();
+      assert.equal(context.pages().length, 2);
+      await endSession(record.id);
+      assert.equal(context.pages().length, 0, "ui_end_session closes all tabs");
+    }
+  );
+});
+
+test("a popup that closes itself is announced and the current tab stays the opener", async () => {
+  await withFixture(
+    (req, res) => {
+      res.setHeader("content-type", "text/html");
+      if (req.url === "/popup") res.end(`<script>window.close()</script>`);
+      else res.end(`<a id="l" target="_blank" href="/popup">open</a>`);
+    },
+    async (base) => {
+      const record = await startSession("self-closing-popup");
+      const notices = noticeCollector(record.id);
+      const page = getSessionPage(record.id)!;
+      await page.goto(base);
+      await page.click("#l");
+      await until(() => notices.poll().some((n) => /closed/i.test(n)));
+      assert.equal((await listTabs(record.id))!.length, 1);
+      assert.equal(getSessionPage(record.id), page);
+      await endSession(record.id);
+    }
+  );
+});
+
+test("AC8: a download is saved under reports/downloads/<session>/, logged as an action and announced", async () => {
+  await withFixture(
+    (req, res) => {
+      if (req.url === "/export.csv") {
+        res.setHeader("content-type", "text/csv");
+        res.setHeader("content-disposition", 'attachment; filename="../export.csv"');
+        res.end("a,b\n1,2\n");
+      } else {
+        res.setHeader("content-type", "text/html");
+        res.end(`<a id="d" href="/export.csv" download>Export</a>`);
+      }
+    },
+    async (base) => {
+      const record = await startSession("downloads", undefined, undefined, { reportsDir: TMP_REPORTS_DIR });
+      const notices = noticeCollector(record.id);
+      const page = getSessionPage(record.id)!;
+      await page.goto(base);
+      await page.click("#d");
+      await until(() => notices.poll().some((n) => n.startsWith("Downloaded:")));
+      // Chromium already neutralises the "../" in the suggested name; safeFileName is the backstop.
+      assert.match(notices.all.join("\n"), /Downloaded: [\w-]*export\.csv \(8 bytes\)/);
+      assert.doesNotMatch(notices.all.join("\n"), /\.\.\//);
+
+      const ended = await endSession(record.id);
+      const action = ended!.actions.find((a) => a.action === "ui_download");
+      assert.ok(action, "download logged as an action");
+      assert.equal(action!.ok, true);
+      assert.equal(action!.args!.size, 8);
+      const dir = path.join(TMP_REPORTS_DIR, "downloads", record.id);
+      const files = readdirSync(dir);
+      assert.equal(files.length, 1);
+      assert.match(files[0], /export\.csv$/);
+      assert.equal(action!.args!.path, path.join("downloads", record.id, files[0]), "reports store a path relative to the reports dir, never an absolute server path");
+      assert.ok(!files[0].includes(".."), "path traversal in the suggested name is stripped");
+      assert.equal(ended!.status, "passed");
+    }
+  );
+});
+
+test("closing the current tab from the page falls back to the previous tab with a notice", async () => {
+  await withFixture(POPUP_SITE, async (base) => {
+    const record = await startSession("current-tab-closes");
+    const notices = noticeCollector(record.id);
+    const first = getSessionPage(record.id)!;
+    await first.goto(base);
+    await first.click("#l");
+    await until(() => notices.poll().length > 0);
+    await switchTab(record.id, 2);
+    await getSessionPage(record.id)!.evaluate("window.close()");
+    await until(() => notices.poll().some((n) => /now on tab 1/.test(n)));
+    assert.equal(getSessionPage(record.id), first);
+    await endSession(record.id);
+  });
+});
+
+test("P2-1: closing every tab opens a fresh blank tab so the session stays usable", async () => {
+  await withFixture(
+    (req, res) => {
+      res.setHeader("content-type", "text/html");
+      if (req.url === "/popup") res.end(`<script>setTimeout(() => window.close(), 600)</script>`);
+      else res.end(`<a id="l" target="_blank" href="/popup">open</a>`);
+    },
+    async (base) => {
+      const record = await startSession("all-tabs-closed");
+      const notices = noticeCollector(record.id);
+      const first = getSessionPage(record.id)!;
+      await first.goto(base);
+      await first.click("#l");
+      await until(() => notices.poll().some((n) => /New tab opened/.test(n)));
+      assert.equal((await closeTab(record.id, 1)).ok, true, "closes the opener, leaving only the popup");
+      await until(() => notices.poll().some((n) => /All tabs closed; opened a blank tab/.test(n)));
+
+      const tabs = await listTabs(record.id);
+      assert.equal(tabs!.length, 1);
+      assert.equal(tabs![0].current, true);
+      const page = getSessionPage(record.id)!;
+      assert.equal(page.isClosed(), false);
+      await page.goto(base);
+      assert.equal(await page.locator("#l").count(), 1, "the session can navigate again");
+      const ended = await endSession(record.id);
+      assert.equal(ended!.status, "passed");
+    }
+  );
+});
+
+const DOWNLOAD_SITE = (req: http.IncomingMessage, res: http.ServerResponse) => {
+  const m = /^\/dl\/(\w+)$/.exec(req.url ?? "");
+  if (m) {
+    res.setHeader("content-type", "text/csv");
+    res.setHeader("content-disposition", `attachment; filename="${m[1]}.csv"`);
+    res.end(m[1] === "big" ? "0123456789" : "ab");
+  } else {
+    res.setHeader("content-type", "text/html");
+    res.end(["one", "two", "three", "big"].map((n) => `<a id="${n}" href="/dl/${n}">${n}</a>`).join(" "));
+  }
+};
+
+test("P2-2: an attachment download does not also log a misleading ERR_ABORTED requestfailed", async () => {
+  await withFixture(DOWNLOAD_SITE, async (base) => {
+    const record = await startSession("download-no-noise", undefined, undefined, { reportsDir: TMP_REPORTS_DIR });
+    const notices = noticeCollector(record.id);
+    const page = getSessionPage(record.id)!;
+    await page.goto(base);
+    await page.click("#one");
+    await until(() => notices.poll().some((n) => n.startsWith("Downloaded:")));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const logs = getSessionLogs(record.id, { since: "start" });
+    assert.deepEqual(logs.lines, [], `unexpected issues: ${logs.lines?.join(" | ")}`);
+    const ended = await endSession(record.id);
+    assert.deepEqual(ended!.issues, []);
+  });
+});
+
+test("L1: a download over the size cap is deleted and logged as discarded; the session still passes", async () => {
+  await withFixture(DOWNLOAD_SITE, async (base) => {
+    const record = await startSession("download-too-big", undefined, undefined, { reportsDir: TMP_REPORTS_DIR, limits: { maxDownloadBytes: 5 } });
+    const notices = noticeCollector(record.id);
+    const page = getSessionPage(record.id)!;
+    await page.goto(base);
+    await page.click("#big");
+    await until(() => notices.poll().some((n) => /Download too large, discarded/.test(n)));
+    const dir = path.join(TMP_REPORTS_DIR, "downloads", record.id);
+    assert.deepEqual(existsSync(dir) ? readdirSync(dir) : [], [], "the oversized file is removed");
+    await page.click("#one");
+    await until(() => notices.poll().some((n) => n.startsWith("Downloaded: one.csv")));
+    const ended = await endSession(record.id);
+    const big = ended!.actions.find((a) => a.action === "ui_download" && !a.ok);
+    assert.match(big!.detail ?? "", /too large/i);
+    assert.equal(big!.soft, true);
+    assert.equal(ended!.status, "passed");
+  });
+});
+
+test("L1: downloads beyond the per-session count are cancelled, and only the first one is logged", async () => {
+  await withFixture(DOWNLOAD_SITE, async (base) => {
+    const record = await startSession("download-count", undefined, undefined, { reportsDir: TMP_REPORTS_DIR, limits: { maxDownloads: 1 } });
+    const notices = noticeCollector(record.id);
+    const page = getSessionPage(record.id)!;
+    await page.goto(base);
+    await page.click("#one");
+    await until(() => notices.poll().some((n) => n.startsWith("Downloaded: one.csv")));
+    await page.click("#two");
+    await until(() => notices.poll().some((n) => /Download limit reached/.test(n)));
+    await page.click("#three");
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const ended = await endSession(record.id);
+    assert.deepEqual(readdirSync(path.join(TMP_REPORTS_DIR, "downloads", record.id)), ["one.csv"]);
+    const downloads = ended!.actions.filter((a) => a.action === "ui_download");
+    assert.equal(downloads.length, 2, "one kept plus one limit line, not one per extra download");
+    assert.equal(notices.all.filter((n) => /Download limit reached/.test(n)).length, 1);
+    assert.equal(ended!.status, "passed");
+  });
+});
+
+test("P3: a flood of popups yields at most 10 notice lines plus a '+N more' line per response", async () => {
+  await withFixture(POPUP_SITE, async (base) => {
+    const record = await startSession("notice-flood");
+    const page = getSessionPage(record.id)!;
+    await page.goto(base);
+    await page.evaluate(`for (let i = 0; i < 15; i++) window.open("/popup")`);
+    await until(async () => (await listTabs(record.id))!.length === 16);
+    const notices = takeNotices(record.id);
+    assert.equal(notices.length, 11);
+    assert.match(notices[10], /\+5 more/);
+    assert.deepEqual(takeNotices(record.id), []);
+    await endSession(record.id);
+  });
+});
+
+test("T029 x T033: the idle auto-close closes every tab and keeps the downloads already saved", async () => {
+  await withFixture(DOWNLOAD_SITE, async (base) => {
+    let closedRecord: SessionRecord | undefined;
+    const record = await startSession("idle-tabs", 800, (r) => void (closedRecord = r), { reportsDir: TMP_REPORTS_DIR });
+    const notices = noticeCollector(record.id);
+    beginCall(record.id); // the idle clock stays stopped while this "call" runs
+    const page = getSessionPage(record.id)!;
+    const context = page.context();
+    await page.goto(base);
+    await page.click("#one");
+    await until(() => notices.poll().some((n) => n.startsWith("Downloaded: one.csv")));
+    await page.evaluate(`window.open("about:blank")`);
+    await until(() => context.pages().length === 2);
+    endCall(record.id);
+
+    await until(() => closedRecord !== undefined, 5000);
+    assert.equal(closedRecord!.status, "timed_out");
+    await until(() => context.pages().length === 0); // onIdle runs while the browser is still closing
+    assert.equal(context.pages().length, 0, "every tab is closed with the browser");
+    assert.deepEqual(readdirSync(path.join(TMP_REPORTS_DIR, "downloads", record.id)), ["one.csv"]);
+  });
 });

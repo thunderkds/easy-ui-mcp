@@ -428,6 +428,24 @@ function describeAction(action: LoggedAction): string {
       const how = arg(action, "action");
       return how === "back" ? "Went back" : how === "forward" ? "Went forward" : "Reloaded the page";
     }
+    case "ui_upload_file": {
+      const file = arg(action, "file") ?? "a file";
+      const size = arg(action, "size");
+      return `Uploaded ${file}${size ? ` (${size} bytes)` : ""} to ${selector ?? "a file input"}`;
+    }
+    case "ui_drag":
+      return `Dragged ${arg(action, "from") ?? "an element"} onto ${arg(action, "to") ?? "another element"}`;
+    case "ui_get_logs":
+      return arg(action, "since") === "start" ? "Read all browser logs" : "Read new browser logs";
+    case "ui_tabs": {
+      const index = arg(action, "index");
+      const act = arg(action, "action");
+      if (act === "switch") return `Switched to tab ${index ?? "?"}`;
+      if (act === "close") return index ? `Closed tab ${index}` : "Closed the current tab";
+      return "Listed the open tabs";
+    }
+    case "ui_download":
+      return `Downloaded ${arg(action, "file") ?? "a file"}${arg(action, "size") ? ` (${arg(action, "size")} bytes)` : ""}`;
     case "ui_get_page_state":
       return "Read the page state";
     case "ui_get_text":

@@ -10,6 +10,8 @@
 import { chromium, devices, type Browser, type BrowserContext, type Dialog, type Page } from "playwright";
 import { randomUUID } from "node:crypto";
 import { truncate } from "../reports/index.js";
+import { mkdir, stat, rm } from "node:fs/promises";
+import path from "node:path";
 
 export interface LoggedAction {
   timestamp: string;
@@ -34,13 +36,29 @@ export interface LoggedAction {
  * failing the run on one would re-create the false-verdict problem T013 fixed. */
 export interface PageIssue {
   timestamp: string;
-  kind: "console" | "pageerror" | "requestfailed";
+  kind: "console" | "pageerror" | "requestfailed" | "httperror";
   text: string;
 }
 
 /** Cap on retained page issues. An app in a redirect loop can emit thousands, and
  * the report must not become the 300 KB artifact T013 just shrank. */
 export const MAX_PAGE_ISSUES = 50;
+
+/** Cap on lines one ui_get_logs call returns (T033). */
+export const MAX_LOG_LINES = 50;
+
+/** Caps on what one session may save from the page under test (a hostile page must not fill the reports volume). */
+export interface SessionLimits {
+  maxDownloadBytes: number;
+  maxDownloads: number;
+}
+export const DEFAULT_SESSION_LIMITS: SessionLimits = { maxDownloadBytes: 25 * 1024 * 1024, maxDownloads: 20 };
+
+/** At most this many notice lines ride one tool response; the rest collapse into "+N more". */
+export const MAX_NOTICES_PER_RESPONSE = 10;
+
+/** Downloads are saved to `<reports dir>/downloads/<session id>/`. */
+const DEFAULT_REPORTS_DIR = path.join(process.cwd(), "reports");
 
 /**
  * True when an outcome should fail the session. A soft outcome never does;
@@ -129,6 +147,7 @@ export interface SessionRecord {
 interface Session extends SessionRecord {
   browser: Browser;
   context: BrowserContext;
+  /** The current tab: the page every tool acts on (T033). */
   page: Page;
   /** Idle timer: re-armed whenever the last in-flight call ends (T029). */
   timeoutHandle?: ReturnType<typeof setTimeout>;
@@ -136,6 +155,20 @@ interface Session extends SessionRecord {
   onIdle?: IdleCallback;
   /** Tool calls running right now; the idle timer never closes a session while > 0. */
   inFlight: number;
+  /** Every open tab in opening order; tab numbers shown to the agent are 1-based. */
+  tabs: Page[];
+  reportsDir: string;
+  /** One-shot messages ("New tab opened", "Downloaded") appended to the next tool response. */
+  notices: string[];
+  /** Console warnings: readable via ui_get_logs(level: "warning") only, never in the report. */
+  warnings: PageIssue[];
+  /** How much of issues/warnings ui_get_logs has already returned. */
+  logCursor: { issues: number; warnings: number };
+  downloadCount: number;
+  downloadNames: Set<string>;
+  limits: SessionLimits;
+  /** Whether native dialogs are held for ui_dialog (T031); applied to every tab. */
+  holdDialogs: boolean;
   /** Label set by the most recent ui_step; stamped onto subsequent actions. */
   currentStep?: string;
 }
@@ -172,7 +205,7 @@ export async function startSession(
   target: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
   onIdle?: IdleCallback,
-  options: { holdDialogs?: boolean; settings?: SessionSettings } = {}
+  options: { holdDialogs?: boolean; settings?: SessionSettings; reportsDir?: string; limits?: Partial<SessionLimits> } = {}
 ): Promise<SessionRecord> {
   const { settings } = options;
   const resolved = resolveContextOptions(settings);
@@ -204,18 +237,32 @@ export async function startSession(
     idleMs: timeoutMs,
     onIdle,
     inFlight: 0,
+    tabs: [page],
+    reportsDir: options.reportsDir ?? DEFAULT_REPORTS_DIR,
+    notices: [],
+    warnings: [],
+    logCursor: { issues: 0, warnings: 0 },
+    downloadCount: 0,
+    downloadNames: new Set(),
+    limits: { ...DEFAULT_SESSION_LIMITS, ...options.limits },
+    holdDialogs: options.holdDialogs === true,
   };
   armIdleTimer(session);
   sessions.set(id, session);
-  attachIssueListeners(session);
-  attachDialogHandler(
-    page,
-    (entry) => {
-      if (session.currentStep) entry.step = session.currentStep;
-      session.actions.push(entry);
-    },
-    options.holdDialogs === true
-  );
+  trackPage(session, page);
+  // target=_blank links and window.open: the new tab is tracked but not switched to.
+  context.on("page", (opened) => {
+    // The first tab after every tab closed is the blank replacement from onTabClosed.
+    const replacement = session.tabs.length === 0;
+    session.tabs.push(opened);
+    trackPage(session, opened);
+    if (replacement) {
+      session.page = opened;
+      session.notices.push("All tabs closed; opened a blank tab");
+    } else {
+      session.notices.push(`New tab opened: ${redactUrl(opened.url())} (tab ${session.tabs.length})`);
+    }
+  });
   return toRecord(session);
 }
 
@@ -249,12 +296,118 @@ export function formatIdle(ms: number): string {
   return ms >= 60_000 ? `${Number((ms / 60_000).toFixed(1))} min` : `${Number((ms / 1000).toFixed(1))} s`;
 }
 
+/** A URL safe to log: the query string and fragment may hold tokens, so they are dropped. */
+function redactUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return `${url.origin}${url.pathname}${url.search ? "?…" : ""}`;
+    }
+  } catch {
+    // not a URL: fall through to the plain truncation below
+  }
+  return raw.length > 120 ? `${raw.slice(0, 120)}…` : raw;
+}
+
+/** Everything that must hold for every tab the session owns. */
+function trackPage(session: Session, page: Page): void {
+  attachIssueListeners(session, page);
+  // Same dialog handling on every tab, so a popup's alert is held (or logged) like the first tab's.
+  attachDialogHandler(
+    page,
+    (entry) => {
+      if (session.currentStep) entry.step = session.currentStep;
+      session.actions.push(entry);
+    },
+    session.holdDialogs
+  );
+  page.on("download", (download) => void saveDownload(session, download));
+  page.on("close", () => onTabClosed(session, page));
+}
+
+/** A tab closed by the page itself (an OAuth popup finishing). `closeTab` removes its tab first, so it never lands here. */
+function onTabClosed(session: Session, page: Page): void {
+  if (!sessions.has(session.id)) return;
+  const i = session.tabs.indexOf(page);
+  if (i < 0) return;
+  session.tabs.splice(i, 1);
+  let notice = `Tab ${i + 1} closed`;
+  if (session.tabs.length === 0) {
+    // A session with no tab can only end failed, so open a blank one (announced by the context "page" handler).
+    void session.context.newPage().catch(() => undefined);
+    return;
+  } else if (session.page === page) {
+    session.page = session.tabs[Math.max(0, i - 1)];
+    notice += `; now on tab ${session.tabs.indexOf(session.page) + 1}`;
+  }
+  session.notices.push(notice);
+}
+
+/** A file name from the page-suggested one: no directories, no leading dots, no odd characters. */
+function safeFileName(suggested: string): string {
+  const base = path
+    .basename(suggested.replace(/\\/g, "/"))
+    .replace(/[^\w.\- ]/g, "_")
+    .replace(/^\.+/, "")
+    .slice(0, 100);
+  return base.trim() === "" ? "download" : base;
+}
+
+/** Save a download under reports/downloads/<session>/, log it, and announce it on the next response. */
+async function saveDownload(
+  session: Session,
+  download: { suggestedFilename(): string; saveAs(target: string): Promise<void>; cancel?(): Promise<void> }
+): Promise<void> {
+  const n = ++session.downloadCount;
+  let name = safeFileName(download.suggestedFilename());
+  if (session.downloadNames.has(name)) name = `${n}-${name}`;
+  session.downloadNames.add(name);
+  // Soft: a download we could not keep is information, not a verdict on the app.
+  const dropped = (detail: string) => {
+    session.actions.push(entry({ args: { file: name }, ok: false, detail, soft: true }));
+    session.notices.push(`${detail}: ${name}`);
+  };
+  const entry = (rest: Pick<LoggedAction, "args" | "ok" | "detail" | "soft">): LoggedAction => ({
+    timestamp: new Date().toISOString(),
+    action: "ui_download",
+    ...(session.currentStep ? { step: session.currentStep } : {}),
+    ...rest,
+  });
+  if (n > session.limits.maxDownloads) {
+    await download.cancel?.().catch(() => undefined);
+    // One line for the first download over the limit; a hostile page must not also flood the log.
+    if (n === session.limits.maxDownloads + 1) dropped(`Download limit reached (${session.limits.maxDownloads} per session), ignoring further downloads`);
+    return;
+  }
+  try {
+    const dir = path.join(session.reportsDir, "downloads", session.id);
+    await mkdir(dir, { recursive: true });
+    const file = path.join(dir, name);
+    await download.saveAs(file);
+    const { size } = await stat(file);
+    if (!sessions.has(session.id)) return;
+    if (size > session.limits.maxDownloadBytes) {
+      await rm(file, { force: true });
+      dropped("Download too large, discarded");
+      return;
+    }
+    session.actions.push(entry({ args: { file: name, size, path: path.relative(session.reportsDir, file) }, ok: true }));
+    session.notices.push(`Downloaded: ${name} (${size} bytes)`);
+  } catch (err) {
+    if (!sessions.has(session.id)) return;
+    const message = err instanceof Error ? err.message : String(err);
+    session.actions.push(entry({ args: { file: name }, ok: false, detail: message, soft: true }));
+    session.notices.push(`Download failed: ${name} — ${message}`);
+  }
+}
+
 /**
- * Watch the page for browser-side problems a passing flow would otherwise hide:
- * console errors, uncaught exceptions, and failed requests. These are recorded
- * for the report only — they never touch session status (FR-018).
+ * Watch a tab for browser-side problems a passing flow would otherwise hide:
+ * console errors, uncaught exceptions, failed requests and HTTP >= 400 responses.
+ * These are recorded for the report and ui_get_logs — they never touch session
+ * status (FR-018). The MAX_PAGE_ISSUES cap is shared by all tabs.
  */
-function attachIssueListeners(session: Session): void {
+function attachIssueListeners(session: Session, page: Page): void {
   const record = (kind: PageIssue["kind"], text: string) => {
     const issues = session.issues;
     if (!issues) return;
@@ -265,14 +418,135 @@ function attachIssueListeners(session: Session): void {
     issues.push({ timestamp: new Date().toISOString(), kind, text });
   };
 
-  session.page.on("console", (msg) => {
+  page.on("console", (msg) => {
     if (msg.type() === "error") record("console", msg.text());
+    else if (msg.type() === "warning" && session.warnings.length < MAX_PAGE_ISSUES) {
+      session.warnings.push({ timestamp: new Date().toISOString(), kind: "console", text: msg.text() });
+    }
   });
-  session.page.on("pageerror", (err) => record("pageerror", err.message));
-  session.page.on("requestfailed", (req) => {
+  page.on("pageerror", (err) => record("pageerror", err.message));
+  page.on("requestfailed", async (req) => {
     const reason = req.failure()?.errorText ?? "request failed";
-    record("requestfailed", `${req.method()} ${req.url()} — ${reason}`);
+    // A navigation that turned into a download is aborted by the browser (ERR_ABORTED), not broken.
+    if (reason.includes("ERR_ABORTED") && req.isNavigationRequest() && (await becameDownload(req))) return;
+    record("requestfailed", `${req.method()} ${redactUrl(req.url())} — ${reason}`);
   });
+  // A 500 is a *successful* request to Playwright, so requestfailed never sees it.
+  page.on("response", (res) => {
+    if (res.status() >= 400) {
+      record("httperror", `${res.status()} ${res.request().method()} ${redactUrl(res.url())}`);
+    }
+  });
+}
+
+/** True when the response to a navigation was an attachment or a raw byte stream, i.e. the browser downloads it. */
+async function becameDownload(req: { response(): Promise<{ headers(): Record<string, string> } | null> }): Promise<boolean> {
+  const headers = (await req.response().catch(() => null))?.headers() ?? {};
+  return /^\s*attachment/i.test(headers["content-disposition"] ?? "") || /^\s*application\/octet-stream/i.test(headers["content-type"] ?? "");
+}
+
+export type LogsResult = { ok: true; lines: string[]; note?: string } | { ok: false; error: string };
+
+/**
+ * The session's captured browser problems, for ui_get_logs. `since: "last"` (the
+ * default) returns only what arrived after the previous call. Repeats are grouped
+ * (`×N`) and the output is capped at MAX_LOG_LINES. Bodies and headers are never
+ * captured, so they cannot appear here.
+ */
+export function getSessionLogs(
+  id: string,
+  opts: { since?: "start" | "last"; level?: "error" | "warning" }
+): LogsResult {
+  const session = sessions.get(id);
+  if (!session) return { ok: false, error: "No active session — call ui_start_session first" };
+  const withWarnings = opts.level === "warning";
+  const from = opts.since === "start" ? { issues: 0, warnings: 0 } : session.logCursor;
+  const issues = session.issues ?? [];
+
+  const entries = [
+    ...issues.slice(from.issues).map((i) => ({ ts: i.timestamp, label: i.kind, text: i.text })),
+    ...(withWarnings
+      ? session.warnings.slice(from.warnings).map((w) => ({ ts: w.timestamp, label: "warning", text: w.text }))
+      : []),
+  ].sort((a, b) => a.ts.localeCompare(b.ts));
+  session.logCursor.issues = issues.length;
+  // Warnings the caller did not ask for stay unread, so a later level:"warning" call still gets them.
+  if (withWarnings) session.logCursor.warnings = session.warnings.length;
+
+  const counts = new Map<string, number>();
+  for (const { label, text } of entries) {
+    const line = `${label}: ${text.length > 300 ? `${text.slice(0, 300)}…` : text}`;
+    counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
+  const all = [...counts].map(([line, n]) => (n > 1 ? `${line} ×${n}` : line));
+  const notes: string[] = [];
+  if (all.length > MAX_LOG_LINES) {
+    notes.push(`Output truncated: showing the first ${MAX_LOG_LINES} of ${all.length} lines.`);
+  }
+  if (session.issuesTruncated) {
+    notes.push(`Capture stopped after ${MAX_PAGE_ISSUES} issues; later ones were dropped.`);
+  }
+  return { ok: true, lines: all.slice(0, MAX_LOG_LINES), ...(notes.length > 0 ? { note: notes.join(" ") } : {}) };
+}
+
+/** Take (and clear) the one-shot notices waiting for the next tool response. */
+export function takeNotices(id: string): string[] {
+  const all = sessions.get(id)?.notices.splice(0) ?? [];
+  if (all.length <= MAX_NOTICES_PER_RESPONSE) return all;
+  return [...all.slice(0, MAX_NOTICES_PER_RESPONSE), `+${all.length - MAX_NOTICES_PER_RESPONSE} more notices`];
+}
+
+export interface TabInfo {
+  index: number;
+  url: string;
+  title: string;
+  current: boolean;
+}
+
+/** The session's open tabs (numbered from 1), or undefined if the session is unknown. */
+export async function listTabs(id: string): Promise<TabInfo[] | undefined> {
+  const session = sessions.get(id);
+  if (!session) return undefined;
+  return Promise.all(
+    session.tabs.map(async (tab, i) => ({
+      index: i + 1,
+      url: tab.url(),
+      title: await tab.title().catch(() => ""),
+      current: tab === session.page,
+    }))
+  );
+}
+
+export type TabResult = { ok: true; message: string } | { ok: false; error: string };
+
+function tabAt(session: Session, index: number | undefined): Page | string {
+  if (index === undefined) return "index is required";
+  const tab = Number.isInteger(index) ? session.tabs[index - 1] : undefined;
+  return tab ?? `No tab ${index}; ${session.tabs.length} tab(s) open, numbered from 1`;
+}
+
+/** Make tab `index` the page every tool acts on. */
+export async function switchTab(id: string, index: number | undefined): Promise<TabResult> {
+  const session = sessions.get(id);
+  if (!session) return { ok: false, error: "No active session — call ui_start_session first" };
+  const tab = tabAt(session, index);
+  if (typeof tab === "string") return { ok: false, error: tab };
+  session.page = tab;
+  return { ok: true, message: `Switched to tab ${index} (${redactUrl(tab.url())})` };
+}
+
+/** Close tab `index` (default: the current one); the current tab falls back to the previous one. */
+export async function closeTab(id: string, index: number | undefined): Promise<TabResult> {
+  const session = sessions.get(id);
+  if (!session) return { ok: false, error: "No active session — call ui_start_session first" };
+  if (session.tabs.length === 1) return { ok: false, error: "Cannot close the only open tab" };
+  const tab = tabAt(session, index ?? session.tabs.indexOf(session.page) + 1);
+  if (typeof tab === "string") return { ok: false, error: tab };
+  const i = session.tabs.indexOf(tab);
+  session.tabs.splice(i, 1);
+  if (session.page === tab) session.page = session.tabs[Math.max(0, i - 1)];
+  await tab.close().catch(() => undefined);
+  return { ok: true, message: `Closed tab ${i + 1}; now on tab ${session.tabs.indexOf(session.page) + 1}` };
 }
 
 // --- T031: native dialogs (alert / confirm / prompt / beforeunload) -----------------
@@ -611,7 +885,7 @@ async function closeIdleSession(id: string): Promise<void> {
   const session = sessions.get(id);
   if (!session || session.inFlight > 0) return;
   sessions.delete(id);
-  await releaseDialog(session.page);
+  await Promise.all(session.tabs.map((tab) => releaseDialog(tab)));
   session.status = "timed_out";
   session.endedAt = new Date().toISOString();
   session.actions.push({
@@ -687,7 +961,7 @@ export async function endSession(id: string): Promise<SessionRecord | undefined>
   clearTimeout(session.timeoutHandle);
   if (session.status === "running") session.status = "passed";
   session.endedAt = new Date().toISOString();
-  await releaseDialog(session.page);
+  await Promise.all(session.tabs.map((tab) => releaseDialog(tab)));
   await session.context.close().catch(() => undefined);
   await session.browser.close().catch(() => undefined);
   return toRecord(session);
@@ -698,6 +972,15 @@ function toRecord(session: Session): SessionRecord {
     browser: _b,
     context: _c,
     page: _p,
+    tabs: _tabs,
+    reportsDir: _rd,
+    notices: _n,
+    warnings: _w,
+    logCursor: _lc,
+    downloadCount: _dc,
+    downloadNames: _dn,
+    limits: _lim,
+    holdDialogs: _hd,
     timeoutHandle: _t,
     idleMs: _i,
     onIdle: _o,

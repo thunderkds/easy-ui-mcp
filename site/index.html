@@ -221,9 +221,9 @@
       <p class="eyebrow">&gt; local ui testing for claude code</p>
       <h1>easy-ui-mcp</h1>
       <p class="lede">A Dockerized MCP server that lets an AI agent such as Claude Code drive a real browser step by step and get back a JSON and HTML report with screenshots.</p>
-      <p>It exposes 22 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
+      <p>It exposes 26 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
       <div class="strip">
-        <div><div class="strip__num strip__num--key">22</div><div class="strip__label">MCP tools</div></div>
+        <div><div class="strip__num strip__num--key">26</div><div class="strip__label">MCP tools</div></div>
         <div><div class="strip__num">8765</div><div class="strip__label">port on localhost</div></div>
         <div><div class="strip__num strip__num--text">Chromium</div><div class="strip__label">the only browser (v1)</div></div>
         <div><div class="strip__num">0</div><div class="strip__label">LLM calls on the server</div></div>
@@ -276,7 +276,7 @@
 
     <section id="tools">
       <h2>Tools</h2>
-      <p>All 22 tools. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
+      <p>All 26 tools. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
       <div class="table-wrap">
         <table class="names">
           <thead><tr><th scope="col">tool</th><th scope="col">purpose</th></tr></thead>
@@ -300,6 +300,10 @@
             <tr><td><code>ui_set_viewport</code></td><td>Resize the page, for example to a 375px phone or a tablet.</td></tr>
             <tr><td><code>ui_type</code></td><td>Type into an input one key at a time, like a user (autocomplete, masked inputs, OTP boxes).</td></tr>
             <tr><td><code>ui_navigate_history</code></td><td>Go back, go forward or reload, keeping the browser history.</td></tr>
+            <tr><td><code>ui_get_logs</code></td><td>Read the console errors, page errors, failed requests and HTTP 4xx/5xx responses captured so far, mid-flow.</td></tr>
+            <tr><td><code>ui_tabs</code></td><td>List, switch to or close the session's browser tabs (popups and <code>target=_blank</code> links open new ones).</td></tr>
+            <tr><td><code>ui_upload_file</code></td><td>Upload the built-in <code>default_draft.png</code> to a file input or to the chooser a button opens. Takes no path.</td></tr>
+            <tr><td><code>ui_drag</code></td><td>Drag one element onto another: drag-and-drop lists, kanban cards, sortables.</td></tr>
             <tr><td><code>ui_assert</code></td><td>Hard check of a JS expression: false fails the whole session.</td></tr>
             <tr><td><code>ui_check</code></td><td>Soft check of a JS expression: recorded in the report, the run continues.</td></tr>
             <tr><td><code>ui_wait_for</code></td><td>Poll a JS expression until it is true; a timeout fails the session.</td></tr>
@@ -364,7 +368,7 @@ ui_click  selector: [data-testid="signin"]</code></pre>
         <li>browser problems: console errors, uncaught page errors and network-level request failures, captured automatically and never changing the verdict (up to 50 per session);</li>
         <li>the raw action log, collapsed behind a disclosure.</li>
       </ul>
-      <p>HTTP error responses such as 404 or 500 do not trigger Playwright's <code>requestfailed</code> event and are not listed automatically. Auto-failure screenshots are budgeted per session (<code>FAILURE_SCREENSHOT_BUDGET</code>, default 3), and identical screenshot content is embedded only once.</p>
+      <p>HTTP 4xx/5xx responses are captured as <code>httperror</code> (status, method and URL without the query string). Auto-failure screenshots are budgeted per session (<code>FAILURE_SCREENSHOT_BUDGET</code>, default 3), and identical screenshot content is embedded only once.</p>
     </section>
 
     <section id="rest-wrapper">
