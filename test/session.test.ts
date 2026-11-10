@@ -14,8 +14,15 @@ import {
   setCurrentStep,
   getCurrentStep,
   MAX_PAGE_ISSUES,
+  attachDialogHandler,
+  raceDialog,
+  answerDialog,
+  waitingDialogText,
+  takeDialogNotices,
+  type LoggedAction,
 } from "../src/tools/session.js";
-import { waitForCondition, classifyCheckOutcome } from "../src/tools/web.js";
+import { chromium } from "playwright";
+import { waitForCondition, classifyCheckOutcome, click, navigate } from "../src/tools/web.js";
 import { writeReports } from "../src/reports/index.js";
 
 const TMP_REPORTS_DIR = path.join(process.cwd(), "test", ".tmp-reports");
@@ -477,4 +484,213 @@ test("a missing screenshot file is omitted rather than failing the report", asyn
   const { htmlPath } = await writeReports(ended!, TMP_REPORTS_DIR);
   assert.ok(existsSync(htmlPath));
   assert.doesNotMatch(readFileSync(htmlPath, "utf8"), /data:image\/png/);
+});
+
+// --- T031: native dialogs are held open and the agent is asked ---
+
+const CONFIRM_PAGE = `<p id="r">none</p>
+  <button id="del" onclick="document.getElementById('r').textContent = String(confirm('Delete?'))">Delete</button>
+  <button id="ask" onclick="document.getElementById('r').textContent = String(prompt('Name?', 'anon'))">Ask</button>
+  <button id="two" onclick="const a = confirm('First?'); alert('Second ' + a); document.getElementById('r').textContent = 'done:' + a">Two</button>`;
+
+/** A started session on a page that has native-dialog buttons. */
+async function dialogSession(label: string) {
+  const record = await startSession(label);
+  const page = getSessionPage(record.id)!;
+  await page.setContent(CONFIRM_PAGE, { waitUntil: "domcontentloaded" });
+  return { id: record.id, page };
+}
+
+const dialogEntries = (actions: LoggedAction[]) => actions.filter((a) => a.action === "dialog");
+
+test("T031 AC7/AC8: an unanswered confirm is held open, the click returns at once, other calls are refused", async () => {
+  const { id, page } = await dialogSession("dialog-held");
+  const started = Date.now();
+  const out = await raceDialog(page, () => click(page, "#del"));
+  assert.ok(Date.now() - started < 2000, "the click must not wait for its own timeout");
+  assert.equal(out.kind, "waiting");
+  if (out.kind === "waiting") {
+    assert.match(
+      out.text,
+      /Browser is waiting on a confirm dialog: "Delete\?"\. Answer with ui_dialog accept or dismiss \(prompt: add text\)\./
+    );
+  }
+  assert.match(waitingDialogText(page) ?? "", /A confirm dialog is waiting: "Delete\?" — answer it with ui_dialog first/);
+  // The page really is blocked: a plain evaluate would hang, which is why other tools are refused.
+  assert.deepEqual(dialogEntries((await endSession(id))!.actions).map((a) => a.args?.answeredBy), ["session-end"]);
+});
+
+test("T031 AC9: ui_dialog accept answers the confirm, the opening click finishes, and the answer is logged", async () => {
+  const { id, page } = await dialogSession("dialog-accept");
+  await raceDialog(page, () => click(page, "#del"));
+  const answered = await answerDialog(page, "accept");
+  assert.equal(answered.kind, "done");
+  assert.equal(waitingDialogText(page), undefined);
+  assert.equal(await page.textContent("#r"), "true");
+  const ended = await endSession(id);
+  const entries = dialogEntries(ended!.actions);
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0].args, { type: "confirm", message: "Delete?", answer: "accept", answeredBy: "agent" });
+  assert.equal(entries[0].ok, true);
+});
+
+test("T031: dismissing a confirm gives the page false", async () => {
+  const { id, page } = await dialogSession("dialog-dismiss");
+  await raceDialog(page, () => click(page, "#del"));
+  await answerDialog(page, "dismiss");
+  assert.equal(await page.textContent("#r"), "false");
+  await endSession(id);
+});
+
+test("T031: accept with text answers a prompt, and the waiting text shows the default value", async () => {
+  const { id, page } = await dialogSession("dialog-prompt");
+  const out = await raceDialog(page, () => click(page, "#ask"));
+  assert.equal(out.kind, "waiting");
+  if (out.kind === "waiting") assert.match(out.text, /prompt dialog: "Name\?"[^.]*default[^.]*"anon"/i);
+  await answerDialog(page, "accept", "Ann");
+  assert.equal(await page.textContent("#r"), "Ann");
+  const ended = await endSession(id);
+  assert.equal(dialogEntries(ended!.actions)[0].args?.text, "Ann");
+});
+
+test("T031 AC11: ui_dialog with nothing waiting pre-sets the next answer, used once and logged pre-set", async () => {
+  const { id, page } = await dialogSession("dialog-preset");
+  const preset = await answerDialog(page, "accept");
+  assert.equal(preset.kind, "done");
+  if (preset.kind === "done") assert.equal(preset.value.preset, true);
+
+  const started = Date.now();
+  const first = await raceDialog(page, () => click(page, "#del"));
+  assert.equal(first.kind, "done", "a pre-set answer must not pause");
+  assert.ok(Date.now() - started < 2000);
+  assert.equal(await page.textContent("#r"), "true");
+
+  const second = await raceDialog(page, () => click(page, "#del"));
+  assert.equal(second.kind, "waiting", "the preset is used once; the next dialog asks again");
+  await answerDialog(page, "dismiss");
+
+  const ended = await endSession(id);
+  assert.deepEqual(
+    dialogEntries(ended!.actions).map((a) => a.args?.answeredBy),
+    ["pre-set", "agent"]
+  );
+});
+
+test("T031 AC12: a dialog left waiting is dismissed after DIALOG_TIMEOUT_MS, logged, and reported once", async () => {
+  const previous = process.env.DIALOG_TIMEOUT_MS;
+  process.env.DIALOG_TIMEOUT_MS = "400";
+  try {
+    const { id, page } = await dialogSession("dialog-timeout");
+    await raceDialog(page, () => click(page, "#del"));
+    await new Promise((r) => setTimeout(r, 900));
+    assert.equal(waitingDialogText(page), undefined);
+    const notices = takeDialogNotices(page);
+    assert.equal(notices.length, 1);
+    assert.match(notices[0], /confirm dialog "Delete\?".*dismissed/i);
+    assert.deepEqual(takeDialogNotices(page), [], "a notice is reported once");
+    assert.equal(await page.textContent("#r"), "false");
+    const ended = await endSession(id);
+    assert.deepEqual(dialogEntries(ended!.actions).map((a) => a.args?.answeredBy), ["timeout"]);
+  } finally {
+    if (previous === undefined) delete process.env.DIALOG_TIMEOUT_MS;
+    else process.env.DIALOG_TIMEOUT_MS = previous;
+  }
+});
+
+test("T031 AC12: ui_end_session dismisses a waiting dialog before closing and logs it", async () => {
+  const { id, page } = await dialogSession("dialog-end");
+  await raceDialog(page, () => click(page, "#del"));
+  const ended = await endSession(id);
+  const entries = dialogEntries(ended!.actions);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].args?.answer, "dismiss");
+});
+
+test("T031 edge: two dialogs in a row — answering the first reports the second as waiting", async () => {
+  const { id, page } = await dialogSession("dialog-two");
+  await raceDialog(page, () => click(page, "#two"));
+  const first = await answerDialog(page, "accept");
+  assert.equal(first.kind, "waiting");
+  if (first.kind === "waiting") assert.match(first.text, /alert dialog: "Second true"/);
+  const second = await answerDialog(page, "accept");
+  assert.equal(second.kind, "done");
+  assert.equal(await page.textContent("#r"), "done:true");
+  const ended = await endSession(id);
+  assert.deepEqual(dialogEntries(ended!.actions).map((a) => a.args?.type), ["confirm", "alert"]);
+});
+
+test("T031 AC9: an alert on page load during navigate returns the waiting text, then the navigate result", async () => {
+  const record = await startSession("dialog-navigate");
+  const page = getSessionPage(record.id)!;
+  const url = "data:text/html,<title>Loaded</title><script>alert('Hi')</script>";
+  const out = await raceDialog(page, () => navigate(page, url));
+  assert.equal(out.kind, "waiting");
+  const answered = await answerDialog(page, "accept");
+  assert.equal(answered.kind, "done");
+  if (answered.kind === "done") {
+    const result = answered.value.result as { ok: boolean; title?: string };
+    assert.equal(result.ok, true);
+    assert.equal(result.title, "Loaded");
+  }
+  await endSession(record.id);
+});
+
+test("T031 AC13: beforeunload asks the same way — accept leaves the page, dismiss stays", async () => {
+  const record = await startSession("dialog-beforeunload");
+  const page = getSessionPage(record.id)!;
+  await page.setContent(`<button id="b">b</button><script>window.onbeforeunload = (e) => { e.preventDefault(); e.returnValue = ''; };</script>`);
+  await page.click("#b"); // beforeunload only fires after a user gesture
+  const stay = await raceDialog(page, () => navigate(page, "data:text/html,<title>Away</title>away"));
+  assert.equal(stay.kind, "waiting");
+  if (stay.kind === "waiting") assert.match(stay.text, /beforeunload dialog/);
+  await answerDialog(page, "dismiss");
+  assert.match(page.url(), /^about:blank$|^$/);
+  assert.equal(await page.locator("#b").count(), 1, "dismiss keeps the user on the page");
+
+  await page.click("#b");
+  const leave = await raceDialog(page, () => navigate(page, "data:text/html,<title>Away</title>away"));
+  assert.equal(leave.kind, "waiting");
+  await answerDialog(page, "accept");
+  assert.equal(await page.title(), "Away");
+  await endSession(record.id);
+});
+
+test("T031 edge: a dialog opened by a timer with no tool running blocks the next call", async () => {
+  const record = await startSession("dialog-timer");
+  const page = getSessionPage(record.id)!;
+  await page.setContent(`<script>setTimeout(() => alert('late'), 50)</script>`);
+  await new Promise((r) => setTimeout(r, 400));
+  assert.match(waitingDialogText(page) ?? "", /alert dialog is waiting: "late"/);
+  await answerDialog(page, "accept");
+  assert.equal(waitingDialogText(page), undefined);
+  await endSession(record.id);
+});
+
+test("T031 AC7: dialog messages with HTML are escaped in the report", async () => {
+  const { id, page } = await dialogSession("dialog-escape");
+  await page.evaluate("document.getElementById('del').setAttribute('onclick', \"confirm('<b>x</b>')\")");
+  await raceDialog(page, () => click(page, "#del"));
+  await answerDialog(page, "accept");
+  const ended = await endSession(id);
+  const { htmlPath } = await writeReports(ended!, TMP_REPORTS_DIR);
+  const html = readFileSync(htmlPath, "utf8");
+  assert.match(html, /&lt;b&gt;x&lt;\/b&gt;/);
+  assert.doesNotMatch(html, /<b>x<\/b>/);
+  assert.match(html, /answered by agent/);
+});
+
+test("T031 AC14: the same rules hold on a page that is not part of a session (no log callback)", async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    attachDialogHandler(page);
+    await page.setContent(CONFIRM_PAGE, { waitUntil: "domcontentloaded" });
+    const out = await raceDialog(page, () => click(page, "#del"));
+    assert.equal(out.kind, "waiting");
+    assert.match(waitingDialogText(page) ?? "", /confirm dialog is waiting/);
+    await answerDialog(page, "accept");
+    assert.equal(await page.textContent("#r"), "true");
+  } finally {
+    await browser.close();
+  }
 });

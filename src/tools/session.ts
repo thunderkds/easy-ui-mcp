@@ -7,7 +7,7 @@
 // of the MCP transport session — a single MCP connection is expected to have at
 // most one active ui_session at a time, but the registry itself supports many.
 
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Dialog, type Page } from "playwright";
 import { randomUUID } from "node:crypto";
 
 export interface LoggedAction {
@@ -125,6 +125,10 @@ export async function startSession(
   };
   sessions.set(id, session);
   attachIssueListeners(session);
+  attachDialogHandler(page, (entry) => {
+    if (session.currentStep) entry.step = session.currentStep;
+    session.actions.push(entry);
+  });
   return toRecord(session);
 }
 
@@ -154,6 +158,250 @@ function attachIssueListeners(session: Session): void {
   });
 }
 
+// --- T031: native dialogs (alert / confirm / prompt / beforeunload) -----------------
+//
+// A native dialog blocks the page until it is answered, and Playwright stalls the action
+// that opened it (and any evaluate/screenshot) meanwhile. With no listener Playwright
+// silently cancels every dialog, so `confirm()` was always false and the message was lost.
+// Instead each page gets a listener that HOLDS an unanswered dialog open: the tool call
+// that opened it returns at once ("waiting"), and the agent answers with ui_dialog.
+// Decision D1 (2026-11-10). State is per Page so the legacy no-session page behaves the same.
+
+export type DialogType = "alert" | "confirm" | "prompt" | "beforeunload";
+export type DialogAnswer = "accept" | "dismiss";
+export type DialogAnsweredBy = "agent" | "pre-set" | "timeout" | "session-end";
+
+/** How long a held dialog waits for the agent before it is answered automatically. Read per
+ * dialog so it can be changed without a restart (tests, ops). */
+function dialogTimeoutMs(): number {
+  return Number(process.env.DIALOG_TIMEOUT_MS ?? 120_000);
+}
+
+/** How long ui_dialog waits for the action that opened a dialog to finish once it is answered. */
+const ACTION_AFTER_ANSWER_CAP_MS = 10_000;
+
+interface PendingDialog {
+  dialog: Dialog;
+  type: DialogType;
+  message: string;
+  defaultValue: string;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+interface DialogState {
+  log?: (entry: LoggedAction) => void;
+  pending?: PendingDialog;
+  /** One answer for the next dialog, set by ui_dialog when nothing is waiting. */
+  preset?: { action: DialogAnswer; text?: string };
+  /** Things the agent has not been told yet (e.g. a dialog the safety timeout dismissed). */
+  notices: string[];
+  /** Woken when a dialog is held, so a running tool call can stop waiting on its stalled action. */
+  waiters: Array<() => void>;
+  /** The tool call that opened the waiting dialog, still running; ui_dialog collects its result. */
+  stalled?: Promise<unknown>;
+  listener: (dialog: Dialog) => void;
+}
+
+const dialogStates = new WeakMap<Page, DialogState>();
+
+async function settleDialog(
+  state: DialogState,
+  d: Pick<PendingDialog, "dialog" | "type" | "message">,
+  answer: DialogAnswer,
+  text: string | undefined,
+  answeredBy: DialogAnsweredBy
+): Promise<void> {
+  state.log?.({
+    timestamp: new Date().toISOString(),
+    action: "dialog",
+    args: {
+      type: d.type,
+      message: d.message,
+      answer,
+      ...(text !== undefined && { text }),
+      answeredBy,
+    },
+    ok: true,
+  });
+  try {
+    if (answer === "accept") await d.dialog.accept(text);
+    else await d.dialog.dismiss();
+  } catch {
+    // The page closed or the dialog was already handled — nothing left to answer.
+  }
+}
+
+async function expireDialog(state: DialogState): Promise<void> {
+  const pending = state.pending;
+  if (!pending) return;
+  state.pending = undefined;
+  state.stalled = undefined;
+  const answer: DialogAnswer = pending.type === "alert" ? "accept" : "dismiss";
+  state.notices.push(
+    `The ${pending.type} dialog "${pending.message}" was left unanswered for ${dialogTimeoutMs() / 1000}s and was ${answer === "accept" ? "accepted" : "dismissed"} (timeout).`
+  );
+  await settleDialog(state, pending, answer, undefined, "timeout");
+}
+
+/**
+ * Register the dialog listener on `page`. `log` receives one `dialog` action per answered
+ * dialog (the session's action log); omit it for the legacy page, which has no report.
+ */
+export function attachDialogHandler(page: Page, log?: (entry: LoggedAction) => void): void {
+  const state: DialogState = { log, notices: [], waiters: [], listener: () => undefined };
+  state.listener = (dialog) => {
+    const type = dialog.type() as DialogType;
+    const message = dialog.message();
+    const { preset } = state;
+    if (preset) {
+      state.preset = undefined;
+      void settleDialog(state, { dialog, type, message }, preset.action, preset.text, "pre-set");
+      return;
+    }
+    const timer = setTimeout(() => void expireDialog(state), dialogTimeoutMs());
+    timer.unref?.();
+    state.pending = { dialog, type, message, defaultValue: dialog.defaultValue(), timer };
+    for (const wake of state.waiters.splice(0)) wake();
+  };
+  dialogStates.set(page, state);
+  page.on("dialog", state.listener);
+}
+
+function waitingText(p: PendingDialog): string {
+  const dflt = p.type === "prompt" ? ` (default value "${p.defaultValue}")` : "";
+  return `Browser is waiting on a ${p.type} dialog: "${p.message}"${dflt}. Answer with ui_dialog accept or dismiss (prompt: add text).`;
+}
+
+/** The refusal text for any tool call made while a dialog is waiting, or undefined when none is. */
+export function waitingDialogText(page: Page | undefined): string | undefined {
+  const pending = page && dialogStates.get(page)?.pending;
+  return pending ? `A ${pending.type} dialog is waiting: "${pending.message}" — answer it with ui_dialog first` : undefined;
+}
+
+/** Messages the agent has not seen yet (e.g. a timeout dismissal). Returned once, then cleared. */
+export function takeDialogNotices(page: Page | undefined): string[] {
+  const state = page && dialogStates.get(page);
+  return state ? state.notices.splice(0) : [];
+}
+
+export type GuardedCall<T> = { kind: "done"; value: T } | { kind: "waiting"; text: string };
+
+/** Handed to the running action; `abandoned` turns true if a dialog took over the call. */
+export interface DialogCall {
+  abandoned: boolean;
+}
+
+/**
+ * Run `run`, but stop waiting on it the moment a dialog is held open: the page is blocked
+ * until the dialog is answered, so `run` would only finish after its own timeout. The
+ * unfinished call is kept for ui_dialog; its late failure is swallowed here (the caller
+ * reads `call.abandoned` to decide what a failure after abandonment means).
+ * `carry` replaces the kept promise (used when ui_dialog itself is interrupted).
+ */
+export async function raceDialog<T>(
+  page: Page | undefined,
+  run: (call: DialogCall) => Promise<T>,
+  carry?: Promise<unknown>
+): Promise<GuardedCall<T>> {
+  const call: DialogCall = { abandoned: false };
+  const state = page && dialogStates.get(page);
+  if (!state) return { kind: "done", value: await run(call) };
+  // A dialog is already held (opened in the gap before this call): do not start the action.
+  if (state.pending) {
+    if (carry) state.stalled = carry;
+    return { kind: "waiting", text: waitingText(state.pending) };
+  }
+
+  let wake!: () => void;
+  const opened = new Promise<void>((resolve) => {
+    wake = resolve;
+    state.waiters.push(resolve);
+  });
+  const action = run(call);
+  action.catch(() => undefined);
+  try {
+    const winner = await Promise.race([
+      action.then((value) => ({ done: true as const, value })),
+      opened.then(() => ({ done: false as const })),
+    ]);
+    if (winner.done) return { kind: "done", value: winner.value };
+    call.abandoned = true;
+    state.stalled = carry ?? action;
+    return { kind: "waiting", text: waitingText(state.pending!) };
+  } finally {
+    const at = state.waiters.indexOf(wake);
+    if (at >= 0) state.waiters.splice(at, 1);
+  }
+}
+
+export interface AnswerOutcome {
+  /** True when nothing was waiting and the answer was stored for the next dialog. */
+  preset: boolean;
+  type?: DialogType;
+  message?: string;
+  /** What the interrupted tool call returned once the dialog was answered. */
+  result?: unknown;
+  /** The interrupted call had not finished within the cap; check the page. */
+  stillRunning?: boolean;
+}
+
+/**
+ * Answer the waiting dialog and collect the outcome of the call that opened it. With none
+ * waiting, store the answer for the next dialog instead (one slot; replaced if set again).
+ * If answering lets the page run into a second dialog, that one is reported as waiting.
+ */
+export async function answerDialog(
+  page: Page,
+  action: DialogAnswer,
+  text?: string
+): Promise<GuardedCall<AnswerOutcome>> {
+  const state = dialogStates.get(page);
+  if (!state) return { kind: "done", value: { preset: false } };
+  const pending = state.pending;
+  if (!pending) {
+    state.preset = { action, ...(text !== undefined && { text }) };
+    return { kind: "done", value: { preset: true } };
+  }
+  clearTimeout(pending.timer);
+  state.pending = undefined;
+  const stalled = state.stalled;
+  state.stalled = undefined;
+  await settleDialog(state, pending, action, text, "agent");
+  const base = { preset: false, type: pending.type, message: pending.message };
+  if (!stalled) return { kind: "done", value: base };
+
+  let capTimer: ReturnType<typeof setTimeout> | undefined;
+  const outcome = await raceDialog(
+    page,
+    () =>
+      Promise.race([
+        stalled.then((result) => ({ result, stillRunning: false })),
+        new Promise<{ result?: undefined; stillRunning: true }>((resolve) => {
+          capTimer = setTimeout(() => resolve({ result: undefined, stillRunning: true }), ACTION_AFTER_ANSWER_CAP_MS);
+        }),
+      ]),
+    stalled
+  );
+  clearTimeout(capTimer);
+  if (outcome.kind === "waiting") return outcome;
+  return { kind: "done", value: { ...base, ...outcome.value } };
+}
+
+/** Answer anything still waiting and stop listening — before the page/context is closed. */
+async function releaseDialog(page: Page): Promise<void> {
+  const state = dialogStates.get(page);
+  if (!state) return;
+  page.off("dialog", state.listener);
+  const pending = state.pending;
+  state.pending = undefined;
+  state.stalled = undefined;
+  state.preset = undefined;
+  if (pending) {
+    clearTimeout(pending.timer);
+    await settleDialog(state, pending, "dismiss", undefined, "session-end");
+  }
+}
+
 /** Set the intent label subsequent actions belong to (FR-016). */
 export function setCurrentStep(id: string, label: string): void {
   const session = sessions.get(id);
@@ -170,6 +418,7 @@ async function cleanupTimedOutSession(id: string): Promise<void> {
   const session = sessions.get(id);
   if (!session) return;
   sessions.delete(id);
+  await releaseDialog(session.page);
   await session.context.close().catch(() => undefined);
   await session.browser.close().catch(() => undefined);
 }
@@ -227,6 +476,7 @@ export async function endSession(id: string): Promise<SessionRecord | undefined>
   clearTimeout(session.timeoutHandle);
   if (session.status === "running") session.status = "passed";
   session.endedAt = new Date().toISOString();
+  await releaseDialog(session.page);
   await session.context.close().catch(() => undefined);
   await session.browser.close().catch(() => undefined);
   return toRecord(session);
