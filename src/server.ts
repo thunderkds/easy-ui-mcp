@@ -8,10 +8,12 @@
 
 import express from "express";
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { chromium, type Browser, type Page } from "playwright";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { z } from "zod";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { z, type ZodRawShape } from "zod";
 import path from "node:path";
 import {
   navigate,
@@ -39,8 +41,14 @@ import {
   claimFailureScreenshot,
   setCurrentStep,
   getCurrentStep,
+  beginCall,
+  endCall,
+  formatIdle,
+  DEFAULT_TIMEOUT_MS,
   type LoggedAction,
+  type SessionRecord,
 } from "./tools/session.js";
+import { ConnectionSessions } from "./tools/connection-sessions.js";
 import { writeReports } from "./reports/index.js";
 import { handleRunTest } from "./api/run-test.js";
 
@@ -61,6 +69,17 @@ const SELECTOR_DESCRIPTION =
 const NTH_NOTE =
   ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.';
 const REPORTS_DIR = path.join(process.cwd(), "reports");
+const MAX_SESSIONS_PER_CONNECTION = Number(process.env.MAX_SESSIONS_PER_CONNECTION ?? 3);
+
+/** Optional on every session-aware tool (T029). Spread into each inputSchema. */
+const sessionIdShape = {
+  session_id: z
+    .string()
+    .optional()
+    .describe(
+      "Which open session to act on, as returned by ui_start_session. Optional with one open session; required when several are open."
+    ),
+};
 
 const app = express();
 app.use(express.json());
@@ -97,22 +116,75 @@ function currentPage(): Page | undefined {
 function buildMcpServer(): McpServer {
   const server = new McpServer({ name: "easy-ui-mcp", version: "0.1.0" });
 
-  // At most one ui_session bracket active per MCP connection at a time.
-  let activeSessionId: string | undefined;
+  // The sessions this connection owns (T029). It can reach no others.
+  const owned = new ConnectionSessions(MAX_SESSIONS_PER_CONNECTION);
+  // The session the running tool call acts on; set by registerSessionTool. A tool call
+  // outside registerSessionTool acts on no session (the legacy shared page).
+  const callContext = new AsyncLocalStorage<{ sessionId?: string }>();
+  const callSessionId = () => callContext.getStore()?.sessionId;
 
-  /** Resolves the page primitive tools should act on: the active session's
-   * page if a session bracket is open, otherwise the legacy shared page. */
+  /** The idle timer closed one of this connection's sessions: free its slot, remember
+   * why, and still write the report so the agent's work is not lost (D5). */
+  async function onIdle(record: SessionRecord): Promise<void> {
+    owned.markIdleClosed(record.id, formatIdle(DEFAULT_TIMEOUT_MS));
+    try {
+      await writeReports(record, REPORTS_DIR);
+    } catch (err) {
+      console.error(`[session ${record.id}] could not write the report after an idle close:`, err);
+    }
+  }
+
+  // The connection closed: end every session it still owns, so no Chromium outlives it.
+  // (A client that vanishes without closing is caught by the idle timer instead.)
+  server.server.onclose = () => {
+    for (const id of owned.drain()) {
+      void endSession(id).then(async (record) => {
+        if (!record) return;
+        try {
+          await writeReports(record, REPORTS_DIR);
+        } catch (err) {
+          console.error(`[session ${id}] could not write the report after the connection closed:`, err);
+        }
+      });
+    }
+  };
+
+  /** `server.registerTool` for a session-aware tool: adds the optional `session_id` input,
+   * picks the session from it (or refuses the call, per D1/ownership), and keeps that
+   * session's idle clock stopped while the call runs. */
+  function registerSessionTool<S extends ZodRawShape>(
+    name: string,
+    config: { title: string; description: string; inputSchema: S },
+    handler: (args: z.infer<z.ZodObject<S>>) => Promise<CallToolResult>
+  ): void {
+    const inputSchema: ZodRawShape = { ...config.inputSchema, ...sessionIdShape };
+    server.registerTool(name, { ...config, inputSchema }, async (args: Record<string, unknown>): Promise<CallToolResult> => {
+      const { sessionId, error } = owned.resolve(args.session_id as string | undefined);
+      if (error) return { isError: true, content: [{ type: "text", text: error }] };
+      if (sessionId) beginCall(sessionId);
+      try {
+        return await callContext.run({ sessionId }, () => handler(args as z.infer<z.ZodObject<S>>));
+      } finally {
+        if (sessionId) endCall(sessionId);
+      }
+    });
+  }
+
+  /** Resolves the page primitive tools should act on: the resolved session's
+   * page if one is open, otherwise the legacy shared page. */
   async function resolvePageForWrite(): Promise<Page> {
-    if (activeSessionId) {
-      const sessionPage = getSessionPage(activeSessionId);
+    const sessionId = callSessionId();
+    if (sessionId) {
+      const sessionPage = getSessionPage(sessionId);
       if (sessionPage) return sessionPage;
     }
     return getPage();
   }
 
   function resolvePageForRead(): Page | undefined {
-    if (activeSessionId) {
-      return getSessionPage(activeSessionId);
+    const sessionId = callSessionId();
+    if (sessionId) {
+      return getSessionPage(sessionId);
     }
     return currentPage();
   }
@@ -134,21 +206,22 @@ function buildMcpServer(): McpServer {
     detail?: string,
     soft?: boolean
   ): Promise<void> {
-    if (!activeSessionId) return;
+    const sessionId = callSessionId();
+    if (!sessionId) return;
     const entry: LoggedAction = { timestamp: new Date().toISOString(), action: name, args, ok, detail };
     if (soft) entry.soft = true;
-    const step = getCurrentStep(activeSessionId);
+    const step = getCurrentStep(sessionId);
     if (step) entry.step = step;
-    logAction(activeSessionId, entry);
+    logAction(sessionId, entry);
     if (!isFatalOutcome(entry)) return;
 
-    if (claimFailureScreenshot(activeSessionId)) {
-      const sessionPage = getSessionPage(activeSessionId);
+    if (claimFailureScreenshot(sessionId)) {
+      const sessionPage = getSessionPage(sessionId);
       const shot = await takeScreenshot(sessionPage, REPORTS_DIR);
-      markFailed(activeSessionId, shot.ok ? shot.path : undefined);
+      markFailed(sessionId, shot.ok ? shot.path : undefined);
       return;
     }
-    markFailed(activeSessionId);
+    markFailed(sessionId);
   }
 
   /**
@@ -179,18 +252,23 @@ function buildMcpServer(): McpServer {
     "ui_start_session",
     {
       title: "ui_start_session",
-      description: "Start a session bracket: opens a fresh browser context and begins logging subsequent primitive tool calls into a report.",
+      description:
+        "Start a session bracket: opens a fresh browser context and begins logging subsequent primitive tool calls into a report. " +
+        "A connection can hold several sessions at once (up to MAX_SESSIONS_PER_CONNECTION, default 3): pass the returned session id as `session_id` " +
+        "to every other tool to choose which session it acts on. A session left unused for 10 minutes is closed automatically and its report is written with status timed_out.",
       inputSchema: { target: z.string().describe("Label/URL identifying what this session tests") },
     },
     async ({ target }) => {
-      if (activeSessionId) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: "A session is already active — call ui_end_session first" }],
-        };
+      const refusal = owned.tryReserve();
+      if (refusal) return { isError: true, content: [{ type: "text", text: refusal }] };
+      let record: SessionRecord;
+      try {
+        record = await startSession(target, DEFAULT_TIMEOUT_MS, onIdle);
+      } catch (err) {
+        owned.cancelReservation();
+        throw err;
       }
-      const record = await startSession(target);
-      activeSessionId = record.id;
+      owned.add(record.id);
       return {
         content: [{ type: "text", text: `Session ${record.id} started for target "${target}"` }],
       };
@@ -201,18 +279,20 @@ function buildMcpServer(): McpServer {
     "ui_end_session",
     {
       title: "ui_end_session",
-      description: "End the current session bracket: writes a JSON + HTML report and returns their paths.",
-      inputSchema: {},
+      description:
+        "End a session bracket: writes a JSON + HTML report and returns their paths. Pass `session_id` to choose which one; it can be omitted only when exactly one session is open.",
+      inputSchema: { ...sessionIdShape },
     },
-    async () => {
-      if (!activeSessionId) {
+    async ({ session_id }) => {
+      const { sessionId: id, error } = owned.resolve(session_id);
+      if (error) return { isError: true, content: [{ type: "text", text: error }] };
+      if (!id) {
         return {
           isError: true,
           content: [{ type: "text", text: "No active session — call ui_start_session first" }],
         };
       }
-      const id = activeSessionId;
-      activeSessionId = undefined;
+      owned.remove(id);
       const record = await endSession(id);
       if (!record) {
         return { isError: true, content: [{ type: "text", text: `Unknown session ${id}` }] };
@@ -237,7 +317,7 @@ function buildMcpServer(): McpServer {
     }
   );
 
-  server.registerTool(
+  registerSessionTool(
     "ui_navigate",
     {
       title: "ui_navigate",
@@ -262,7 +342,7 @@ function buildMcpServer(): McpServer {
     }
   );
 
-  server.registerTool(
+  registerSessionTool(
     "ui_click",
     {
       title: "ui_click",
@@ -290,7 +370,7 @@ function buildMcpServer(): McpServer {
     }
   );
 
-  server.registerTool(
+  registerSessionTool(
     "ui_fill",
     {
       title: "ui_fill",
@@ -319,7 +399,7 @@ function buildMcpServer(): McpServer {
     }
   );
 
-  server.registerTool(
+  registerSessionTool(
     TOOL.selectOption,
     {
       title: TOOL.selectOption,
@@ -340,7 +420,7 @@ function buildMcpServer(): McpServer {
       )
   );
 
-  server.registerTool(
+  registerSessionTool(
     TOOL.pressKey,
     {
       title: TOOL.pressKey,
@@ -361,7 +441,7 @@ function buildMcpServer(): McpServer {
       )
   );
 
-  server.registerTool(
+  registerSessionTool(
     TOOL.hover,
     {
       title: TOOL.hover,
@@ -374,7 +454,7 @@ function buildMcpServer(): McpServer {
       runInteraction(TOOL.hover, { selector }, (target) => hover(target, selector), `Hovered over "${selector}"`)
   );
 
-  server.registerTool(
+  registerSessionTool(
     TOOL.setChecked,
     {
       title: TOOL.setChecked,
@@ -395,7 +475,7 @@ function buildMcpServer(): McpServer {
       )
   );
 
-  server.registerTool(
+  registerSessionTool(
     TOOL.scroll,
     {
       title: TOOL.scroll,
@@ -415,7 +495,7 @@ function buildMcpServer(): McpServer {
       )
   );
 
-  server.registerTool(
+  registerSessionTool(
     "ui_assert",
     {
       title: "ui_assert",
@@ -444,7 +524,7 @@ function buildMcpServer(): McpServer {
     }
   );
 
-  server.registerTool(
+  registerSessionTool(
     "ui_step",
     {
       title: "ui_step",
@@ -458,7 +538,8 @@ function buildMcpServer(): McpServer {
       },
     },
     async ({ label }) => {
-      if (!activeSessionId) {
+      const sessionId = callSessionId();
+      if (!sessionId) {
         return {
           isError: true,
           content: [{ type: "text", text: "No active session — call ui_start_session first" }],
@@ -468,13 +549,13 @@ function buildMcpServer(): McpServer {
       if (trimmed === "") {
         return { isError: true, content: [{ type: "text", text: "Step label cannot be blank" }] };
       }
-      setCurrentStep(activeSessionId, trimmed);
+      setCurrentStep(sessionId, trimmed);
       await recordAction("ui_step", { label: trimmed }, true);
       return { content: [{ type: "text", text: `Step: ${trimmed}` }] };
     }
   );
 
-  server.registerTool(
+  registerSessionTool(
     "ui_check",
     {
       title: "ui_check",
@@ -499,7 +580,7 @@ function buildMcpServer(): McpServer {
     }
   );
 
-  server.registerTool(
+  registerSessionTool(
     "ui_wait_for",
     {
       title: "ui_wait_for",
@@ -529,7 +610,7 @@ function buildMcpServer(): McpServer {
     }
   );
 
-  server.registerTool(
+  registerSessionTool(
     "ui_get_page_state",
     {
       title: "ui_get_page_state",
@@ -547,7 +628,7 @@ function buildMcpServer(): McpServer {
     }
   );
 
-  server.registerTool(
+  registerSessionTool(
     "ui_take_screenshot",
     {
       title: "ui_take_screenshot",

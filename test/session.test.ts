@@ -14,6 +14,10 @@ import {
   setCurrentStep,
   getCurrentStep,
   MAX_PAGE_ISSUES,
+  beginCall,
+  endCall,
+  formatIdle,
+  type SessionRecord,
 } from "../src/tools/session.js";
 import { waitForCondition, classifyCheckOutcome } from "../src/tools/web.js";
 import { writeReports } from "../src/reports/index.js";
@@ -477,4 +481,172 @@ test("a missing screenshot file is omitted rather than failing the report", asyn
   const { htmlPath } = await writeReports(ended!, TMP_REPORTS_DIR);
   assert.ok(existsSync(htmlPath));
   assert.doesNotMatch(readFileSync(htmlPath, "utf8"), /data:image\/png/);
+});
+
+// ---------------------------------------------------------------------------
+// T029 — idle auto-close: the timer measures idle time, never closes a session
+// with a call in flight, and hands the closed record to the caller (D4/D5)
+// ---------------------------------------------------------------------------
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("an idle session is closed as timed_out and the record is handed to onIdle (AC12/AC14)", async () => {
+  const closed: SessionRecord[] = [];
+  const record = await startSession("idle-closes", 100, (r) => {
+    closed.push(r);
+  });
+  logAction(record.id, { timestamp: new Date().toISOString(), action: "ui_navigate", ok: true });
+
+  await sleep(400);
+
+  assert.equal(isSessionActive(record.id), false);
+  assert.equal(closed.length, 1);
+  assert.equal(closed[0].id, record.id);
+  assert.equal(closed[0].status, "timed_out");
+  assert.ok(closed[0].endedAt);
+  assert.equal(closed[0].actions[0].action, "ui_navigate");
+  const note = closed[0].actions.at(-1)!;
+  assert.match(note.detail ?? "", /Closed after 0\.1 s idle/);
+  assert.equal(await endSession(record.id), undefined);
+});
+
+test("the record handed to onIdle carries no timer/callback internals", async () => {
+  let seen: SessionRecord | undefined;
+  await startSession("idle-record-shape", 50, (r) => {
+    seen = r;
+  });
+  await sleep(300);
+  assert.ok(seen);
+  for (const key of ["browser", "context", "page", "timeoutHandle", "onIdle", "inFlight", "idleMs"]) {
+    assert.equal(key in seen!, false, `record leaked ${key}`);
+  }
+  assert.doesNotThrow(() => JSON.stringify(seen));
+});
+
+test("a session in steady use for longer than the idle limit is not closed (AC13)", async () => {
+  const closed: string[] = [];
+  const record = await startSession("steady-use", 300, (r) => {
+    closed.push(r.id);
+  });
+  for (let i = 0; i < 8; i++) {
+    await sleep(100);
+    beginCall(record.id);
+    endCall(record.id);
+  }
+  assert.equal(isSessionActive(record.id), true, "800ms of use with a 300ms idle limit must not close it");
+  assert.deepEqual(closed, []);
+
+  await sleep(600);
+  assert.equal(isSessionActive(record.id), false, "once the calls stop it does go idle");
+  assert.deepEqual(closed, [record.id]);
+});
+
+test("a call that runs longer than the idle limit is not killed mid-call, and the clock restarts at its end", async () => {
+  const closed: string[] = [];
+  const record = await startSession("long-call", 100, (r) => {
+    closed.push(r.id);
+  });
+  beginCall(record.id);
+  await sleep(350); // 3.5x the idle limit, one call still running
+  assert.equal(isSessionActive(record.id), true);
+  assert.deepEqual(closed, []);
+
+  endCall(record.id);
+  await sleep(50);
+  assert.equal(isSessionActive(record.id), true, "idle time counts from the end of the call");
+  await sleep(300);
+  assert.equal(isSessionActive(record.id), false);
+  assert.deepEqual(closed, [record.id]);
+});
+
+test("overlapping calls keep the session open until the last one ends", async () => {
+  const record = await startSession("overlap", 100);
+  beginCall(record.id);
+  beginCall(record.id);
+  endCall(record.id);
+  await sleep(250);
+  assert.equal(isSessionActive(record.id), true);
+  endCall(record.id);
+  await sleep(300);
+  assert.equal(isSessionActive(record.id), false);
+});
+
+test("beginCall/endCall on an unknown session are no-ops, not crashes", () => {
+  assert.doesNotThrow(() => {
+    beginCall("does-not-exist");
+    endCall("does-not-exist");
+  });
+});
+
+test("an onIdle that throws or rejects is swallowed and the browser is still closed", async () => {
+  const unhandled: unknown[] = [];
+  const onUnhandled = (err: unknown) => unhandled.push(err);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const sync = await startSession("idle-throws", 150, () => {
+      throw new Error("report disk full");
+    });
+    const syncPage = getSessionPage(sync.id)!;
+    const rejecting = await startSession("idle-rejects", 150, async () => {
+      throw new Error("report disk full");
+    });
+    const asyncPage = getSessionPage(rejecting.id)!;
+    await sleep(700);
+    assert.equal(isSessionActive(sync.id), false);
+    assert.equal(isSessionActive(rejecting.id), false);
+    assert.equal(syncPage.isClosed(), true);
+    assert.equal(asyncPage.isClosed(), true);
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+});
+
+test("ending a session cancels its idle timer: onIdle never fires for it", async () => {
+  let fired = 0;
+  const record = await startSession("end-before-idle", 100, () => {
+    fired++;
+  });
+  const ended = await endSession(record.id);
+  assert.equal(ended!.status, "passed");
+  await sleep(300);
+  assert.equal(fired, 0);
+});
+
+test("idle close racing ui_end_session: exactly one of them gets the record", async () => {
+  let idleRecords = 0;
+  const record = await startSession("race", 50, () => {
+    idleRecords++;
+  });
+  await sleep(50); // the timer is due about now
+  const ended = await endSession(record.id);
+  await sleep(300);
+  assert.equal((ended ? 1 : 0) + idleRecords, 1, "one report, not zero and not two");
+});
+
+test("a failed session that then times out reports timed_out and keeps its failures", async () => {
+  const closed: SessionRecord[] = [];
+  const record = await startSession("failed-then-idle", 100, (r) => {
+    closed.push(r);
+  });
+  logAction(record.id, { timestamp: new Date().toISOString(), action: "ui_assert", ok: false, detail: "Assertion evaluated false" });
+  markFailed(record.id, "/reports/fail.png");
+  await sleep(400);
+
+  assert.equal(closed.length, 1);
+  assert.equal(closed[0].status, "timed_out");
+  assert.equal(closed[0].failureScreenshot, "/reports/fail.png");
+  assert.equal(closed[0].actions[0].ok, false);
+
+  const { jsonPath, htmlPath } = await writeReports(closed[0], TMP_REPORTS_DIR);
+  assert.equal(JSON.parse(readFileSync(jsonPath, "utf8")).status, "timed_out");
+  const html = readFileSync(htmlPath, "utf8");
+  assert.match(html, /timed_out/);
+  assert.match(html, /Closed after 0\.1 s idle/);
+});
+
+test("formatIdle names the limit in the unit a person would say it", () => {
+  assert.equal(formatIdle(10 * 60 * 1000), "10 min");
+  assert.equal(formatIdle(90 * 1000), "1.5 min");
+  assert.equal(formatIdle(500), "0.5 s");
 });

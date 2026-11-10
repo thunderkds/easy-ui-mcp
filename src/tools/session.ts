@@ -4,8 +4,8 @@
 // Each session owns a fresh Playwright browser + browser context (its own page),
 // so concurrent sessions cannot corrupt or merge each other's browser state
 // (Acceptance Criterion 5). Sessions are keyed by a random session id, independent
-// of the MCP transport session — a single MCP connection is expected to have at
-// most one active ui_session at a time, but the registry itself supports many.
+// of the MCP transport session. One MCP connection may hold several (T029); which
+// connection owns which id is tracked in connection-sessions.ts, not here.
 
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { randomUUID } from "node:crypto";
@@ -52,7 +52,8 @@ export function isFatalOutcome(entry: LoggedAction): boolean {
   return entry.ok === false && entry.soft !== true;
 }
 
-export type SessionStatus = "running" | "passed" | "failed";
+/** `timed_out`: closed by the idle timer, not by ui_end_session (T029/D5). */
+export type SessionStatus = "running" | "passed" | "failed" | "timed_out";
 
 export interface SessionRecord {
   id: string;
@@ -77,12 +78,22 @@ interface Session extends SessionRecord {
   browser: Browser;
   context: BrowserContext;
   page: Page;
-  timeoutHandle: ReturnType<typeof setTimeout>;
+  /** Idle timer: re-armed whenever the last in-flight call ends (T029). */
+  timeoutHandle?: ReturnType<typeof setTimeout>;
+  idleMs: number;
+  onIdle?: IdleCallback;
+  /** Tool calls running right now; the idle timer never closes a session while > 0. */
+  inFlight: number;
   /** Label set by the most recent ui_step; stamped onto subsequent actions. */
   currentStep?: string;
 }
 
-const DEFAULT_TIMEOUT_MS = Number(process.env.SESSION_TIMEOUT_MS ?? 10 * 60 * 1000);
+/** Handed the final record of a session the idle timer just closed. Must not be relied
+ * on to succeed: a throw or rejection is logged and swallowed. */
+export type IdleCallback = (record: SessionRecord) => void | Promise<void>;
+
+/** How long a session may sit with no tool call before it is closed (T029/D4). */
+export const DEFAULT_TIMEOUT_MS = Number(process.env.SESSION_TIMEOUT_MS ?? 10 * 60 * 1000);
 
 /** Max auto-failure screenshots per session. Beyond this the run keeps going but
  * stops writing PNGs, and the report records that captures were dropped. */
@@ -92,24 +103,21 @@ const sessions = new Map<string, Session>();
 
 /**
  * Start a new session: launches a fresh browser + context + page, isolated
- * from any other session. Schedules an auto-cleanup timeout so a session
- * left open with no `ui_end_session()` call does not leak the browser
- * process indefinitely (Acceptance Criterion 6).
+ * from any other session. The session is closed if it sits idle for `timeoutMs`
+ * (measured from the last tool call, see beginCall/endCall), so one left open
+ * with no `ui_end_session()` call does not leak the browser process
+ * (Acceptance Criterion 6). When `onIdle` is given it receives the final record
+ * so the caller can still write the report; without it the session is just closed.
  */
 export async function startSession(
   target: string,
-  timeoutMs: number = DEFAULT_TIMEOUT_MS
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  onIdle?: IdleCallback
 ): Promise<SessionRecord> {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
   const id = randomUUID();
-
-  const timeoutHandle = setTimeout(() => {
-    void cleanupTimedOutSession(id);
-  }, timeoutMs);
-  // Don't let this timer keep the process alive on its own.
-  timeoutHandle.unref?.();
 
   const session: Session = {
     id,
@@ -121,11 +129,44 @@ export async function startSession(
     browser,
     context,
     page,
-    timeoutHandle,
+    idleMs: timeoutMs,
+    onIdle,
+    inFlight: 0,
   };
+  armIdleTimer(session);
   sessions.set(id, session);
   attachIssueListeners(session);
   return toRecord(session);
+}
+
+function armIdleTimer(session: Session): void {
+  clearTimeout(session.timeoutHandle);
+  session.timeoutHandle = setTimeout(() => {
+    void closeIdleSession(session.id);
+  }, session.idleMs);
+  // Don't let this timer keep the process alive on its own.
+  session.timeoutHandle.unref?.();
+}
+
+/** A tool call is starting on this session: stop the idle clock until it ends. */
+export function beginCall(id: string): void {
+  const session = sessions.get(id);
+  if (!session) return;
+  session.inFlight++;
+  clearTimeout(session.timeoutHandle);
+}
+
+/** A tool call finished: when none are left running, idle time counts from now. */
+export function endCall(id: string): void {
+  const session = sessions.get(id);
+  if (!session) return;
+  session.inFlight = Math.max(0, session.inFlight - 1);
+  if (session.inFlight === 0) armIdleTimer(session);
+}
+
+/** "10 min" / "1.5 min" / "0.5 s": the idle limit as a person would say it. */
+export function formatIdle(ms: number): string {
+  return ms >= 60_000 ? `${Number((ms / 60_000).toFixed(1))} min` : `${Number((ms / 1000).toFixed(1))} s`;
 }
 
 /**
@@ -166,10 +207,33 @@ export function getCurrentStep(id: string): string | undefined {
   return sessions.get(id)?.currentStep;
 }
 
-async function cleanupTimedOutSession(id: string): Promise<void> {
+/**
+ * The idle timer fired. Leaving the registry is synchronous, so a racing
+ * `endSession` and this path cannot both take the session: whichever deletes first
+ * owns the record. The browser is closed even if `onIdle` fails.
+ */
+async function closeIdleSession(id: string): Promise<void> {
   const session = sessions.get(id);
-  if (!session) return;
+  if (!session || session.inFlight > 0) return;
   sessions.delete(id);
+  session.status = "timed_out";
+  session.endedAt = new Date().toISOString();
+  session.actions.push({
+    timestamp: session.endedAt,
+    action: "session_idle_timeout",
+    ok: true,
+    detail: `Closed after ${formatIdle(session.idleMs)} idle`,
+  });
+  const closing = closeBrowser(session);
+  try {
+    await session.onIdle?.(toRecord(session));
+  } catch (err) {
+    console.error(`[session ${id}] idle cleanup failed:`, err);
+  }
+  await closing;
+}
+
+async function closeBrowser(session: Session): Promise<void> {
   await session.context.close().catch(() => undefined);
   await session.browser.close().catch(() => undefined);
 }
@@ -238,6 +302,9 @@ function toRecord(session: Session): SessionRecord {
     context: _c,
     page: _p,
     timeoutHandle: _t,
+    idleMs: _i,
+    onIdle: _o,
+    inFlight: _f,
     currentStep: _s,
     ...record
   } = session;
