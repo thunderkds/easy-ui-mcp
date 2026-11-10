@@ -76,7 +76,8 @@ export function resolveContextOptions(
   const { device, viewport, colorScheme, locale, timezoneId } = settings;
   let base = {};
   if (device !== undefined) {
-    const known = devices[device];
+    // Own keys only: "constructor" / "__proto__" are not devices.
+    const known = Object.hasOwn(devices, device) ? devices[device] : undefined;
     if (!known) {
       const names = Object.keys(devices);
       const needle = device.toLowerCase();

@@ -220,8 +220,9 @@ export async function setViewport(page: Page, width: number, height: number): Pr
 export const MAX_TYPE_DELAY_MS = 500;
 
 export interface TypeResult extends ActionResult {
-  /** True unless the target was positively a non-password field: the caller must then
-   * keep the typed text out of the report (a password, or a target we could not check). */
+  /** True unless the target was positively a non-secret field: the caller must then
+   * keep the typed text out of the report (a password, one-time-code, card-number or
+   * text-security field, or a target we could not check). */
   masked: boolean;
 }
 
@@ -238,7 +239,17 @@ export async function typeText(
 ): Promise<TypeResult> {
   let masked = true;
   const result = await onUniqueLocator(page, selector, async (locator) => {
-    masked = (await locator.evaluate((el) => (el as HTMLInputElement).type === "password")) as boolean;
+    masked = (await locator.evaluate((el) => {
+      const input = el as HTMLInputElement;
+      const autocomplete = (input.getAttribute("autocomplete") ?? "").toLowerCase();
+      return (
+        input.type === "password" ||
+        autocomplete.includes("one-time-code") ||
+        autocomplete.includes("cc-") ||
+        autocomplete.includes("password") ||
+        !["", "none"].includes(getComputedStyle(el).getPropertyValue("-webkit-text-security"))
+      );
+    })) as boolean;
     // Throws for a non-input element such as a <div>; false for a disabled or read-only one.
     if (!(await locator.isEditable({ timeout: 5_000 }))) {
       return { ok: false, error: `Element matched by "${selector}" is not editable (disabled or read-only)` };
@@ -742,7 +753,7 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
 export interface ScreenshotResult {
   ok: boolean;
   path?: string;
-  /** Base64 PNG scaled to at most MAX_INLINE_WIDTH wide; only with `inline: true`. Never written to disk. */
+  /** Base64 PNG scaled to fit MAX_INLINE_WIDTH x MAX_INLINE_HEIGHT; only with `inline: true`. Never written to disk. */
   imageBase64?: string;
   /** Something the agent should know about the capture (e.g. a full page that was capped). */
   note?: string;
@@ -760,29 +771,40 @@ export interface ScreenshotOptions {
 
 /** Widest inline image returned to the agent; wider captures are scaled down. */
 export const MAX_INLINE_WIDTH = 1280;
-/** Tallest full-page capture, to keep the PNG (and the report that embeds it) small. */
+/** Tallest inline image: the Claude API rejects images over 8000px on either side. */
+export const MAX_INLINE_HEIGHT = 8000;
+/** Tallest full-page capture, in device pixels, to keep the PNG (and the report that embeds it) small. */
 export const MAX_FULL_PAGE_HEIGHT = 16_000;
+/** Widest full-page capture, in CSS pixels (the widest viewport `ui_set_viewport` accepts). */
+export const MAX_FULL_PAGE_WIDTH = 3840;
 
 /**
- * Scale `png` down to `maxWidth` wide, keeping the aspect ratio, by drawing it in a
- * scratch context of the same browser (no image library needed; a separate context so
- * the session's device emulation, cookies and pages are untouched). A PNG that is
- * already narrow enough is returned as is.
+ * Scale `png` down to fit within `maxWidth` x `maxHeight`, keeping the aspect ratio, by
+ * drawing it in a scratch context of the same browser (no image library needed; a
+ * separate context so the session's device emulation, cookies and pages are untouched).
+ * A PNG that already fits is returned as is, with `scaled: false`.
  */
-async function scaleToMaxWidth(page: Page, png: Buffer, maxWidth: number): Promise<Buffer> {
+async function scaleToFit(
+  page: Page,
+  png: Buffer,
+  maxWidth: number,
+  maxHeight: number
+): Promise<{ png: Buffer; scaled: boolean; width: number; height: number }> {
   const width = png.readUInt32BE(16);
   const height = png.readUInt32BE(20);
-  if (width <= maxWidth) return png;
+  if (width <= maxWidth && height <= maxHeight) return { png, scaled: false, width, height };
   const browser = page.context().browser();
   if (!browser) throw new Error("no browser to scale with");
-  const scaledHeight = Math.max(1, Math.round((height * maxWidth) / width));
-  const scratch = await browser.newContext({ viewport: { width: maxWidth, height: scaledHeight } });
+  const ratio = Math.min(maxWidth / width, maxHeight / height);
+  const scaledWidth = Math.max(1, Math.min(maxWidth, Math.round(width * ratio)));
+  const scaledHeight = Math.max(1, Math.min(maxHeight, Math.round(height * ratio)));
+  const scratch = await browser.newContext({ viewport: { width: scaledWidth, height: scaledHeight } });
   try {
     const scratchPage = await scratch.newPage();
     await scratchPage.setContent(
-      `<body style="margin:0"><img style="display:block;width:${maxWidth}px;height:${scaledHeight}px" src="data:image/png;base64,${png.toString("base64")}"></body>`
+      `<body style="margin:0"><img style="display:block;width:${scaledWidth}px;height:${scaledHeight}px" src="data:image/png;base64,${png.toString("base64")}"></body>`
     );
-    return await scratchPage.screenshot({ type: "png" });
+    return { png: await scratchPage.screenshot({ type: "png" }), scaled: true, width: scaledWidth, height: scaledHeight };
   } finally {
     await scratch.close().catch(() => undefined);
   }
@@ -791,7 +813,7 @@ async function scaleToMaxWidth(page: Page, png: Buffer, maxWidth: number): Promi
 /**
  * Capture the current viewport (or one element, or the full page) and write it as a
  * PNG under `outputDir`. With `inline`, the PNG is also returned in memory, scaled to
- * at most MAX_INLINE_WIDTH wide: it is not written a second time.
+ * fit MAX_INLINE_WIDTH x MAX_INLINE_HEIGHT: it is not written a second time.
  * Write failures (disk full, permissions) return a clear error instead of
  * crashing the session (Edge Case Checklist).
  */
@@ -822,15 +844,22 @@ export async function takeScreenshot(
       png = await locator.screenshot({ path: filePath, timeout: 5_000 });
     } else if (fullPage) {
       const size = (await page.evaluate(
-        "({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight })"
-      )) as { width: number; height: number };
-      if (size.height > MAX_FULL_PAGE_HEIGHT) {
-        note = `Page is ${size.height}px tall; the capture was cut at ${MAX_FULL_PAGE_HEIGHT}px`;
-        png = await page.screenshot({
-          path: filePath,
-          fullPage: true,
-          clip: { x: 0, y: 0, width: size.width, height: MAX_FULL_PAGE_HEIGHT },
-        });
+        "({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight, ratio: window.devicePixelRatio || 1 })"
+      )) as { width: number; height: number; ratio: number };
+      // The height cap is in device pixels (a ratio-3 phone would otherwise write 48000px); clip is in CSS pixels.
+      const maxCssHeight = Math.floor(MAX_FULL_PAGE_HEIGHT / size.ratio);
+      const width = Math.min(size.width, MAX_FULL_PAGE_WIDTH);
+      const height = Math.min(size.height, maxCssHeight);
+      const notes: string[] = [];
+      if (size.height > maxCssHeight) {
+        notes.push(`Page is ${size.height}px tall; the capture was cut at ${MAX_FULL_PAGE_HEIGHT}px`);
+      }
+      if (size.width > MAX_FULL_PAGE_WIDTH) {
+        notes.push(`Page is ${size.width}px wide; the capture was cut at ${MAX_FULL_PAGE_WIDTH}px`);
+      }
+      if (notes.length > 0) {
+        note = notes.join(". ");
+        png = await page.screenshot({ path: filePath, fullPage: true, clip: { x: 0, y: 0, width, height } });
       } else {
         png = await page.screenshot({ path: filePath, fullPage: true });
       }
@@ -841,7 +870,13 @@ export async function takeScreenshot(
     if (note) result.note = note;
     if (inline) {
       try {
-        result.imageBase64 = (await scaleToMaxWidth(page, png, MAX_INLINE_WIDTH)).toString("base64");
+        const fitted = await scaleToFit(page, png, MAX_INLINE_WIDTH, MAX_INLINE_HEIGHT);
+        result.imageBase64 = fitted.png.toString("base64");
+        if (fitted.scaled) {
+          const from = `${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`;
+          const scaledNote = `Inline image scaled to ${fitted.width}x${fitted.height} (file is ${from}); the file on disk is full size`;
+          result.note = [note, scaledNote].filter(Boolean).join(". ");
+        }
       } catch (err) {
         // The capture itself succeeded and is on disk; only the inline copy is missing.
         const reason = err instanceof Error ? err.message : String(err);

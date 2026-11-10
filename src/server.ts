@@ -37,6 +37,7 @@ import {
   MAX_VIEWPORT_HEIGHT,
   MAX_TYPE_DELAY_MS,
   MAX_INLINE_WIDTH,
+  MAX_INLINE_HEIGHT,
 } from "./tools/web.js";
 import {
   startSession,
@@ -502,7 +503,7 @@ function buildMcpServer(): McpServer {
       description:
         "Type text into the single editable element matching the selector one key at a time, like a user (keydown, input and keyup per character), appending to what is already there. " +
         "Use it instead of ui_fill for autocomplete, search-as-you-type, masked inputs (phone, card) and OTP boxes. Use the `selector` from ui_get_page_state. " +
-        "Text typed into a password field is never stored in the report." +
+        "Text typed into a password, one-time-code or card-number field is never stored in the report." +
         NTH_NOTE,
       inputSchema: {
         selector: z.string().describe(SELECTOR_DESCRIPTION),
@@ -698,8 +699,8 @@ function buildMcpServer(): McpServer {
       title: "ui_take_screenshot",
       description:
         "Capture the current viewport and save it as a PNG to the reports output. " +
-        "With `selector`, capture just that element; with `fullPage`, the whole scrollable page (cut at 16000px tall). " +
-        `With \`inline: true\` the image itself is also returned (scaled to at most ${MAX_INLINE_WIDTH}px wide) so you can look at it.` +
+        "With `selector`, capture just that element; with `fullPage`, the whole scrollable page (cut at 16000 device pixels tall and 3840px wide). " +
+        `With \`inline: true\` the image itself is also returned (scaled to fit ${MAX_INLINE_WIDTH}x${MAX_INLINE_HEIGHT}px; the file on disk stays full size) so you can look at it.` +
         NTH_NOTE,
       inputSchema: {
         selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; captures only that element. Not with fullPage"),

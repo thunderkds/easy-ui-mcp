@@ -768,6 +768,22 @@ test("typeText flags password targets and unresolved targets as masked, plain in
   });
 });
 
+test("typeText masks password-like targets: autocomplete one-time-code/cc-/password and text-security (T032 S-1)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(`<body>
+      <input id="otp" autocomplete="one-time-code" /><input id="cc" autocomplete="cc-number" />
+      <input id="np" autocomplete="new-password" /><input id="cp" autocomplete="CURRENT-PASSWORD" />
+      <input id="sec" style="-webkit-text-security: disc" /><input id="tel" autocomplete="tel" /><input id="off" autocomplete="off" />
+    </body>`);
+    for (const id of ["otp", "cc", "np", "cp", "sec"]) {
+      assert.equal((await typeText(p, `#${id}`, "OTPCODE-222")).masked, true, `#${id} must be masked`);
+    }
+    for (const id of ["tel", "off"]) {
+      assert.equal((await typeText(p, `#${id}`, "visible")).masked, false, `#${id} must not be masked`);
+    }
+  });
+});
+
 test("typeText passes errors through for read-only, disabled and non-editable targets (T032 edge)", async () => {
   await withPage(async (p) => {
     await p.setContent(TYPE_HTML);
@@ -1008,6 +1024,58 @@ test("takeScreenshot inline returns the PNG too, scaled to at most 1280px wide, 
     },
     { width: 2000, height: 750 }
   );
+});
+
+test("takeScreenshot fullPage + inline on a very tall page: inline copy fits 1280x8000, ratio kept, and says so (T032 P1)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(`<body style="margin:0"><div style="height:40000px;background:#369"></div>`);
+    try {
+      const result = await takeScreenshot(p, SHOT_DIR, { fullPage: true, inline: true });
+      assert.equal(result.ok, true);
+      assert.deepEqual(pngSize(readFileSync(result.path!)), { width: 1280, height: 16000 });
+      assert.deepEqual(pngSize(Buffer.from(result.imageBase64!, "base64")), { width: 640, height: 8000 });
+      assert.match(result.note ?? "", /scaled/i);
+      assert.match(result.note ?? "", /640x8000/);
+      assert.equal(readdirSync(SHOT_DIR).length, 1, "the inline copy is not written as a second file");
+    } finally {
+      rmSync(SHOT_DIR, { recursive: true, force: true });
+    }
+  });
+});
+
+test("takeScreenshot fullPage on a very wide page clips the width to 3840 and scales the inline copy (T032 P2-1)", async () => {
+  await withPage(async (p) => {
+    await p.setContent(`<body style="margin:0"><div style="width:30000px;height:500px;background:#369"></div>`);
+    try {
+      const result = await takeScreenshot(p, SHOT_DIR, { fullPage: true, inline: true });
+      assert.equal(result.ok, true);
+      assert.equal(pngSize(readFileSync(result.path!)).width, 3840);
+      assert.match(result.note ?? "", /3840/);
+      const inline = pngSize(Buffer.from(result.imageBase64!, "base64"));
+      assert.equal(inline.width, 1280);
+      assert.ok(inline.height <= 8000);
+    } finally {
+      rmSync(SHOT_DIR, { recursive: true, force: true });
+    }
+  });
+});
+
+test("takeScreenshot fullPage height cap counts device pixels, not CSS pixels (T032 P2-2)", async () => {
+  const p = await browser.newPage({ viewport: { width: 400, height: 800 }, deviceScaleFactor: 3 });
+  try {
+    await p.setContent(`<body style="margin:0"><div style="height:8000px;background:#369"></div>`);
+    const result = await takeScreenshot(p, SHOT_DIR, { fullPage: true, inline: true });
+    assert.equal(result.ok, true);
+    const file = pngSize(readFileSync(result.path!));
+    assert.equal(file.width, 1200, "400 CSS px at ratio 3");
+    assert.ok(file.height <= 16000 && file.height >= 15990, `file height ${file.height} is cut at 16000 device px`);
+    assert.match(result.note ?? "", /16000/);
+    const inline = pngSize(Buffer.from(result.imageBase64!, "base64"));
+    assert.ok(inline.width <= 1280 && inline.height <= 8000, `inline ${inline.width}x${inline.height}`);
+  } finally {
+    await p.close();
+    rmSync(SHOT_DIR, { recursive: true, force: true });
+  }
 });
 
 test("takeScreenshot inline leaves a small image unscaled, and works for an element (T032 AC9)", async () => {

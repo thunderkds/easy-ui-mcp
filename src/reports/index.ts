@@ -393,10 +393,12 @@ export function describe(action: LoggedAction): string {
     case "ui_set_viewport":
       return `Resized the viewport to ${arg(action, "width") ?? "?"}×${arg(action, "height") ?? "?"}`;
     case "ui_type": {
-      // The server stores "••••" instead of the text when the target is a password
-      // field (or could not be checked), so what is shown here is already safe.
-      const text = arg(action, "text");
-      return text === undefined ? `Typed into ${selector ?? "an input"}` : `Typed "${text}" into ${selector ?? "an input"}`;
+      // Like ui_fill, never repeat the typed text (secrets, OTPs, card numbers): only how much.
+      // The server stores "••••" when the target is sensitive, so no count is shown then.
+      const text = action.args?.["text"];
+      const where = selector ?? "an input";
+      if (typeof text !== "string" || text === "••••") return `Typed into ${where}`;
+      return `Typed ${text.length} ${text.length === 1 ? "character" : "characters"} into ${where}`;
     }
     case "ui_navigate_history": {
       const how = arg(action, "action");

@@ -553,6 +553,16 @@ test("T032 AC1: an unknown device is an error that lists valid names", async () 
   );
 });
 
+test("T032 AC1: device names are looked up as own keys, not through the prototype chain", async () => {
+  for (const device of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    await assert.rejects(
+      () => startSession("t032-proto-device", undefined, { device }),
+      (err: Error) => err.message.includes(`Unknown device "${device}"`),
+      device
+    );
+  }
+});
+
 test("T032 AC1: an invalid timezone fails the start cleanly", async () => {
   await assert.rejects(() => startSession("t032-bad-tz", undefined, { timezoneId: "Not/AZone" }), /timezone/i);
 });
