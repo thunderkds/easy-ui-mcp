@@ -47,12 +47,12 @@ Not done: merge (yours); <auto verify: running (T182) | auto verify: <result> | 
 
 | Check | Result | Notes / output snippet |
 |-------|--------|------------------------|
-| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | [test file path(s) — required before Done] |
-| Verification command run | ☐ pass / ☐ fail | [paste actual output] |
-| Negative cases hold | ☐ pass / ☐ fail | [paste the red run against the prior content, or the mutation diff (`git diff --stat`, non-empty) before each verdict] |
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/multi-session.test.ts` (12 ownership unit tests + 14 MCP-client tests: AC1-10, 12-14 and the edge cases), `test/session.test.ts` (idle timer, in-flight guard, onIdle failure, end/idle race, failed-then-timed_out), `test/docs-tools.test.ts` (AC11 docs mention `session_id`) |
+| Verification command run | ☑ pass | `node --import tsx --test test/session.test.ts && ... web.test.ts && ... docs-tools.test.ts && npx tsc --noEmit` -> session 39/39 pass, web 52/52 pass, docs-tools 2/2 pass, tsc exit 0. Full `npm test`: `ℹ tests 182 / pass 182 / fail 0` (25 s); also green one at a time: multi-session 26/26, site 13/13, harness-snapshot 3/3, api-run-test 4/4. |
+| Negative cases hold | ☑ pass | Red first: before the implementation both new test files failed to load (missing `connection-sessions.js` / `beginCall` exports). Mutations on the committed tree: (1) `git diff --stat` = `src/server.ts | 2 +-` removing `beginCall` -> `✖ a ui_wait_for that outlasts the idle limit is not killed mid-call`, pass 25 / fail 1. (2) `src/tools/connection-sessions.ts | 2 +-` making `resolve` accept any id -> 8 failures (ownership AC7 unit + MCP tests, D5 idle message, bounded memory, idle-close test), pass 18 / fail 8. Both reverted with `git checkout`. |
 | verify | ☐ pass / ☐ fail / ☐ N/A | [what was observed — must literally state "pass" or "fail" here too, e.g. "skill run, feature confirmed working — pass": the merge gate scans this Notes column for the word "pass", not just the Result column] |
 | Review scope bounded to the change's blast radius (affected set, not whole repo) | ☐ pass / ☐ fail | [what was reviewed vs. skipped, and why] |
-| Full smoke suite still green (no regression) | ☐ pass / ☐ fail | |
+| Full smoke suite still green (no regression) | ☑ pass | `npm test`: 182 tests, 182 pass, 0 fail (includes `api-run-test`, `health`, `reports`, `web`, `site`, `harness-snapshot`) |
 | **Companion score (easy-verifier)** | ☐ pass / ☐ fail / ☐ N/A | [`overall` and `change_risk` as the tool returned them, the scope, the ref, and the absolute path of the verifier report after a literal `report:` label — e.g. "overall 86 (>= 80), change_risk pass, scope changes, ref `main...HEAD`, report: `/home/me/.easy-verifier-reports/kit/score_changes_20261028T0530Z.html`". The gate reads the path that follows `report:` and nothing else, so with no label, or a path that is absent, the row is unscored — write ☑ N/A instead. ☑ N/A with a reason when neither companion tool was run: the merge gate blocks on ☑ fail only, never on an absent or N/A row] |
 | **UI: Visual regression (diff or verdict pasted)** | ☐ pass / ☐ fail / ☐ N/A | [screenshot path or LLM verdict — required for UI tasks, Hard-Stop Gate 6] |
 | **UI: Design-system compliance (tokens/colors/typography verified)** | ☐ pass / ☐ fail / ☐ N/A | [method used + output] |
@@ -81,9 +81,23 @@ Not done: merge (yours); <auto verify: running (T182) | auto verify: <result> | 
 
 Reading: the second `ui_start_session` is refused ("A session is already active"). The idle session is silently dropped after 1 s with no report (report file count 3 -> 3), and `ui_end_session` then says "Unknown session".
 
-**AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
+**AFTER** (same throwaway script, extended to end sessions by id; captured 2026-11-10 04:48 UTC at commit `e11c312` plus the docs edits; `SESSION_TIMEOUT_MS=1000`; reports dir shortened to `<scratch>`):
 
-**DELTA**: [one sentence — what a user can now do that they could not before]
+```
+2026-11-10T04:48:48.244Z start #1: Session aa661a4a-e5fb-4801-b80a-3608e8c2cc02 started for target "A"
+2026-11-10T04:48:48.322Z start #2: Session 5ff4fb84-9891-46e0-9f51-1794ea02b5fa started for target "B"
+2026-11-10T04:48:48.326Z end with no session_id (two open): [isError] Several sessions are open (aa661a4a-e5fb-4801-b80a-3608e8c2cc02, 5ff4fb84-9891-46e0-9f51-1794ea02b5fa) — pass session_id to choose one
+2026-11-10T04:48:48.356Z end #1 by id: Session aa661a4a-e5fb-4801-b80a-3608e8c2cc02 ended (passed). Reports: <scratch>/reports/session-20261110-044848-a-aa661a4a.json, <scratch>/reports/session-20261110-044848-a-aa661a4a.html
+2026-11-10T04:48:48.397Z end #2 by id: Session 5ff4fb84-9891-46e0-9f51-1794ea02b5fa ended (passed). Reports: <scratch>/reports/session-20261110-044848-b-5ff4fb84.json, <scratch>/reports/session-20261110-044848-b-5ff4fb84.html
+2026-11-10T04:48:48.397Z IDLE case: start, wait 1.5s (SESSION_TIMEOUT_MS=1000), then end
+2026-11-10T04:48:48.471Z start: Session c7c7bf24-9683-417b-a7f8-874aadfbd40c started for target "idle"
+2026-11-10T04:48:49.976Z end: [isError] Session c7c7bf24-9683-417b-a7f8-874aadfbd40c was closed after 1 s idle
+2026-11-10T04:48:49.976Z report files in reports dir before idle case: 5 after: 7
+```
+
+The `session-...-idle-c7c7bf24.json` written by the idle close has `status: "timed_out"` (grep count 1).
+
+**DELTA**: one connection can now hold two sessions and drive each by `session_id`, and a forgotten session is closed after its idle limit with a `timed_out` report instead of silently vanishing.
 
 **WITNESS**: [who ran it and when — derived from `memory/event-trace/T029.jsonl`, never the
 implementing agent alone]

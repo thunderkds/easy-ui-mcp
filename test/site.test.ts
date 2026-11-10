@@ -19,7 +19,7 @@ function registeredTools(): string[] {
     constants.set(key, name);
   }
   const names: string[] = [];
-  for (const [, literal, key] of server.matchAll(/registerTool\(\s*(?:"([^"]+)"|TOOL\.(\w+))/g)) {
+  for (const [, literal, key] of server.matchAll(/register(?:Session)?Tool\(\s*(?:"([^"]+)"|TOOL\.(\w+))/g)) {
     const name = literal ?? constants.get(key);
     assert.ok(name, `cannot resolve a registerTool name (TOOL.${key})`);
     names.push(name);

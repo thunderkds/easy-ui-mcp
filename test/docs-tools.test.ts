@@ -41,3 +41,10 @@ test('README and RUNBOOK name every registered tool, and RUNBOOK states the coun
     `RUNBOOK must say "all ${tools.length} tools"`,
   );
 });
+
+test('T029: README, HARNESS and the docs site explain session_id', () => {
+  for (const file of ['README.md', 'HARNESS.md', 'site/index.html']) {
+    assert.ok(read(file).includes('session_id'), `${file} does not explain session_id`);
+  }
+  assert.match(read('PRD.md'), /FR-021/);
+});
