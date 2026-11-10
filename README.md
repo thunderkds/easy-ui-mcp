@@ -39,7 +39,7 @@ of `extra_hosts: ["host.docker.internal:host-gateway"]` to `docker-compose.yml`.
 
 ## Tools
 
-`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
+`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_get_logs`, `ui_tabs`, `ui_upload_file`, `ui_drag`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
 
 ### Label your steps
 
@@ -87,7 +87,9 @@ Auto-failure screenshots are budgeted per session (`FAILURE_SCREENSHOT_BUDGET`, 
 
 A verdict box (status, target, step/action/failure counts, duration), then the run as labelled steps with per-step outcomes and elapsed time, then any browser problems, and finally the raw action log collapsed behind a disclosure.
 
-Console errors, uncaught page errors, and network-level request failures are captured automatically and listed under **Browser problems** — a flow that passes while the console throws is a false green worth seeing. HTTP error responses such as 404 or 500 do not trigger Playwright's `requestfailed` event and are not listed automatically. Captured problems are informational and never change the verdict. Up to 50 are retained per session; past that the report says the rest were dropped.
+Console errors, uncaught page errors, and network-level request failures are captured automatically and listed under **Browser problems** — a flow that passes while the console throws is a false green worth seeing. HTTP 4xx/5xx responses (a 500 is a *successful* request to Playwright, so `requestfailed` never fires) are captured as `httperror` as `<status> <METHOD> <url>`, with the query string dropped because it may hold tokens. Bodies and headers are never captured. Captured problems are informational and never change the verdict. Up to 50 are retained per session; past that the report says the rest were dropped.
+
+**Debugging mid-flow (T033).** `ui_get_logs` reads the same captured problems while the flow runs (`since: last` returns only what is new, `start` everything; `level: warning` adds console warnings; repeats are grouped `×N`, 50 lines max). A `target=_blank` link or `window.open` popup opens a tab the session tracks: the next response says `New tab opened: <url> (tab 2)`; `ui_tabs` with `list`, `switch` or `close` moves between tabs, and every other tool acts on the current tab. `ui_upload_file(selector)` uploads one built-in file, `default_draft.png` (a tiny PNG), to a file input or to the chooser a button opens; it takes no path, so no other file in the container can be sent to the site under test. `ui_drag(from, to)` drags one element onto another (HTML5 drag-and-drop and pointer-based sortables). Downloads are saved to `reports/downloads/<session>/`, logged as an action, and announced on the next response. Tabs, logs and downloads exist only inside a `ui_start_session` bracket.
 
 Reports are named `session-<YYYYMMDD-HHMMSS>-<slug>-<id8>.{json,html}`: the UTC start time, a readable slug of the session target, and the first 8 characters of the session id. `reports/index.html` lists the sessions (newest first, capped at 500 — older reports stay on disk, unlisted) and is rewritten after every report.
 

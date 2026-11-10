@@ -294,6 +294,10 @@
             <tr><td><code>ui_hover</code></td><td>Move the pointer over an element to reveal hover content such as dropdown menus.</td></tr>
             <tr><td><code>ui_set_checked</code></td><td>Set a checkbox or radio button to checked or unchecked.</td></tr>
             <tr><td><code>ui_scroll</code></td><td>Scroll an element into view, or the page down by one viewport when no selector is given.</td></tr>
+            <tr><td><code>ui_get_logs</code></td><td>Read the console errors, page errors, failed requests and HTTP 4xx/5xx responses captured so far, mid-flow.</td></tr>
+            <tr><td><code>ui_tabs</code></td><td>List, switch to or close the session's browser tabs (popups and <code>target=_blank</code> links open new ones).</td></tr>
+            <tr><td><code>ui_upload_file</code></td><td>Upload the built-in <code>default_draft.png</code> to a file input or to the chooser a button opens. Takes no path.</td></tr>
+            <tr><td><code>ui_drag</code></td><td>Drag one element onto another: drag-and-drop lists, kanban cards, sortables.</td></tr>
             <tr><td><code>ui_assert</code></td><td>Hard check of a JS expression: false fails the whole session.</td></tr>
             <tr><td><code>ui_check</code></td><td>Soft check of a JS expression: recorded in the report, the run continues.</td></tr>
             <tr><td><code>ui_wait_for</code></td><td>Poll a JS expression until it is true; a timeout fails the session.</td></tr>
@@ -347,7 +351,7 @@ ui_click  selector: [data-testid="signin"]</code></pre>
         <li>browser problems: console errors, uncaught page errors and network-level request failures, captured automatically and never changing the verdict (up to 50 per session);</li>
         <li>the raw action log, collapsed behind a disclosure.</li>
       </ul>
-      <p>HTTP error responses such as 404 or 500 do not trigger Playwright's <code>requestfailed</code> event and are not listed automatically. Auto-failure screenshots are budgeted per session (<code>FAILURE_SCREENSHOT_BUDGET</code>, default 3), and identical screenshot content is embedded only once.</p>
+      <p>HTTP 4xx/5xx responses are captured as <code>httperror</code> (status, method and URL without the query string). Auto-failure screenshots are budgeted per session (<code>FAILURE_SCREENSHOT_BUDGET</code>, default 3), and identical screenshot content is embedded only once.</p>
     </section>
 
     <section id="rest-wrapper">
