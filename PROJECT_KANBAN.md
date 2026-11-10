@@ -14,6 +14,7 @@
 
 
 ### In Progress
+- [ ] **T038** — stdio entry point so Glama's `mcp-proxy` can run the server (local HTTP unchanged) | backend-developer | C2 | Risk: Medium | P1 | Requested by user 2026-11-10 (Glama start failed: `REQUEST_TIMEOUT`, server is HTTP-only). Guide: `tasks/TASK_GUIDE_T038.md`. Brainstorm: `BRAINSTORMING_LOG_stdio-glama.md`, Option B approved 2026-11-10
 
 ### Ready for Review
 
