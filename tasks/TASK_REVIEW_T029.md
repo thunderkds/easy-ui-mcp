@@ -1,6 +1,6 @@
-# TASK_REVIEW — T[NNN]: [Short Title]
+# TASK_REVIEW — T029: Multiple concurrent sessions on one MCP connection
 
-> Sibling of `tasks/TASK_GUIDE_T[NNN].md`. Everything here is **filled by the reviewer at Stage
+> Sibling of `tasks/TASK_GUIDE_T029.md`. Everything here is **filled by the reviewer at Stage
 > 4/5** — it is deliberately NOT in the guide, because the implementing agent re-reads the guide on
 > every turn and never fills these two sections.
 >
@@ -29,19 +29,20 @@ or adds `Paused: done not moved — <reason>`. It moves the row only when this b
 numbered decision, `Checks:`, `Memory:`, the `Not done:` auto verify slot with its result, and `Not done:`
 naming the merge — no `<...>` left (`docs/claude-md/tracks.md` `### Auto close-out`).
 
+-->
+
 ## Auto decisions
 
 Mode: auto
-1. <what was decided> — RULE: <the rule>
-2. <what was decided> — FACT: <path>:<line> "<quoted text>"
-3. <what was decided> — DEBATED: <option> (Advocate 1: <its proposal>; Advocate 2: <its proposal>) ⚠ decided for you — please review
-4. <what was decided> — SAFER OPTION: <why> ⚠ decided for you — please review
-Paused: <only when a stop that stays paused the task: which one, and why>
-Checks: tests `<command>` — <result>; reviews <skill — result>; real run `<command>` — printed `<what it printed>` (auto-checked, not /verify)
-Memory: <each entry the memory pass wrote, as `file — entry` | nothing new>
-Not done: merge (yours); <auto verify: running (T182) | auto verify: <result> | /verify (yours)>
-
--->
+1. D1–D5 (no-id rule, cap 3, end rule, 10 min idle, `timed_out` report) and Option A were decided by the user in chat, not by the Supervisor — FACT: tasks/TASK_GUIDE_T029.md:56 "Open decisions D1–D3 below answered by the user (2026-11-10: provisional answers accepted)"
+2. `AGENTS.md` left unchanged although AC11 named it: it is kit-locked and holds no tool docs — FACT: .claude/harness-lock.json:84 "AGENTS.md": "3adb3f13e9c7b1b4c190d2adf66fcaee7850ce272c97fbc1b7f8f6ceb9b1a735"
+3. Code-review P3 findings (hard-coded "10 minutes"/"default 3" in the `ui_start_session` description; shared-page fallback when a chosen session vanishes mid-call) left as suggestions, not applied — RULE: `.claude/skills/code-review/SKILL.md` § Phase 4 — Apply Safe Fixes ("Present P2/P3 fixes as suggestions only")
+4. Spawned backend-developer with the agent's own default model: `PROJECT_SPEC.md` has no `## CLI Model Table` — SAFER OPTION: `docs/claude-md/tracks.md` `### Every user stop and its auto rule` row 14; no Debate was run for it ⚠ decided for you — please review
+5. Built T029 in its own worktree `../easy-ui-mcp-T029` (branch `task/T029-multi-session`) instead of the main checkout, because another session is planning T030–T033 in the main checkout on the same `src/server.ts` — SAFER OPTION: keeps the other session's files untouched; no Debate was run ⚠ decided for you — please review
+6. Accepted the implementer's deviations from Option A: `registerSessionTool` instead of a `withSession` wrapper, AsyncLocalStorage for the per-call session id, positional `onIdle` argument, new `src/tools/connection-sessions.ts` — SAFER OPTION: same behaviour as Option A, every AC tested, code review found no P0–P2; no Debate was run ⚠ decided for you — please review
+Checks: tests `node --import tsx --test test/{multi-session,session,web,docs-tools,api-run-test}.test.ts && npx tsc --noEmit` — re-run by the Supervisor: 26/26, 39/39, 52/52, 2/2, 4/4, tsc exit 0 (implementer: full `npm test` 182/182); reviews code-review — 0 P0/P1/P2, 3 P3; security-review — no findings above 80% confidence (ownership, AsyncLocalStorage, report escaping checked); real run — not yet (auto-checked, not /verify)
+Memory: memory/learnings.md — "Session-aware MCP tools register through `registerSessionTool`; doc tests scan for the registration call"; memory/MEMORY.md — index line for it
+Not done: merge (admin: after the auto verify pass); auto verify: running (T182); merge order with T030–T033 (all edit `src/server.ts`) — yours; readiness incomplete: `PROJECT_SPEC.md` has no `## Readiness` section (yours)
 
 ## Evidence
 
@@ -51,7 +52,7 @@ Not done: merge (yours); <auto verify: running (T182) | auto verify: <result> | 
 | Verification command run | ☑ pass | `node --import tsx --test test/session.test.ts && ... web.test.ts && ... docs-tools.test.ts && npx tsc --noEmit` -> session 39/39 pass, web 52/52 pass, docs-tools 2/2 pass, tsc exit 0. Full `npm test`: `ℹ tests 182 / pass 182 / fail 0` (25 s); also green one at a time: multi-session 26/26, site 13/13, harness-snapshot 3/3, api-run-test 4/4. |
 | Negative cases hold | ☑ pass | Red first: before the implementation both new test files failed to load (missing `connection-sessions.js` / `beginCall` exports). Mutations on the committed tree: (1) `git diff --stat` = `src/server.ts | 2 +-` removing `beginCall` -> `✖ a ui_wait_for that outlasts the idle limit is not killed mid-call`, pass 25 / fail 1. (2) `src/tools/connection-sessions.ts | 2 +-` making `resolve` accept any id -> 8 failures (ownership AC7 unit + MCP tests, D5 idle message, bounded memory, idle-close test), pass 18 / fail 8. Both reverted with `git checkout`. |
 | verify | ☐ pass / ☐ fail / ☐ N/A | [what was observed — must literally state "pass" or "fail" here too, e.g. "skill run, feature confirmed working — pass": the merge gate scans this Notes column for the word "pass", not just the Result column] |
-| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☐ pass / ☐ fail | [what was reviewed vs. skipped, and why] |
+| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☑ pass | Reviewed `src/server.ts`, `src/tools/session.ts`, new `src/tools/connection-sessions.ts`, their callers (`src/api/run-test.ts`, `src/reports/index.ts` status rendering) and the 4 changed test files; skipped `src/tools/web.ts` (untouched, session-agnostic) |
 | Full smoke suite still green (no regression) | ☑ pass | `npm test`: 182 tests, 182 pass, 0 fail (includes `api-run-test`, `health`, `reports`, `web`, `site`, `harness-snapshot`) |
 | **Companion score (easy-verifier)** | ☐ pass / ☐ fail / ☐ N/A | [`overall` and `change_risk` as the tool returned them, the scope, the ref, and the absolute path of the verifier report after a literal `report:` label — e.g. "overall 86 (>= 80), change_risk pass, scope changes, ref `main...HEAD`, report: `/home/me/.easy-verifier-reports/kit/score_changes_20261028T0530Z.html`". The gate reads the path that follows `report:` and nothing else, so with no label, or a path that is absent, the row is unscored — write ☑ N/A instead. ☑ N/A with a reason when neither companion tool was run: the merge gate blocks on ☑ fail only, never on an absent or N/A row] |
 | **UI: Visual regression (diff or verdict pasted)** | ☐ pass / ☐ fail / ☐ N/A | [screenshot path or LLM verdict — required for UI tasks, Hard-Stop Gate 6] |
