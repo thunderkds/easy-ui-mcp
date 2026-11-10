@@ -221,7 +221,7 @@
       <p class="eyebrow">&gt; local ui testing for claude code</p>
       <h1>easy-ui-mcp</h1>
       <p class="lede">A Dockerized MCP server that lets an AI agent such as Claude Code drive a real browser step by step and get back a JSON and HTML report with screenshots.</p>
-      <p>It exposes 16 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
+      <p>It exposes 18 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
       <div class="strip">
         <div><div class="strip__num strip__num--key">16</div><div class="strip__label">MCP tools</div></div>
         <div><div class="strip__num">8765</div><div class="strip__label">port on localhost</div></div>
@@ -276,7 +276,7 @@
 
     <section id="tools">
       <h2>Tools</h2>
-      <p>All 16 tools. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
+      <p>All 18 tools. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
       <div class="table-wrap">
         <table class="names">
           <thead><tr><th scope="col">tool</th><th scope="col">purpose</th></tr></thead>
@@ -287,7 +287,9 @@
             <tr><td><code>ui_navigate</code></td><td>Navigate the browser to a URL.</td></tr>
             <tr><td><code>ui_get_page_state</code></td><td>Return URL, title, up to 200 visible interactive elements with ready-to-use selectors, and visible alert messages.</td></tr>
             <tr><td><code>ui_take_screenshot</code></td><td>Capture the current viewport as a PNG in the reports output.</td></tr>
-            <tr><td><code>ui_click</code></td><td>Click the single element matching a selector.</td></tr>
+            <tr><td><code>ui_click</code></td><td>Click the single element matching a selector; optionally right, double or modifier click, at an offset, or forced.</td></tr>
+            <tr><td><code>ui_click_outside</code></td><td>Click just outside an element, such as a modal backdrop, to close it the way a user would.</td></tr>
+            <tr><td><code>ui_dialog</code></td><td>Answer a native alert, confirm or prompt the browser is holding open, or pre-set the answer for the next one.</td></tr>
             <tr><td><code>ui_fill</code></td><td>Fill the single input matching a selector with a value.</td></tr>
             <tr><td><code>ui_select_option</code></td><td>Choose an option of a <code>&lt;select&gt;</code> by value or visible label.</td></tr>
             <tr><td><code>ui_press_key</code></td><td>Press a key or combo such as Enter, Tab, Escape or Control+a, on an element or on whatever has focus.</td></tr>

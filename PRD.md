@@ -67,6 +67,7 @@ Each FR must trace to at least one User Story.
 | FR-018 | The system must capture browser console errors, uncaught page errors, and failed network requests during a session and surface them in the report. These are informational and must not change session status. | US-005 |
 | FR-019 | The system must provide a separate primitive tool for each of these interactions: `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, each recorded in the session report like the other primitives. | US-002 |
 | FR-020 | Report files must be named `session-<YYYYMMDD-HHMMSS>-<slug>-<id8>` so they say when and what, and the system must rewrite `reports/index.html` (newest first, capped at 500) after every report; a failure to write the index must not fail the report. | US-005 |
+| FR-023 | The system must let a caller close overlays the way a user does and answer native browser dialogs: `ui_click_outside(selector)` clicks a safe point outside an element (never a control); `ui_click` accepts optional `button`, `clickCount`, `modifiers`, `position` and `force`; every native `alert`/`confirm`/`prompt`/`beforeunload` is held open, logged in the report with its message, answer and who answered (`agent`, `pre-set`, `timeout`), and answered by the caller through `ui_dialog` (an unanswered dialog is dismissed after a safety timeout). | US-002 |
 
 ---
 

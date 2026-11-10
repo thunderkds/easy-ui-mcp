@@ -39,7 +39,7 @@ of `extra_hosts: ["host.docker.internal:host-gateway"]` to `docker-compose.yml`.
 
 ## Tools
 
-`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
+`ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_click_outside`, `ui_dialog`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
 
 ### Label your steps
 
@@ -57,6 +57,12 @@ ui_end_session
 ```
 
 Sessions with no `ui_step` calls still render correctly, under a single implicit group.
+
+### Close overlays and answer dialogs
+
+- **Click outside.** `ui_click_outside(selector)` clicks just outside the element you name (pass the modal panel, not the backdrop) and says what it hit, the way a user dismisses a modal by clicking its backdrop. If nothing safe exists around it, it fails and suggests `ui_press_key` with `Escape`.
+- **Click options.** `ui_click` also takes optional `button` (`right` fires `contextmenu`), `clickCount` (2 = double-click), `modifiers` (e.g. `["Shift"]`), `position` (offset inside the element) and `force` (click through a covering element). Without them it is a plain left click.
+- **Native dialogs.** A browser `alert`/`confirm`/`prompt`/`beforeunload` blocks the page, so the server holds it open and asks you. The call that opened it returns at once with `Browser is waiting on a confirm dialog: "Delete?"`. Every other tool is refused until you answer with `ui_dialog` (`accept` or `dismiss`, plus `text` for a prompt); its reply tells you what the interrupted action did next. Calling `ui_dialog` when nothing is waiting pre-sets the answer for the next dialog, which is then answered without pausing (use it in scripted flows). A dialog left unanswered for `DIALOG_TIMEOUT_MS` (default 120000) is dismissed and the next response says so. Every dialog is logged in the report with who answered it.
 
 ### Use the selector from page state
 
