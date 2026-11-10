@@ -14,6 +14,7 @@
 
 
 ### In Progress
+- [ ] **T037** — The current-site dot in the family nav glows like the siblings | backend-developer | ? | Risk: Low | ? | **Started 2026-11-10**: frontend-developer, worktree off main
 
 ### Ready for Review
 
