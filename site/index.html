@@ -221,9 +221,9 @@
       <p class="eyebrow">&gt; local ui testing for claude code</p>
       <h1>easy-ui-mcp</h1>
       <p class="lede">A Dockerized MCP server that lets an AI agent such as Claude Code drive a real browser step by step and get back a JSON and HTML report with screenshots.</p>
-      <p>It exposes 16 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
+      <p>It exposes 20 tools built on Playwright over HTTP/SSE. Claude Code decides what to click; the server only performs each action, logs it, and writes the report when the session ends. No test scripts to write, and no LLM runs inside the container.</p>
       <div class="strip">
-        <div><div class="strip__num strip__num--key">16</div><div class="strip__label">MCP tools</div></div>
+        <div><div class="strip__num strip__num--key">20</div><div class="strip__label">MCP tools</div></div>
         <div><div class="strip__num">8765</div><div class="strip__label">port on localhost</div></div>
         <div><div class="strip__num strip__num--text">Chromium</div><div class="strip__label">the only browser (v1)</div></div>
         <div><div class="strip__num">0</div><div class="strip__label">LLM calls on the server</div></div>
@@ -276,7 +276,7 @@
 
     <section id="tools">
       <h2>Tools</h2>
-      <p>All 16 tools. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
+      <p>All 20 tools. A session is bracketed by <code>ui_start_session</code> and <code>ui_end_session</code>; the actions in between are logged into the report.</p>
       <div class="table-wrap">
         <table class="names">
           <thead><tr><th scope="col">tool</th><th scope="col">purpose</th></tr></thead>
