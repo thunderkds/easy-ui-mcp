@@ -78,3 +78,4 @@ Running log of key decisions, patterns, and lessons learned across tasks.
 |------|---------|------------|
 | 2026-07-01 | Chose primitive-tools + session-bracketing architecture (Option A) over server-side LLM planning — no LLM credentials needed in container, deterministic, matches playwright-mcp pattern | Stage 0.5 brainstorming |
 | 2026-07-01 | MCP transport locked to HTTP/SSE on localhost:8765, not stdio bridge — cleaner fit for an always-on Docker service | Stage 0.5 grilling |
+| 2026-11-10 | T029–T034 landed: multi-session per connection (`session_id`) plus four browser-action slices (seeing the page, overlays/dialogs, real sizes/typing, logs/tabs/upload/drag/downloads); 26 tools. Parallel batches were integrated by merge, not rebase | T029–T034 |

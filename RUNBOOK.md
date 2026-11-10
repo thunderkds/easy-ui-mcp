@@ -52,6 +52,19 @@ Ordered steps to ship a release. Commands copy-pasteable.
 
 ---
 
+## Configuration
+
+Environment variables the server reads (`docker-compose.yml` sets none today; add them under an `environment:` key of the `easy-ui-mcp` service, then `docker compose up -d`). All are optional.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `SESSION_TIMEOUT_MS` | `600000` (10 min) | A session with no tool call for this long is closed and its report written with status `timed_out`. |
+| `MAX_SESSIONS_PER_CONNECTION` | `3` | Open sessions one MCP connection may hold. `ui_start_session` past it is refused with "Session limit reached". |
+| `DIALOG_TIMEOUT_MS` | `120000` (2 min) | How long a native dialog is held for `ui_dialog` before it is dismissed automatically (a positive number; anything else falls back to the default). Read per dialog, so no restart is needed for a test. |
+| `FAILURE_SCREENSHOT_BUDGET` | `3` | Auto-failure screenshots taken per session. |
+
+---
+
 ## Common Failure Modes & Remediation
 
 | Symptom | Likely cause | Remediation |
@@ -60,6 +73,9 @@ Ordered steps to ship a release. Commands copy-pasteable.
 | `docker compose up -d` succeeds but `PORTS` column is empty in `docker compose ps` | Observed transient Docker Compose quirk in this environment | `docker compose down` then `docker compose up -d` again (full cycle, not just `up`) |
 | `npm test` appears to hang or fails with `EADDRINUSE` | Port 8765 is held (usually by the running Docker container): two test files start their own server on that hard-coded port | `docker compose stop`, run `npm test`, then `docker compose up -d`. A single file can be run alone: `node --import tsx --test test/<file>.test.ts` |
 | Malformed JSON POST to `/mcp` returns a raw stack trace | Missing JSON-parse error handler (fixed in T001, watch for regression if `src/server.ts`'s middleware order changes) | Confirm the JSON-parse error middleware is registered immediately after `express.json()` |
+| MCP calls refused with "A confirm dialog is waiting: \"...\" — answer it with ui_dialog first" (or "An alert dialog", prompt, beforeunload) | A native browser dialog opened and is held for the agent to answer; every other tool is refused until it is | Call `ui_dialog` with `accept` or `dismiss` (add `text` for a prompt). An unanswered dialog is dismissed after `DIALOG_TIMEOUT_MS` (default 120000) |
+| `ui_start_session` fails with "Session limit reached" | The connection already holds `MAX_SESSIONS_PER_CONNECTION` (default 3) open sessions | `ui_end_session` with a `session_id` to free one, or raise `MAX_SESSIONS_PER_CONNECTION` and recreate the container |
+| `reports/downloads/` keeps growing | Pages under test trigger downloads; each session saves into `reports/downloads/<session>/` | Each session keeps at most 20 downloads of 25 MB each and discards the rest, but nothing deletes old sessions' files: remove old `reports/downloads/<session>/` folders by hand |
 
 ---
 
@@ -76,3 +92,4 @@ Ordered steps to ship a release. Commands copy-pasteable.
 | Version / Tag | Date | Scope (Task IDs) | Deployer | Outcome |
 |---------------|------|------------------|----------|---------|
 | v0.1.0 | 2026-07-01 | T001, T002, T003, T004, T005 | hungnh1110 (via Supervisor) | Planned — GO, awaiting operator execution |
+| main @ 4de8561 | 2026-11-10 | T029, T030, T031, T032, T033, T034 | hungnh1110 (via Supervisor) | Merged + pushed; container rebuild not yet verified |

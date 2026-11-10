@@ -206,6 +206,10 @@
       <p class="sidenav__label">// reference</p>
       <a class="sidenav__item" href="#tools">Tools</a>
       <a class="sidenav__item" href="#writing-a-flow">Writing a flow</a>
+      <a class="sidenav__item" href="#seeing-the-page">Seeing the page</a>
+      <a class="sidenav__item" href="#overlays-and-dialogs">Overlays and dialogs</a>
+      <a class="sidenav__item" href="#real-sizes-and-typing">Sizes and typing</a>
+      <a class="sidenav__item" href="#debugging-and-tabs">Debugging and tabs</a>
       <a class="sidenav__item" href="#reports">Reports</a>
       <a class="sidenav__item" href="#rest-wrapper">REST wrapper</a>
     </div>
@@ -354,6 +358,57 @@ ui_click  selector: [data-testid="signin"]</code></pre>
         </table>
       </div>
       <p><strong>Never</strong> call <code>ui_assert</code> in a retry loop to wait for something: the first false result permanently fails the run even if the app is fine. That is what <code>ui_wait_for</code> is for. For <code>ui_check</code> and <code>ui_wait_for</code>, a condition that cannot run at all (no page open, or the expression throws) is always a hard failure.</p>
+    </section>
+
+    <section id="seeing-the-page">
+      <h2>Seeing the page</h2>
+      <p>Before you click, ask the page what it looks like right now. <code>ui_get_page_state</code> lists up to 200 visible interactive elements, each with a verified <code>selector</code> and, when it differs from the default, its <code>state</code>. Custom widgets are included: <code>combobox</code>, <code>listbox</code>, <code>option</code>, <code>switch</code>, <code>slider</code>, <code>spinbutton</code>, <code>searchbox</code>, <code>treeitem</code>, <code>summary</code>, <code>contenteditable</code> regions, and anything with a role and <code>tabindex &gt;= 0</code>.</p>
+      <p><code>overlays</code> lists each open dialog as <code>{role, name, selector, modal}</code>, topmost first. The key is absent when nothing is open, so a modal opening or closing shows up as the key appearing or disappearing. <code>focused</code> is <code>{role, name, selector}</code> for the element holding focus, and is absent when focus is on the page body, in an iframe or in a shadow root.</p>
+      <p><code>ui_get_text</code> reads text: the trimmed visible text of one element, or of the whole page body with no selector, cut at 4000 characters with a note of the real length. It fails on 0 or more than 1 match and on an element that is not visible. The text it reads is returned to you but not stored in the report.</p>
+<pre><code>ui_get_page_state
+ui_get_text       selector: "[data-testid=\"order-total\"]"
+ui_get_text</code></pre>
+    </section>
+
+    <section id="overlays-and-dialogs">
+      <h2>Closing overlays and answering dialogs</h2>
+      <h3>Click outside</h3>
+      <p><code>ui_click_outside(selector)</code> clicks just outside the element you name (pass the modal panel, not the backdrop) and says what it hit, the way a user dismisses a modal by clicking its backdrop. If nothing safe exists around it, it fails and suggests <code>ui_press_key</code> with <code>Escape</code>.</p>
+      <p><code>ui_click</code> also takes optional <code>button</code> (<code>right</code> fires <code>contextmenu</code>), <code>clickCount</code> (2 = double-click), <code>modifiers</code> (for example <code>["Shift"]</code>), <code>position</code> (an offset inside the element) and <code>force</code> (click through a covering element). Without them it is a plain left click.</p>
+      <h3>Native dialogs</h3>
+      <p>A browser <code>alert</code>, <code>confirm</code>, <code>prompt</code> or <code>beforeunload</code> blocks the page, so the server holds it open and asks you. The call that opened it returns at once with <code>Browser is waiting on a confirm dialog: "Delete?"</code>. Every other tool is refused until you answer with <code>ui_dialog</code> (<code>accept</code> or <code>dismiss</code>, plus <code>text</code> for a prompt); its reply tells you what the interrupted action did next.</p>
+      <p>Calling <code>ui_dialog</code> when nothing is waiting pre-sets the answer for the next dialog, which is then answered without pausing: use it in scripted flows. A dialog left unanswered for <code>DIALOG_TIMEOUT_MS</code> (default 120000) is dismissed and the next response says so. Every dialog is logged in the report with who answered it.</p>
+<pre><code>ui_click          selector: "button:text-is(\"Delete\")"
+<span class="c"># -&gt; Browser is waiting on a confirm dialog: "Delete?"</span>
+ui_dialog         action: "accept"
+ui_click_outside  selector: "[role=\"dialog\"]"</code></pre>
+    </section>
+
+    <section id="real-sizes-and-typing">
+      <h2>Real sizes and typing</h2>
+      <p><code>ui_start_session</code> takes optional <code>device</code> (a Playwright device name such as <code>"iPhone 13"</code>: mobile user agent, touch, pixel ratio, size), <code>viewport</code> <code>{width, height}</code> (overrides the device size), <code>colorScheme</code> (<code>light</code> or <code>dark</code>), <code>locale</code> and <code>timezoneId</code>. An unknown device is an error that lists the valid names. With none of them the browser is a 1280x720 desktop. They apply to that session only, and appear in the report header. <code>ui_set_viewport(width, height)</code> resizes mid-flow (320-3840 by 320-2160); layouts can change, so call <code>ui_get_page_state</code> again afterwards.</p>
+<pre><code>ui_start_session  target: "checkout on a phone"  device: "iPhone 13"  colorScheme: "dark"
+ui_set_viewport   width: 768  height: 1024</code></pre>
+      <p><code>ui_fill</code> sets the whole value at once. <code>ui_type(selector, text, delayMs?)</code> types key by key (<code>keydown</code>, <code>input</code> and <code>keyup</code> per character, appended to what is there), for autocomplete, search-as-you-type, masked inputs and OTP boxes. The report only says how many characters were typed, and the text is replaced by <code>••••</code> when the target is a password, one-time-code or card-number field.</p>
+      <p><code>ui_navigate_history(action)</code> with <code>back</code>, <code>forward</code> or <code>reload</code> keeps the history and form state that a second <code>ui_navigate</code> would lose. <code>ui_scroll</code> also takes <code>container</code> (a scroll area such as a chat panel or virtual table) and <code>direction</code> (<code>down</code>, <code>up</code>, <code>left</code>, <code>right</code>, <code>top</code>, <code>bottom</code>), moves one step per call and says when the end is reached, so a loop over a lazy list knows when to stop.</p>
+      <p><code>ui_take_screenshot</code> also takes <code>selector</code> (just that element), <code>fullPage</code> (the whole page, cut at 16000 device pixels tall and 3840px wide) and <code>inline: true</code>, which returns the PNG as image content (scaled to fit 1280x8000px) as well as writing it to <code>reports/</code>.</p>
+<pre><code>ui_type             selector: "[name=\"city\"]"  text: "Han"  delayMs: 50
+ui_navigate_history action: "reload"
+ui_take_screenshot  selector: "[role=\"dialog\"]"  inline: true</code></pre>
+    </section>
+
+    <section id="debugging-and-tabs">
+      <h2>Debugging and working across tabs</h2>
+      <p><code>ui_get_logs</code> reads the browser problems captured so far while the flow runs: console errors, uncaught page errors, failed requests and HTTP 4xx/5xx responses (method and URL, never bodies or headers). <code>since: last</code> (default) returns only what is new, <code>start</code> returns everything, and <code>level: warning</code> adds console warnings. Repeats are grouped as <code>×N</code>, at most 50 lines per call. Use it when an action seemed to do nothing.</p>
+      <p>A <code>target=_blank</code> link or <code>window.open</code> popup opens a tab the session tracks: the next response says <code>New tab opened: &lt;url&gt; (tab 2)</code>, but the session does not switch to it. <code>ui_tabs</code> with <code>list</code>, <code>switch</code> or <code>close</code> moves between tabs (numbered from 1), and every other tool acts on the current tab.</p>
+      <p><code>ui_upload_file(selector)</code> uploads one built-in file, <code>default_draft.png</code> (a tiny PNG), to a file input or to the chooser a button opens. It takes no path, so no other file in the container can be sent to the site under test. <code>ui_drag(from, to)</code> drags one element onto another, for HTML5 drag-and-drop and pointer-based sortables.</p>
+      <p>Downloads are saved to <code>reports/downloads/&lt;session&gt;/</code>, logged as an action and announced on the next response. A session keeps at most 20 downloads of up to 25 MB each; a download over either cap is discarded and the next response says so (once, for the count cap). Tabs, logs and downloads exist only inside a <code>ui_start_session</code> bracket and belong to one session: with several open, pass <code>session_id</code>.</p>
+<pre><code>ui_click          selector: "a:text-is(\"Invoice (opens in a new tab)\")"
+<span class="c"># -&gt; ... New tab opened: https://app.test/invoice/42 (tab 2)</span>
+ui_tabs           action: "switch"  index: 2
+ui_get_logs       since: "start"
+ui_upload_file    selector: "input[type=file]"
+ui_drag           from: "[data-testid=\"card-1\"]"  to: "[data-testid=\"column-done\"]"</code></pre>
     </section>
 
     <section id="reports">

@@ -79,6 +79,10 @@ const SECTION_IDS = [
   'networking',
   'tools',
   'writing-a-flow',
+  'seeing-the-page',
+  'overlays-and-dialogs',
+  'real-sizes-and-typing',
+  'debugging-and-tabs',
   'reports',
   'rest-wrapper',
   'troubleshooting',
@@ -177,6 +181,28 @@ test('T025 AC4/AC9f: every section id exists in order, and every in-page href po
   assert.ok(hrefs.length >= SECTION_IDS.length, 'nav links to every section');
   for (const target of hrefs) assert.ok(ids.includes(target), `href="#${target}" points at an existing id`);
   for (const id of SECTION_IDS) assert.ok(hrefs.includes(id), `a link targets #${id}`);
+});
+
+test('T035: the four guide sections are in the sidebar and carry their facts', () => {
+  const html = page();
+  const nav = html.slice(html.indexOf('id="sidenav"'), html.indexOf('<main'));
+  const section = (id: string) => {
+    const start = html.indexOf(`<section id="${id}"`);
+    assert.ok(start > -1, `section #${id} exists`);
+    return html.slice(start, html.indexOf('</section>', start));
+  };
+  const facts: Record<string, string[]> = {
+    'seeing-the-page': ['ui_get_page_state', 'ui_get_text', 'overlays', 'focused', '4000'],
+    'overlays-and-dialogs': ['ui_click_outside', 'ui_dialog', 'clickCount', 'DIALOG_TIMEOUT_MS', '120000'],
+    'real-sizes-and-typing': ['iPhone 13', 'ui_set_viewport', 'ui_type', 'ui_navigate_history', '1280x8000', 'fullPage'],
+    'debugging-and-tabs': ['ui_get_logs', 'ui_tabs', 'ui_upload_file', 'default_draft.png', 'ui_drag', 'reports/downloads/', '25 MB', '20'],
+  };
+  for (const [id, needles] of Object.entries(facts)) {
+    assert.ok(nav.includes(`href="#${id}"`), `sidebar links to #${id}`);
+    const body = section(id);
+    for (const needle of needles) assert.ok(body.includes(needle), `#${id} mentions ${needle}`);
+    assert.match(body, /<pre><code>/, `#${id} has an example call`);
+  }
 });
 
 test('T025 AC5/AC7: shell and accessibility landmarks', () => {

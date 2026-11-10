@@ -107,6 +107,23 @@ Page state also tells you what the page looks like right now, so you do not have
 - **Scrolling.** `ui_scroll` also takes `container` (the selector of a scroll area such as a chat panel, virtual table or carousel) and `direction` (`down`, `up`, `left`, `right`, `top`, `bottom`; default `down`). It moves one viewport (or container) step per call and says when the end was reached, so a loop over a lazy list knows when to stop.
 - **Screenshots.** `ui_take_screenshot` also takes `selector` (just that element), `fullPage` (the whole page, cut at 16000 device pixels tall and 3840px wide) and `inline: true`, which returns the PNG as image content (scaled to fit 1280x8000px) as well as writing it to `reports/`.
 
+### Debug a flow and work across tabs
+
+- **Logs.** `ui_get_logs` reads the browser problems captured so far: console errors, uncaught page errors, failed requests and HTTP 4xx/5xx responses (method and URL, never bodies or headers). `since: last` (default) returns only what is new since the previous call, `start` everything; `level: warning` adds console warnings. Repeats are grouped `×N`, 50 lines at most. Use it when an action seemed to do nothing.
+- **Tabs.** A `target=_blank` link or `window.open` popup opens a tab the session tracks. The next response says `New tab opened: <url> (tab 2)` but does not switch to it. `ui_tabs` with `list`, `switch` (with `index`) or `close` moves between tabs, numbered from 1; every other tool acts on the current tab. The last tab cannot be closed.
+- **Upload.** `ui_upload_file(selector)` uploads one built-in file, `default_draft.png` (a tiny PNG), to an `input[type=file]` (hidden ones work) or to the chooser a button or label opens. It takes no path, so no other file in the container can be sent to the site under test.
+- **Drag.** `ui_drag(from, to)` drags one element onto another with real pointer events: HTML5 drag-and-drop lists, kanban cards and pointer-based sortables.
+- **Downloads.** A download is saved to `reports/downloads/<session>/`, logged as an action and announced on the next response (`Downloaded: <name> (<bytes> bytes)`). A session keeps at most 20 downloads of up to 25 MB each; a download over either cap is discarded and the next response says so.
+
+```
+ui_click          selector: <link that opens a new tab>   -> ... New tab opened: <url> (tab 2)
+ui_tabs           action: "switch"  index: 2
+ui_get_logs       since: "start"
+ui_tabs           action: "close"
+```
+
+Tabs, logs and downloads exist only inside a `ui_start_session` bracket and belong to one session: with several open, pass `session_id`, and a popup opened in one session is neither listed nor announced in another.
+
 ### Verifying vs waiting — pick the right one
 
 A session is marked `failed` if any hard action fails, so *how* you verify decides whether the report tells the truth.
@@ -129,7 +146,7 @@ A verdict box (status, target, step/action/failure counts, duration), then the r
 
 Console errors, uncaught page errors, and network-level request failures are captured automatically and listed under **Browser problems** — a flow that passes while the console throws is a false green worth seeing. HTTP 4xx/5xx responses (a 500 is a *successful* request to Playwright, so `requestfailed` never fires) are captured as `httperror` as `<status> <METHOD> <url>`, with the query string dropped because it may hold tokens. Bodies and headers are never captured. Captured problems are informational and never change the verdict. Up to 50 are retained per session; past that the report says the rest were dropped.
 
-**Debugging mid-flow (T033).** `ui_get_logs` reads the same captured problems while the flow runs (`since: last` returns only what is new, `start` everything; `level: warning` adds console warnings; repeats are grouped `×N`, 50 lines max). A `target=_blank` link or `window.open` popup opens a tab the session tracks: the next response says `New tab opened: <url> (tab 2)`; `ui_tabs` with `list`, `switch` or `close` moves between tabs, and every other tool acts on the current tab. `ui_upload_file(selector)` uploads one built-in file, `default_draft.png` (a tiny PNG), to a file input or to the chooser a button opens; it takes no path, so no other file in the container can be sent to the site under test. `ui_drag(from, to)` drags one element onto another (HTML5 drag-and-drop and pointer-based sortables). Downloads are saved to `reports/downloads/<session>/`, logged as an action, and announced on the next response. Tabs, logs and downloads exist only inside a `ui_start_session` bracket and belong to one session: with several open, pass `session_id`, and a popup opened in one session is neither listed nor announced in another.
+**Debugging mid-flow.** `ui_get_logs` reads these same captured problems while the flow runs; see [Debug a flow and work across tabs](#debug-a-flow-and-work-across-tabs).
 
 Reports are named `session-<YYYYMMDD-HHMMSS>-<slug>-<id8>.{json,html}`: the UTC start time, a readable slug of the session target, and the first 8 characters of the session id. `reports/index.html` lists the sessions (newest first, capped at 500 — older reports stay on disk, unlisted) and is rewritten after every report.
 
