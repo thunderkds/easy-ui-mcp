@@ -44,6 +44,9 @@ import {
   setCurrentStep,
   getCurrentStep,
   attachDialogHandler,
+  applyDialogInterruption,
+  interruptedByDialog,
+  quoteDialogText,
   raceDialog,
   answerDialog,
   waitingDialogText,
@@ -116,6 +119,10 @@ type ToolResponse = { isError?: boolean; content: Array<{ type: "text"; text: st
 const DIALOG_EXEMPT_TOOLS = new Set(["ui_start_session", "ui_end_session", "ui_step", TOOL.dialog]);
 /** Tools that may create the legacy page, so the dialog listener must exist before they run. */
 const PAGE_CREATING_TOOLS = new Set(["ui_navigate"]);
+/** Tools whose own action opens a dialog (a click, a key press), so a timeout on them is expected. */
+const OPENER_TOOLS = new Set(["ui_click", "ui_press_key"]);
+/** Replies standing in for a call a dialog interrupted; ui_dialog states them as they are. */
+const interruptedReplies = new WeakSet<object>();
 
 function buildMcpServer(): McpServer {
   const server = new McpServer({ name: "easy-ui-mcp", version: "0.1.0" });
@@ -158,14 +165,12 @@ function buildMcpServer(): McpServer {
     soft?: boolean
   ): Promise<void> {
     if (!activeSessionId) return;
-    // A call a native dialog took over (T031) hits its own timeout while the page is
-    // blocked, so a failure here says nothing about the app: keep it, but do not fail the run.
-    if (!ok && !soft && callContext.getStore()?.abandoned) {
-      soft = true;
-      detail = `Interrupted by a native dialog; outcome unknown (${detail ?? "no detail"})`;
-    }
-    const entry: LoggedAction = { timestamp: new Date().toISOString(), action: name, args, ok, detail };
+    let entry: LoggedAction = { timestamp: new Date().toISOString(), action: name, args, ok, detail };
     if (soft) entry.soft = true;
+    // A call a native dialog took over (T031) hits its own timeout while the page is blocked, so
+    // a failure that settles BEFORE the dialog is answered says nothing about the app; one after
+    // the answer is real and stays hard.
+    entry = applyDialogInterruption(getSessionPage(activeSessionId), callContext.getStore(), entry);
     const step = getCurrentStep(activeSessionId);
     if (step) entry.step = step;
     logAction(activeSessionId, entry);
@@ -233,16 +238,14 @@ function buildMcpServer(): McpServer {
       const outcome = await raceDialog(target, (call) =>
         callContext.run(call, async () => {
           const res = await handler(args);
-          if (!(call.abandoned && res.isError)) return res;
+          if (!res.isError || !interruptedByDialog(target, call)) return res;
           const why = res.content.map((c) => c.text).join(" ");
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `The call was interrupted by a native dialog and its own outcome is unknown (${why}). Check the page with ui_get_page_state.`,
-              },
-            ],
-          };
+          const text = OPENER_TOOLS.has(name)
+            ? `The ${name} that opened the dialog was interrupted by it; that is expected.`
+            : `The call was interrupted by the dialog and its own outcome is unknown (${why}).`;
+          const replaced: ToolResponse = { content: [{ type: "text" as const, text }] };
+          interruptedReplies.add(replaced);
+          return replaced;
         })
       );
       if (outcome.kind === "waiting") return { content: [{ type: "text", text: outcome.text }] };
@@ -263,7 +266,7 @@ function buildMcpServer(): McpServer {
           content: [{ type: "text", text: "A session is already active — call ui_end_session first" }],
         };
       }
-      const record = await startSession(target);
+      const record = await startSession(target, undefined, { holdDialogs: true });
       activeSessionId = record.id;
       return {
         content: [{ type: "text", text: `Session ${record.id} started for target "${target}"` }],
@@ -418,6 +421,19 @@ function buildMcpServer(): McpServer {
     }
   );
 
+  /** The page's URL and title right now, for replies that follow a dialog answer; never blocks on a blocked page. */
+  async function pageNow(target: Page): Promise<string> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const title = await Promise.race([
+      target.title().catch(() => ""),
+      new Promise<string>((resolve) => {
+        timer = setTimeout(() => resolve(""), 2_000);
+      }),
+    ]);
+    clearTimeout(timer);
+    return `${target.url()} (title: ${JSON.stringify(title)})`;
+  }
+
   server.registerTool(
     TOOL.dialog,
     {
@@ -451,12 +467,21 @@ function buildMcpServer(): McpServer {
           ],
         };
       }
-      const lines = [`${action === "accept" ? "Accepted" : "Dismissed"} the ${answered.type} dialog "${answered.message}".`];
+      const lines = [
+        `${action === "accept" ? "Accepted" : "Dismissed"} the ${answered.type} dialog ${quoteDialogText(answered.message ?? "")}.`,
+      ];
       const done = answered.result as ToolResponse | undefined;
-      if (answered.stillRunning) {
-        lines.push("The action that opened it is still running — check the page with ui_get_page_state.");
-      } else if (done?.content) {
-        lines.push(`The interrupted call then returned: ${done.content.map((c) => c.text).join(" ")}`);
+      const now = await pageNow(target);
+      if (answered.type === "beforeunload" && action === "dismiss") {
+        lines.push(`Stayed on ${now}.`);
+      } else {
+        if (answered.stillRunning) {
+          lines.push("The action that opened it is still running.");
+        } else if (done?.content) {
+          const said = done.content.map((c) => c.text).join(" ");
+          lines.push(interruptedReplies.has(done) ? said : `The interrupted call then returned: ${said}`);
+        }
+        lines.push(`Page now: ${now}.`);
       }
       return { content: [{ type: "text", text: lines.join(" ") }] };
     }

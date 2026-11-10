@@ -127,6 +127,22 @@ test("describe renders the T031 click options, click-outside and dialog actions 
   );
 });
 
+test("describe notes the dialog a click or key press opened, with the right article (T031)", () => {
+  assert.equal(
+    describe(action({ action: "ui_click", args: { selector: "#del", opensDialog: "confirm" } })),
+    "Clicked #del (opened a confirm dialog)"
+  );
+  assert.equal(
+    describe(action({ action: "ui_press_key", args: { key: "Enter", opensDialog: "alert" } })),
+    "Pressed Enter (opened an alert dialog)"
+  );
+  assert.equal(describe(action({ action: "ui_click", args: { selector: "#x" } })), "Clicked #x");
+  assert.equal(
+    describe(action({ action: "dialog", args: { type: "alert", message: "Hi", answer: "dismiss", answeredBy: "auto" } })),
+    'Browser alert dialog "Hi" — dismissed (answered by auto)'
+  );
+});
+
 test("describe truncates long values in the T019 sentences and keeps them to one line (AC7)", () => {
   const long = "x".repeat(500);
   const text = describe(action({ action: "ui_select_option", args: { selector: "#s", value: long } }));

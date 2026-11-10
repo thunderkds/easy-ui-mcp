@@ -334,7 +334,7 @@ function outcome(action: LoggedAction): { cls: string; label: string } {
  * one line. A data: URL or a deep selector chain otherwise swamps the step. */
 const MAX_DESCRIBED_VALUE = 120;
 
-function truncate(value: string): string {
+export function truncate(value: string): string {
   return value.length <= MAX_DESCRIBED_VALUE
     ? value
     : `${value.slice(0, MAX_DESCRIBED_VALUE)}… (${value.length} chars)`;
@@ -354,6 +354,12 @@ function arg(action: LoggedAction, name: string): string | undefined {
  * in the renderer to unit-test.
  */
 export function describe(action: LoggedAction): string {
+  const text = describeAction(action);
+  const opened = action.args?.opensDialog;
+  return typeof opened === "string" ? `${text} (opened ${opened === "alert" ? "an" : "a"} ${truncate(opened)} dialog)` : text;
+}
+
+function describeAction(action: LoggedAction): string {
   const selector = arg(action, "selector");
   const condition = arg(action, "condition");
   switch (action.action) {
