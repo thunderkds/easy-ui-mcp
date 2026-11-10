@@ -433,6 +433,8 @@ interface RawElement {
   name: string;
   testId: string;
   id: string;
+  /** aria-label of a contenteditable element (Playwright's role=textbox does not match those). */
+  editableLabel?: string;
 }
 
 /** What the in-page pass returns per element; `state` is null when every field is default. */
@@ -490,6 +492,10 @@ async function buildSelector(
   }
   if (raw.id) {
     const candidate = `#${cssEscapeIdent(raw.id)}`;
+    if (await isOnlyTarget(candidate)) return candidate;
+  }
+  if (raw.editableLabel) {
+    const candidate = `[contenteditable][aria-label=${quoteSelectorString(raw.editableLabel)}]`;
     if (await isOnlyTarget(candidate)) return candidate;
   }
   // The role comes from a page attribute; only plain tokens are put in a selector.
@@ -685,6 +691,7 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
             name: name.length > 80 ? `${name.slice(0, 80)}…` : name,
             testId: el.getAttribute("data-testid") ?? "",
             id: el.id,
+            editableLabel: editable ? (el.getAttribute("aria-label") ?? "").trim() : "",
             state: Object.keys(state).length > 0 ? state : null,
           };
         });
@@ -836,7 +843,14 @@ export async function getText(page: Page | undefined, selector?: string): Promis
     return { ok: false, error: "No active page — call ui_navigate first" };
   }
   let text = "";
-  const result = await onUniqueLocator(page, selector ?? "body", async (locator) => {
+  // An empty selector means "no selector": the whole page, not a Playwright parse error.
+  const target = selector?.trim() || undefined;
+  const result = await onUniqueLocator(page, target ?? "body", async (locator) => {
+    // innerText of a hidden element falls back to raw textContent (stale dialog/error text).
+    // Not checked for the bare body: an empty page has a zero-size body that is still "the page".
+    if (target && !(await locator.isVisible())) {
+      return { ok: false, error: `Element "${target}" is not visible` };
+    }
     const raw = (await locator.innerText({ timeout: 5_000 })).trim();
     text =
       raw.length > MAX_TEXT_CHARS ? `${raw.slice(0, MAX_TEXT_CHARS)}…(truncated, ${raw.length} chars)` : raw;

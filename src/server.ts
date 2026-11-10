@@ -563,7 +563,7 @@ function buildMcpServer(): McpServer {
       title: TOOL.getText,
       description:
         "Read the trimmed visible text of the single element matching the selector, or of the whole page body when no selector is given (cut at 4000 characters with a note of the real length). " +
-        "Use it to check content: a table value, a heading, an error under a field, a total. Fails if the selector matches no element or more than one." +
+        "Use it to check content: a table value, a heading, an error under a field, a total. Fails if the selector matches no element, more than one, or an element that is not visible." +
         NTH_NOTE,
       inputSchema: {
         selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; omit to read the whole page body"),

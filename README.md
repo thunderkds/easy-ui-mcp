@@ -74,7 +74,7 @@ Page state also tells you what the page looks like right now, so you do not have
 - `overlays` lists each open dialog as `{role, name, selector, modal}`, topmost first (`role=dialog`, `alertdialog`, `dialog[open]`, `aria-modal`). The key is absent when nothing is open, so a modal opening or closing shows up as the key appearing or disappearing.
 - `focused` is `{role, name, selector}` for the element holding focus. It is absent when focus is on the page body, in an iframe or in a shadow root.
 
-`ui_get_text` reads text: the trimmed visible text of one element (`selector`), or of the whole page body with no selector, cut at 4000 characters with a note of the real length. Use it to check a total, a heading or a field error. It fails on 0 or more than 1 match, like `ui_click`. The text it reads is returned to you but not stored in the report.
+`ui_get_text` reads text: the trimmed visible text of one element (`selector`), or of the whole page body with no selector, cut at 4000 characters with a note of the real length. Use it to check a total, a heading or a field error. It fails on 0 or more than 1 match, like `ui_click`, and on an element that is not visible. The text it reads is returned to you but not stored in the report.
 
 ### Verifying vs waiting — pick the right one
 

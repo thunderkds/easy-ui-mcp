@@ -686,6 +686,51 @@ test("getText fails like ui_click on 0 or >1 matches and with no page (T030 AC7)
   assert.match(noPage.error ?? "", /no active page/i);
 });
 
+test("getText fails on a hidden element instead of returning its stale text (T030 AC6)", async () => {
+  await fixturePage.setContent(
+    `<dialog id="d"><p>Really?</p><button>OK</button></dialog><p id="gone" style="display:none">old error</p><p id="vh" style="visibility:hidden">ghost</p>`,
+    { waitUntil: "domcontentloaded" }
+  );
+  await fixturePage.evaluate("document.getElementById('d').showModal()");
+  const open = await getText(fixturePage, "#d");
+  assert.equal(open.ok, true);
+  assert.match(open.text ?? "", /Really\?/);
+
+  await fixturePage.evaluate("document.getElementById('d').close()");
+  for (const sel of ["#d", "#gone", "#vh"]) {
+    const hidden = await getText(fixturePage, sel);
+    assert.equal(hidden.ok, false, sel);
+    assert.equal(hidden.text, undefined, sel);
+    assert.match(hidden.error ?? "", new RegExp(`Element "${sel}" is not visible`));
+  }
+});
+
+test("getText treats an empty or whitespace selector as the whole body (T030)", async () => {
+  await fixturePage.setContent("<p>hello page</p>", { waitUntil: "domcontentloaded" });
+  for (const sel of ["", "   "]) {
+    const result = await getText(fixturePage, sel);
+    assert.equal(result.ok, true, JSON.stringify(sel));
+    assert.equal(result.text, "hello page");
+  }
+});
+
+test("getPageState gives a contenteditable a short stable selector, not a positional one (T030 AC2)", async () => {
+  const result = await pageStateOf(`
+    <div contenteditable="true" aria-label='Not"es'>.</div>
+    <div contenteditable="true" aria-label="Other">.</div>
+    <div contenteditable="" aria-label="Twin">.</div><div contenteditable="true" aria-label="Twin">.</div>`);
+  const notes = byName(result.elements, 'Not"es');
+  assert.ok(notes);
+  assert.equal(notes.role, "textbox");
+  assert.ok(!notes.selector.includes("nth="), notes.selector);
+  assert.ok(notes.selector.length < 80, notes.selector);
+  assert.equal(await fixturePage.locator(notes.selector).count(), 1);
+  assert.equal((await fill(fixturePage, notes.selector, "typed")).ok, true);
+  assert.equal(await fixturePage.locator(notes.selector).textContent(), "typed");
+  // Two identical names stay unique via the positional fallback.
+  await assertAllSelectorsUnique((result.elements ?? []).filter((e) => e.name === "Twin"));
+});
+
 // --- ui_take_screenshot ---
 
 // --- T019: interaction primitives ---
