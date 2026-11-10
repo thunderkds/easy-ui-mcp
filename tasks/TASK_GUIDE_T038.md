@@ -70,3 +70,8 @@ Glama-side config and pinned SHA (user does it after merge); a Docker image chan
 - [ ] `memory/` updated (Supervisor only)
 - [ ] KANBAN updated
 - [ ] TASK_GUIDE marked complete
+
+## Demonstration
+**BEFORE**: Observed on Glama 2026-11-10T10:41–10:42 (image built from `main`, start `mcp-proxy -- node dist/server.js`): `[mcp-proxy] ignoring non-JSON output [ 'easy-ui-mcp server listening on http://localhost:8765' ]`, then `could not start the proxy SdkError: Request timed out` (`REQUEST_TIMEOUT`, 60000 ms), `transport event { type: 'close' }`. The proxy never got an `initialize` reply over stdio.
+**AFTER**: _(fill at Stage 5: live stdio handshake against built `dist/stdio.js` returns the tool list; HTTP `/health` still ok)_
+**DELTA**: _(fill at Stage 5)_
