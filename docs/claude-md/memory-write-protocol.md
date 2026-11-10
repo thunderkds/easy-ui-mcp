@@ -1,9 +1,9 @@
 # Memory Write Protocol
 
-> Extracted from `CLAUDE.md` — full detail. See `CLAUDE.md` for the pointer back to this file.
+> Extracted from `AGENTS.md` — full detail. See `AGENTS.md` for the pointer back to this file.
 
 - **Writer**: Supervisor only. Sub-agents never write to memory directly.
-- **Hot tier** (`memory/MEMORY.md`): ≤50,000 characters. Supervisor-curated index. One-line summaries + links to cold files. Passed to every sub-agent as a **path to read**, not pasted into the spawn prompt — the agent opens it itself as a mandatory startup step.
+- **Hot tier** (`memory/MEMORY.md`): ≤50,000 characters. Supervisor-curated index. One-line summaries + links to cold files. Each spawn prompt carries its task's **memory slice** (`craft-spawn-prompt`'s `memory_slice.py`: the index lines naming the task's files, dependencies or ID); the whole file is not pasted, and the agent reads `memory/MEMORY.md` in full only if its work reaches something the slice does not cover.
   - The character budget is enforced by `.claude/hooks/tests/test_token_audit_format.py` and is a **ratchet**: `/compact-memory` may lower it, nothing may raise it to accommodate growth. It replaced a 200-*line* cap that stayed green while the file grew 15.5% in characters.
 - **Cold tier routing**:
   - Architectural or infrastructure decisions → `memory/decisions.md`
@@ -17,3 +17,4 @@
   3. Update matched entries in place (fix stale facts, expand with new context)
   4. Append any new decisions or learnings from the session to the appropriate cold file
   5. Summarize new/changed entries as one-liners in `memory/MEMORY.md` (keep ≤50,000 characters total)
+- **Attempt log**: at the diff-driven pass after a merge, the Supervisor runs `python3 scripts/attempt_log.py append tasks/attempts.tsv memory/event-trace` (the trace folder is in the main checkout). It adds one row for each blocked or stopped sub-agent run the file does not hold. Only the Supervisor writes `tasks/attempts.tsv`; it is append-only and nothing reads it back.

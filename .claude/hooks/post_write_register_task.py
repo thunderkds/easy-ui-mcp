@@ -12,9 +12,23 @@ import re
 import sys
 from datetime import date
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+try:
+    from project_root import exit_outside_kit_project, project_root
+except Exception:  # T232: no helper, no known board to register a row on
+    sys.exit(0)
+exit_outside_kit_project()
+ROOT = project_root()
 KANBAN = os.path.join(ROOT, "PROJECT_KANBAN.md")
 TASKS_DIR = os.path.join(ROOT, "tasks")
+
+# `T\d+`, plus the board's `id_pattern` when `.claude/board.json` sets one (T153). A
+# broken import degrades to today's pattern: this hook only registers rows.
+try:
+    from board.config import task_id_pattern
+except Exception:  # pragma: no cover - fail open to local IDs
+    def task_id_pattern(root=None, local=r"T\d+", bounded=False):
+        return local
 
 def main():
     try:
@@ -29,7 +43,8 @@ def main():
         sys.exit(0)
 
     file_path = tool_input.get("file_path", "")
-    match = re.search(r"TASK_GUIDE_(T\d+)\.md$", file_path)
+    id_pattern = task_id_pattern(ROOT)
+    match = re.search(rf"TASK_GUIDE_({id_pattern})\.md$", file_path)
     if not match:
         sys.exit(0)
 
@@ -46,8 +61,9 @@ def main():
         m = re.search(pattern, guide, re.IGNORECASE | re.MULTILINE)
         return m.group(1).strip() if m else default
 
-    title    = extract(r"^#\s+TASK_GUIDE[_\s—-]+T\d+[:\s—-]+(.+)$", "untitled")
-    agent    = extract(r"Assigned\s+Agent\*{0,2}[:\s]+([a-z\-]+)", "backend-developer")
+    # T234: a plugin agent is `easy-kit:backend-developer`; keep the prefix with the name.
+    title    = extract(rf"^#\s+TASK_GUIDE[_\s—-]+(?:{id_pattern})[:\s—-]+(.+)$", "untitled")
+    agent    = extract(r"Assigned\s+Agent\*{0,2}[:\s]+([a-z\-]+(?::[a-z\-]+)?)", "backend-developer")
     cx       = extract(r"Complexity(?:\s+Level)?\*{0,2}[:\s]+\*{0,2}(C[0-3])", "?")
     risk     = extract(r"Risk(?:\s+Level)?\*{0,2}[:\s]+\*{0,2}(Low|Med(?:ium)?|High)", "?")
     priority = extract(r"Priority\*{0,2}[:\s]+\*{0,2}(P[0-2])", "?")
@@ -84,5 +100,13 @@ def main():
         f.write(kanban)
 
     print(f"[hook:post_write] Registered {task_id} in PROJECT_KANBAN.md", file=sys.stderr)
+    # T229: stderr on exit 0 never reaches the model, so the Supervisor once hand-added a second
+    # T228 row. additionalContext puts the notice next to the Write result.
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PostToolUse",
+        "additionalContext": (f"[hook:post_write] Registered {task_id} under ### Todo in "
+                              f"PROJECT_KANBAN.md. Move that row when the task starts; "
+                              f"do not add a second row for {task_id}."),
+    }}))
 
 main()

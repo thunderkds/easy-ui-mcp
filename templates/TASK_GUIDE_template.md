@@ -4,7 +4,7 @@
 **Risk Level**: Low / Medium / High
 **Priority**: P0 / P1 / P2
 **Assigned agent**: [agent name]
-**Agent guide**: `.claude/agents/[agent-file].md`
+**Agent guide**: `agents/[agent-file].md`
 
 ---
 
@@ -12,10 +12,10 @@
 
 Before writing any code:
 1. Read `PROJECT_SPEC.md`
-2. Read `memory/MEMORY.md`
+2. Read the memory slice in your spawn prompt (`<!-- memory-slice -->`). Read `memory/MEMORY.md` in full only if your work reaches a file, hook, skill or decision the slice does not cover
 3. Read this file completely
-4. Read `.claude/agents/[agent-file].md`
-5. Note the **Complexity Level** above and apply the matching process (brainstorm / decompose / verify depth / model) from the Complexity matrix in your role guide (`.claude/agents/[agent-file].md`)
+4. Read `agents/[agent-file].md`
+5. Note the **Complexity Level** above and apply the matching process (brainstorm / decompose / verify depth) from the Complexity matrix in your role guide (`agents/[agent-file].md`)
 6. **C2/C3 or multi-file tasks only**: read `memory/codebase-map.md` for directory layout, entry points, and blast-radius hotspots — skip if the task is C0/C1 and touches a single known file
 
 If docs/legacy/ exists (legacy mode): also read `docs/legacy/risk-hotspots.md` and `docs/legacy/architecture.md`.
@@ -49,11 +49,10 @@ If docs/legacy/ exists (legacy mode): also read `docs/legacy/risk-hotspots.md` a
 
 ## Dependencies & Reachability
 
-> Advisory, not a Hard-Stop Gate. `Depends on` is verified (non-blocking warning) at Agent-spawn
-> time by `pre_agent_validate_guide.py`. `Entry point` is verified (non-blocking finding) at Stage 4
-> `code-review` time. This is distinct from `PROJECT_KANBAN.md`'s `## Blocked` table, which stays a
-> manual escape hatch for non-task blockers (external people/APIs/decisions) that can't be checked
-> automatically — don't use `Depends on` for those.
+> Advisory, not a Hard-Stop Gate. `Depends on` is verified (non-blocking warning) at Agent-spawn time by
+> `pre_agent_validate_guide.py`. `Entry point` is verified (non-blocking finding) at Stage 4 `code-review`
+> time. This is distinct from `PROJECT_KANBAN.md`'s `## Blocked` table, which stays a manual escape hatch
+> for non-task blockers (external people/APIs/decisions) that can't be checked automatically — don't use `Depends on` for those.
 
 **Depends on**: [Txxx — short description of the artifact this task needs from it] or `None`
 > Example: `Depends on: T012 — /api/users endpoint must exist`
@@ -78,11 +77,9 @@ If docs/legacy/ exists (legacy mode): also read `docs/legacy/risk-hotspots.md` a
 
 ## Evaluation & Acceptance (How we know the agent worked correctly)
 
-> Fill **Success Criteria** and **Verification Command** at Stage 2 (before spawning the agent).
-> The reviewer fills **Evidence** at Stage 4/5 in `tasks/TASK_REVIEW_T[NNN].md`, copied from
-> `templates/TASK_REVIEW_template.md`. A task is **not done** until every row has evidence.
-> Rule: the implementing agent must NOT be the sole author of its own acceptance test — the
-> Supervisor writes or signs off on the oracle first, so code and test can't be wrong together.
+> Fill **Success Criteria** and **Verification Command** at Stage 2 (before spawning the agent). The reviewer fills **Evidence** at Stage 4/5 in `tasks/TASK_REVIEW_T[NNN].md`,
+> copied from `templates/TASK_REVIEW_template.md`. A task is **not done** until every row has evidence. Rule: the implementing agent must NOT be the sole author of its own
+> acceptance test — the Supervisor writes or signs off on the oracle first, so code and test can't be wrong together. Optional — use only when the Supervisor or `qa-expert` wrote the oracle test first: add a line of its own that starts with **Locked oracle**: followed by exact file paths, backticked or bare, comma-separated (no glob, directory or `:line`; any other spelling locks nothing). Once the hook is wired in `.claude/settings.json`, it denies every sub-agent except `qa-expert` an Edit or Write to those files while this task's board row is In Progress; the lock ends when the row leaves In Progress. It stops accidents, not an adversary.
 
 ### Success Criteria (observable, pass/fail)
 
@@ -94,7 +91,7 @@ If docs/legacy/ exists (legacy mode): also read `docs/legacy/risk-hotspots.md` a
 ### Verification Command (exact, runnable)
 
 ```bash
-# the single command (or short sequence) that proves this task works
+# the command(s) that prove this task works; CI re-runs them at Done. Cannot run in CI? Start the block with: # ci: skip — <reason>
 [e.g. pytest tests/test_T001.py -q   |   npm test -- T001   |   curl ... | grep ...]
 ```
 
@@ -138,6 +135,14 @@ If docs/legacy/ exists (legacy mode): also read `docs/legacy/risk-hotspots.md` a
 | Tablet (768px) | [screenshot / Playwright / Detox / manual] | [expected layout description] |
 | Desktop (1024px+) | [screenshot / Playwright / Detox / manual] | [expected layout description] |
 
+### 4. UX Acceptance Criteria
+
+> One row per user story and per state the screen has (empty / loading / error / success). Cite the `PRD.md` US-ID, or quote the request. The pass condition states what a screenshot or a run shows, never "looks good". The frontend agent judges these rows with `ux-evaluate`; code review runs it again. The baseline checks in `skills/ux-evaluate/SKILL.md` always apply; rows add task-specific conditions.
+
+| User story | User goal | Flow / state | Pass condition (observable) |
+|------------|-----------|--------------|-----------------------------|
+| [US-ID or quoted request] | [what the user wants to do] | [steps; the state shown] | [e.g. "No items yet" and an Add button show at 375px and 1280px] |
+
 ---
 
 ## Approach
@@ -161,6 +166,8 @@ If docs/legacy/ exists (legacy mode): also read `docs/legacy/risk-hotspots.md` a
 
 - [ ] [edge case 1]
 - [ ] [edge case 2]
+- [ ] Pin-test pre-flight: the `Pre-existing pin tests` row below is filled before work starts
+- [ ] Stale references: for each fact this task changes (flag, count, path, name, version, "green" claim), grep the repo for the old wording (README, `site/`, `docs/claude-md/`, comments, docstrings, `agents/`, board notes)
 
 ---
 
@@ -169,6 +176,7 @@ If docs/legacy/ exists (legacy mode): also read `docs/legacy/risk-hotspots.md` a
 | File | Change |
 |------|--------|
 | [path/to/file] | [what and why] |
+| Pre-existing pin tests | List each test that pins the text, size, line count, location or a baseline ref of a file this task edits, and its handling: repoint, narrow or escalate. Find them: grep `.claude/hooks/tests/` and `tests/` for the changed strings and paths; always check `test_agent_guide_dedup.py`, `test_vital_slice.py` and the memory budget tests. |
 
 ## Files Must NOT Touch
 

@@ -3,21 +3,29 @@
 PreToolUse hook — fires before every tool call (all matchers).
 
 Deterministic guardrail against runaway loops: counts tool calls per
-Task ID and blocks once a task exceeds CLAUDE_STEP_LIMIT (default 90)
-calls. This forces the run to stop and report instead of letting a
-stuck task burn tool calls / tokens indefinitely.
+run and blocks once a run exceeds CLAUDE_STEP_LIMIT (default 90) calls.
+This forces the run to stop and report instead of letting a stuck run
+burn tool calls / tokens indefinitely. A run is one sub-agent (the
+event's `agent_id`) or, with no `agent_id`, the main thread.
 
 The Task ID is resolved structurally (see lib/task_context.py) — a call
 is counted against a task only when a guide path, an Agent spawn prompt,
 or CLAUDE_ACTIVE_TASK says so. A call whose text merely mentions a Task
 ID is unattributed and counted against nothing.
 
-Counters live in .claude/hooks/.state/step_count_<session>_<task>.txt, keyed
-on both the event's session_id and the task ID (T056) — a task-only key let
-one session's exhausted budget block every other session that resolved to
-the same task, including the Supervisor's. A counter file older than
-CLAUDE_STEP_COUNT_TTL_S (default 6h) is treated as count 0 rather than
-carried forward, so a task's counter cannot outlive it indefinitely (T056):
+Counters live in .claude/hooks/.state/step_count_<session>_<task>.txt for
+the main thread, keyed on both the event's session_id and the task ID
+(T056) — a task-only key let one session's exhausted budget block every
+other session that resolved to the same task, including the Supervisor's.
+T285: an event from a sub-agent carries `agent_id`, and its counter is
+step_count_<session>_<agent>_<task>.txt, so each sub-agent run has its own
+budget. Two parallel runs with one Task ID used to share one counter and
+stopped each other's legitimate work. A resumed run keeps its `agent_id`
+and so its counter. An absent, non-string or empty-after-sanitising
+`agent_id` falls back to the main-thread key: never unlimited. Old
+counter files age out by the TTL below and are not migrated. A counter file
+older than CLAUDE_STEP_COUNT_TTL_S (default 6h) is treated as count 0 rather
+than carried forward, so a task's counter cannot outlive it indefinitely (T056):
 post_agent_move_to_review.py is deliberately inert as a writer (T044), so
 nothing else ever resets these files.
 
@@ -50,7 +58,17 @@ import sys
 import time
 
 HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(os.path.dirname(HOOKS_DIR))
+
+# T232: the helper comes first, so this hook stands down in a non-kit project before
+# anything else runs. It fails open like the task_context import below: blocking every
+# tool call on a broken lib would leave a session unable to repair it.
+sys.path.insert(0, os.path.join(HOOKS_DIR, "lib"))
+try:
+    from project_root import exit_outside_kit_project, project_root
+except Exception:
+    sys.exit(0)
+exit_outside_kit_project()
+ROOT = project_root()
 STATE_DIR = os.path.join(ROOT, ".claude", "hooks", ".state")
 
 # Raised from 40 (T057). Evidence: T054 legitimately consumed 42 calls,
@@ -68,6 +86,7 @@ STEP_COUNT_TTL_DEFAULT_S = 21600  # 6h
 # Untrusted: session_id reaches a file name. Allow only this charset.
 _SESSION_SANITIZE_PATTERN = re.compile(r"[^A-Za-z0-9]")
 _SESSION_MAX_LEN = 64
+_AGENT_MAX_LEN = 64
 
 
 def _resolve_step_count_ttl_s():
@@ -100,6 +119,17 @@ def _sanitize_session_id(session_id):
     return cleaned if cleaned else "nosession"
 
 
+def _sanitize_agent_id(agent_id):
+    """Reduce an untrusted agent_id to a safe file-name fragment (T285), as
+    _sanitize_session_id does for session_id. Returns None when absent,
+    non-string or empty after sanitising: the caller then uses the main-thread
+    key, which keeps the limit in force instead of dropping it."""
+    if not isinstance(agent_id, str):
+        return None
+    cleaned = _SESSION_SANITIZE_PATTERN.sub("", agent_id)[:_AGENT_MAX_LEN]
+    return cleaned or None
+
+
 def _parse_counter_contents(raw):
     """Parse a counter file's contents into (count, block_count). Accepts
     both the current two-line format and T056's legacy one-line format
@@ -124,7 +154,6 @@ def _parse_counter_contents(raw):
 # Hooks run as standalone scripts from an arbitrary cwd, so the shared lib is
 # imported off __file__, not off the import path. Fail open: a broken import
 # must degrade to "unattributed", never block a tool call.
-sys.path.insert(0, os.path.join(HOOKS_DIR, "lib"))
 try:
     from task_context import resolve_task_id
 except Exception:
@@ -146,7 +175,11 @@ def main():
         event.get("session_id") if isinstance(event, dict) else None
     )
 
-    counter_name = f"step_count_{session}_{task_id}.txt"
+    agent = _sanitize_agent_id(event.get("agent_id") if isinstance(event, dict) else None)
+    if agent:
+        counter_name = f"step_count_{session}_{agent}_{task_id}.txt"
+    else:
+        counter_name = f"step_count_{session}_{task_id}.txt"
     counter_path = os.path.join(STATE_DIR, counter_name)
 
     try:

@@ -10,11 +10,19 @@ inspect instead of trusting the model's claim that it ran tests.
 Attribution is structural only (see lib/task_context.py): a record is
 filed under a Task ID because a guide path, an Agent spawn prompt, or
 CLAUDE_ACTIVE_TASK says so — never because the text of a file the agent
-read happens to mention a Task ID.
+read happens to mention a Task ID. T287: this hook alone also files a
+`Bash` call by the task worktree it runs in, before the session pointer
+(`resolve_task_id(event, per_call=True)`).
 
 Records with no discoverable Task ID are written to
 memory/event-trace/_untagged.jsonl instead of being dropped, so nothing
 is silently lost.
+
+T148: every line is hash-chained (`prev`, `hash`) and its hash is anchored
+outside the repo — see lib/trace_chain.py. Appends to one trace are serialised
+with an exclusive file lock. Neither the anchor nor the lock may break the
+tool call: on failure the line is still written, marked `"anchor": "failed"`
+or `"lock": "failed"`.
 """
 import json
 import os
@@ -22,8 +30,6 @@ import sys
 from datetime import datetime, timezone
 
 HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(os.path.dirname(HOOKS_DIR))
-TRACE_DIR = os.path.join(ROOT, "memory", "event-trace")
 MAX_SUMMARY_LEN = 300
 
 # Hooks run as standalone scripts from an arbitrary cwd, so the shared lib is
@@ -31,10 +37,25 @@ MAX_SUMMARY_LEN = 300
 # must degrade to "unattributed", never crash a tool call.
 sys.path.insert(0, os.path.join(HOOKS_DIR, "lib"))
 try:
+    from project_root import exit_outside_kit_project, project_root
+except Exception:  # T232: no helper, no known project to write the trace in
+    sys.exit(0)
+exit_outside_kit_project()
+ROOT = project_root()
+TRACE_DIR = os.path.join(ROOT, "memory", "event-trace")
+try:
     from task_context import resolve_task_id
 except Exception:
-    def resolve_task_id(event):
+    def resolve_task_id(event, per_call=False):
         return None
+try:
+    from trace_chain import GENESIS, anchor_path, chain_hash, safe_name
+except Exception:
+    chain_hash = None
+try:
+    import fcntl
+except Exception:  # not POSIX: appends go unlocked and say so
+    fcntl = None
 
 
 def summarize(tool_input):
@@ -136,7 +157,7 @@ def main():
     tool_input = event.get("tool_input", {})
     tool_response = event.get("tool_response", {})
 
-    task_id = resolve_task_id(event) or "_untagged"
+    task_id = resolve_task_id(event, per_call=True) or "_untagged"
 
     os.makedirs(TRACE_DIR, exist_ok=True)
     trace_path = os.path.join(TRACE_DIR, f"{task_id}.jsonl")
@@ -156,7 +177,71 @@ def main():
         if spawn:
             record["spawn"] = spawn
 
-    with open(trace_path, "a") as f:
-        f.write(json.dumps(record) + "\n")
+    append_record(trace_path, task_id, record)
+
+
+def _lock(f):
+    try:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        return True
+    except Exception:
+        return False
+
+
+def _last_hash(lines):
+    """`hash` of the last chained line, or genesis. A crash-truncated last line
+    is skipped here; the verifier reports it as the break."""
+    for raw in reversed(lines):
+        try:
+            rec = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(rec, dict) and isinstance(rec.get("hash"), str):
+            return rec["hash"]
+    return GENESIS
+
+
+def _write_anchor(task_id, line_no, digest):
+    try:
+        path = anchor_path(ROOT, task_id)
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        with open(path, "a") as f:
+            f.write("%s %d %s\n" % (safe_name(task_id, "_untagged"), line_no, digest))
+        return True
+    except Exception:
+        return False
+
+
+def append_record(trace_path, task_id, record):
+    """Append one chained, anchored line. The lock is held from reading the
+    chain head to writing the line, so two agents can't fork the chain; it is
+    released when the file closes."""
+    with open(trace_path, "a+b") as f:
+        if not _lock(f):
+            record["lock"] = "failed"
+        line = None
+        if chain_hash is not None:
+            try:
+                f.seek(0)
+                data = f.read()
+                if data and not data.endswith(b"\n"):
+                    f.write(b"\n")  # end a crash-truncated line; ours starts clean
+                    data += b"\n"
+                lines = data.split(b"\n")[:-1]
+                record["prev"] = _last_hash(lines)
+                record["hash"] = chain_hash(record)
+                if not _write_anchor(task_id, len(lines) + 1, record["hash"]):
+                    del record["hash"]
+                    record["anchor"] = "failed"
+                    record["hash"] = chain_hash(record)
+                line = json.dumps(record)
+            except Exception:
+                line = None
+        if line is None:  # chain code unavailable or failed: never lose the record
+            for key in ("prev", "hash", "anchor"):
+                record.pop(key, None)
+            line = json.dumps(record)
+        f.write((line + "\n").encode("utf-8"))
+
 
 main()

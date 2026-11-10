@@ -25,6 +25,27 @@
 
 ---
 
+## Readiness
+
+> The files that prove this project is ready to code. Each stage fills its lines: Stage 0 step Requirements →
+> `Requirements` + `Approved by`; step Direction → `Direction`; Stage 1 → `Codebase map`, `Tech stack`;
+> Stage 2 → `Main flow` before the first spawn. Paths are relative to the project root. While a line
+> is empty, a `[...]` placeholder or a missing file, every spawn that names a task gets a
+> `⚠ HIGH RISK — project readiness incomplete:` warning (`.claude/hooks/pre_agent_validate_guide.py`).
+> `Approved by` is written only on the user's explicit confirmation, never in auto mode.
+
+- **Requirements**: [path, e.g. PRD.md or a stand-in like docs/SPEC.md]
+- **Direction**: [path to the approved brainstorming log]
+- **Codebase map**: [memory/codebase-map.md, or "none — blank scaffold"]
+- **Tech stack**: [languages, frameworks, storage, hosting]
+- **Main flow**: [path to a file that holds a Mermaid diagram of the main data/user flow]
+- **Approved by**: [user YYYY-MM-DD]
+- **Waived**: [user YYYY-MM-DD — reason]
+
+The optional `Waived` line is for the user only: a filled one (`user YYYY-MM-DD — reason`) turns the warning off instead of the six lines above, for example for a throwaway prototype.
+
+---
+
 ## Critical Constraints
 
 [Copy the most important do-not-touch rules here for agent reference. Examples:]
@@ -50,6 +71,33 @@
 | Backend-Implementer | Server-side implementation | `Agent({ subagent_type: "backend-developer", prompt: "..." })` |
 | Frontend-Implementer | UI implementation | `Agent({ subagent_type: "frontend-developer", prompt: "..." })` |
 | QA-Automation-Agent | Tests and smoke validation | `Agent({ subagent_type: "qa-expert", prompt: "..." })` |
+
+---
+
+## CLI Model Table
+
+> Filled at Stage 1. One row per authenticated CLI, one column per Complexity level. At spawn
+> time, `craft-spawn-prompt` looks the task's Complexity Level up in the row for the CLI that will
+> run it and reports `<cli> · <Cn> → <model> · effort <level|none>`. No row for the CLI, or an empty cell → STOP and ask
+> the user; never fall back to another CLI's model, never invent one.
+
+| CLI | Run command | C0 | C1 | C2 | C3 |
+|---|---|---|---|---|---|
+| claude | `claude` | haiku | sonnet | sonnet or opus | opus |
+| [cli] | [run command] | [model] | [model] | [model] | [model] |
+
+---
+
+## CLI Effort Table
+
+> Filled at Stage 1. Same shape as the CLI Model Table: one row per CLI, one column per Complexity
+> level. A cell is `low`, `medium`, `high`, `xhigh` or `max`. `craft-spawn-prompt` passes it as the
+> spawn's effort. An empty cell means: pass no effort. It is not a STOP.
+
+| CLI | Run command | C0 | C1 | C2 | C3 |
+|---|---|---|---|---|---|
+| claude | `claude` | low | low | medium | high |
+| [cli] | [run command] | | | | |
 
 ---
 

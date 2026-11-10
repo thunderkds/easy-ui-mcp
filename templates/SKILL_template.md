@@ -1,5 +1,5 @@
 ---
-name: [kebab-case-name]   # must match the folder: .claude/skills/[name]/SKILL.md
+name: [kebab-case-name]   # must match the folder: skills/[name]/SKILL.md
 description: [One or two sentences. State WHAT it does and WHEN to use it — this is the only text Claude sees when deciding whether to trigger the skill. Name the pipeline stage (e.g. "Use during Stage 3 …"). Self-contained; no external CLI unless unavoidable.]
 ---
 
@@ -30,6 +30,6 @@ AUTHORING CHECKLIST (delete before saving):
 [ ] Adapted to THIS framework — external deps stripped, decisions land in PROJECT_SPEC.md (not new conventions)
 [ ] Karpathy override block present; only relevant principles
 [ ] Communication Protocol with a Default Notification line
-[ ] Registered in CLAUDE.md custom-skill table + README "Custom skills" table
+[ ] Registered in AGENTS.md custom-skill table + README "Custom skills" table
 [ ] Any bundled scripts live in scripts/ and are chmod +x, with a smoke test
 -->

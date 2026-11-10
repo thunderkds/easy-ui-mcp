@@ -35,8 +35,8 @@
         ]
       },
       {
-        "description": "Record every tool call to memory/event-trace/<task>.jsonl (evidence for the merge gate)",
-        "matcher": "*",
+        "description": "Advanced event tracing — append every tool call to memory/event-trace/<task>.jsonl",
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
@@ -65,6 +65,36 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_bash_block_unsafe_merge.py"
           }
         ]
+      },
+      {
+        "description": "Ask the human before Edit/Write/Bash touches a path in .claude/sensitive-paths.txt, unless the active task predicted it",
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_tool_sensitive_path.py"
+          }
+        ]
+      },
+      {
+        "description": "Deny a sub-agent other than qa-expert an Edit or Write to a task guide's Locked oracle files while that task's board row is In Progress",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_tool_locked_oracle.py"
+          }
+        ]
+      },
+      {
+        "description": "Deterministic guardrail — kill a task's run after CLAUDE_STEP_LIMIT tool calls to prevent infinite loops / token waste",
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_agent_step_limit.py"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -76,7 +106,33 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop_review_reminder.py"
           }
         ]
+      },
+      {
+        "description": "Auto mode (T180 D8): block the stop until the final report holds up — report file, Advocates per Risk, Stage 4",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop_auto_mode_check.py"
+          }
+        ]
+      },
+      {
+        "description": "Auto verify (T182): for a Mode: auto task at Ready for Review, start one detached headless /verify run per head commit; the run writes the verify row and its record",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop_auto_verify.py"
+          }
+        ]
       }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Edit(~/.claude/harness-anchors/**)",
+      "Bash(*harness-anchors*)",
+      "Edit(~/.claude/projects/**/*.jsonl)",
+      "Bash(*.claude/projects/*)"
     ]
   }
 }
