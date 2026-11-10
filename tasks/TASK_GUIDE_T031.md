@@ -202,8 +202,8 @@ Test-first with `setContent` fixtures for each AC. Dialog tests through the sess
 ## Completion Checklist
 
 - [x] D1 answered (ask the agent)
-- [ ] Implementation done
-- [ ] Tests written AND pass — output pasted into `tasks/TASK_REVIEW_T031.md`
+- [x] Implementation done
+- [x] Tests written AND pass — output pasted into `tasks/TASK_REVIEW_T031.md`
 - [ ] Security review run (Medium risk)
-- [ ] Docs updated (AC 12), FR-023 in `PRD.md`
+- [x] Docs updated (AC 15), FR-023 in `PRD.md`
 - [ ] Supervisor notified: task ready for Stage 4 review
