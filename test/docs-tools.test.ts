@@ -15,7 +15,7 @@ function registeredTools(): string[] {
     constants.set(key, name);
   }
   const names: string[] = [];
-  for (const [, literal, key] of server.matchAll(/registerTool\(\s*(?:"([^"]+)"|TOOL\.(\w+))/g)) {
+  for (const [, literal, key] of server.matchAll(/register(?:Session)?Tool\(\s*(?:"([^"]+)"|TOOL\.(\w+))/g)) {
     const name = literal ?? constants.get(key);
     assert.ok(name, `cannot resolve a registerTool name (TOOL.${key})`);
     names.push(name);
@@ -40,4 +40,11 @@ test('README and RUNBOOK name every registered tool, and RUNBOOK states the coun
     new RegExp(`all ${tools.length} tools`),
     `RUNBOOK must say "all ${tools.length} tools"`,
   );
+});
+
+test('T029: README, HARNESS and the docs site explain session_id', () => {
+  for (const file of ['README.md', 'HARNESS.md', 'site/index.html']) {
+    assert.ok(read(file).includes('session_id'), `${file} does not explain session_id`);
+  }
+  assert.match(read('PRD.md'), /FR-021/);
 });

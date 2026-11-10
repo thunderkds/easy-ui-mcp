@@ -41,6 +41,24 @@ of `extra_hosts: ["host.docker.internal:host-gateway"]` to `docker-compose.yml`.
 
 `ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
 
+### Run several sessions side by side
+
+One connection can hold several open sessions (default cap 3, set `MAX_SESSIONS_PER_CONNECTION` to change it), for example to compare two URLs or a logged-in and a logged-out user. `ui_start_session` returns a session id; pass it as `session_id` to any other tool to choose the session it acts on. Each session has its own browser, page, step label and report.
+
+```
+ui_start_session  target: "staging"      -> Session <id-A> started ...
+ui_start_session  target: "production"   -> Session <id-B> started ...
+ui_navigate       url: ...  session_id: <id-A>
+ui_navigate       url: ...  session_id: <id-B>
+ui_end_session    session_id: <id-A>
+ui_end_session    session_id: <id-B>
+```
+
+- With exactly one open session, `session_id` can be left out, as before.
+- With several open, leaving it out is an error that lists the open ids, so a call never lands on the wrong page.
+- A session is reachable only from the connection that started it. Another connection passing its id gets `Unknown session`.
+- A session with no tool call for 10 minutes (`SESSION_TIMEOUT_MS`, in milliseconds) is closed automatically: its browser is shut down and its report is written with status `timed_out`. A call with that id then returns `Session <id> was closed after 10 min idle`. When a connection closes, every session it still owns is ended and reported.
+
 ### Label your steps
 
 `ui_step(label)` groups everything that follows it under a plain-language heading, until the next `ui_step`. The label is the report's **only caller-authored statement of intent**. The server uses deterministic templates such as “Opened …”, “Clicked …”, and “Filled …” for individual actions—no LLM runs inside the container—so an unlabelled session still renders readable action descriptions under one implicit group.

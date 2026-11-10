@@ -4,6 +4,8 @@ This document describes the REST API endpoints available in easy-ui-mcp for non-
 
 **Note**: The primary interface is MCP (see `AGENTS.md`). This REST API is a **thin wrapper** for simple smoke tests and integration with systems that cannot speak MCP. For complex multi-step flows, drive the MCP tools directly from Claude Code.
 
+**MCP sessions and `session_id`**: the MCP tools (not this REST API) accept an optional `session_id` on every tool except `ui_start_session`, so one connection can drive several sessions at once. `POST /api/run-test` always runs one isolated session per call and needs no `session_id`.
+
 ---
 
 ## Endpoints

@@ -67,6 +67,7 @@ Each FR must trace to at least one User Story.
 | FR-018 | The system must capture browser console errors, uncaught page errors, and failed network requests during a session and surface them in the report. These are informational and must not change session status. | US-005 |
 | FR-019 | The system must provide a separate primitive tool for each of these interactions: `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, each recorded in the session report like the other primitives. | US-002 |
 | FR-020 | Report files must be named `session-<YYYYMMDD-HHMMSS>-<slug>-<id8>` so they say when and what, and the system must rewrite `reports/index.html` (newest first, capped at 500) after every report; a failure to write the index must not fail the report. | US-005 |
+| FR-021 | One MCP connection must be able to hold several open sessions at once (default cap 3, env `MAX_SESSIONS_PER_CONNECTION`). `ui_start_session` returns a session id; every session-aware tool takes an optional `session_id`, and each session keeps its own browser, page, step label and report. With exactly one open session the id may be omitted; with several open it must be given, and an omitted id is an error that lists the open ids. A session is reachable only by the connection that started it. A session with no tool call for `SESSION_TIMEOUT_MS` (default 10 min) is closed automatically and its report is written with status `timed_out`; when a connection closes, every session it still owns is ended and reported. | US-002, US-005 |
 
 ---
 

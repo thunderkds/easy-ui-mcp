@@ -315,6 +315,16 @@ ui_click          ...
 ui_assert         ...
 ui_end_session</code></pre>
 
+      <h3>Run several sessions side by side</h3>
+      <p>One connection can hold several open sessions (up to 3; set <code>MAX_SESSIONS_PER_CONNECTION</code> to change it), for example to compare two URLs. <code>ui_start_session</code> returns a session id; pass it as <code>session_id</code> to any other tool to choose the session it acts on. Each session has its own browser, page, step label and report.</p>
+<pre><code>ui_start_session  target: "staging"      -&gt; Session &lt;id-A&gt; started
+ui_start_session  target: "production"   -&gt; Session &lt;id-B&gt; started
+ui_navigate       url: ...  session_id: &lt;id-A&gt;
+ui_navigate       url: ...  session_id: &lt;id-B&gt;
+ui_end_session    session_id: &lt;id-A&gt;
+ui_end_session    session_id: &lt;id-B&gt;</code></pre>
+      <p>With exactly one open session <code>session_id</code> can be left out. With several open, leaving it out is an error that lists the open ids. A session is reachable only from the connection that started it. A session with no tool call for 10 minutes (<code>SESSION_TIMEOUT_MS</code>) is closed automatically and its report is written with status <code>timed_out</code>; when a connection closes, every session it still owns is ended and reported.</p>
+
       <h3>Use the selector from page state</h3>
       <p><code>ui_get_page_state</code> returns each visible interactive element as <code>{role, name, selector}</code>. Every selector is checked against the live page before it is returned, so pass it unchanged to the interaction tools instead of guessing a CSS selector. A selector containing <code>nth=</code> is positional: call <code>ui_get_page_state</code> again after the page changes before reusing it.</p>
 <pre><code>{"role": "button", "name": "Sign in", "selector": "[data-testid=\"signin\"]"}
