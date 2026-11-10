@@ -45,6 +45,8 @@ files under `.claude/` are automatically discovered or semantically identical in
 | Supervisor-only memory writes | Return learnings to the Claude supervisor | Intentionally not delegated in this project. |
 | `PROJECT_KANBAN.md` transitions and Evidence Gate | Return status/evidence to the Claude supervisor | Intentionally remains Claude-owned to preserve independent acceptance. |
 
+The Claude supervisor still owns the canonical review, security review, verification, KANBAN, and memory gates. Codex implements slices and returns evidence; it does not run or close those gates.
+
 Current Codex behavior is documented by OpenAI in
 [AGENTS.md discovery](https://developers.openai.com/codex/guides/agents-md),
 [skills](https://developers.openai.com/codex/skills),

@@ -48,7 +48,9 @@ test('Codex adapter points to a complete, current Claude kit mapping', () => {
   assert.match(mapping, /codex exec "Read PROJECT_SPEC\.md, memory\/MEMORY\.md, tasks\/TASK_GUIDE_T015\.md/);
   assert.match(mapping, /do not update the review evidence or KANBAN/);
 
+  // AGENTS.md is kit-owned doctrine; it only has to point at the project-owned mapping.
+  // The policy boundary is asserted on the mapping itself.
   assert.match(adapter, /docs\/MULTI_AGENT\.md/);
-  assert.match(adapter, /Claude supervisor still owns the canonical review,[\s\S]*verification, KANBAN, and memory gates/);
+  assert.match(mapping, /Claude supervisor still owns the canonical review,[\s\S]*verification, KANBAN, and memory gates/);
   assert.doesNotMatch(adapter, /Codex has no equivalent of Claude Code's hooks, skills, or `Skill`\/`Agent` tooling/);
 });

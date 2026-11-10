@@ -5,6 +5,8 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -18,6 +20,24 @@ const lockPath = resolve(root, '.claude', 'harness-lock.json');
 
 type HarnessLock = {
   files: Record<string, string>;
+};
+
+// Real (non-symlink) harness roots. `.claude/agents` and `.claude/skills` are
+// relative symlinks onto `agents/` and `skills/`, so they are not listed here.
+const vendoredDirectories = [
+  'agents',
+  'skills',
+  'packs',
+  'scripts',
+  '.claude/hooks',
+  '.cursor/rules',
+  'docs/claude-md',
+  'templates',
+];
+const vendoredFiles = ['.claude/sensitive-paths.txt', 'AGENTS.md', 'CLAUDE.md'];
+const symlinkedDirectories: Record<string, string> = {
+  '.claude/agents': '../agents',
+  '.claude/skills': '../skills',
 };
 
 const resolveLockedPath = (entry: string, base = root) => {
@@ -36,12 +56,12 @@ const resolveLockedPath = (entry: string, base = root) => {
 
 const listFiles = (directory: string): string[] =>
   readdirSync(resolve(root, directory), { withFileTypes: true }).flatMap((entry) => {
-    if (entry.name === '__pycache__' || entry.name.endsWith('.pyc')) {
+    if (entry.name === '__pycache__' || entry.name === '.state' || entry.name.endsWith('.pyc')) {
       return [];
     }
 
     const child = join(directory, entry.name);
-  return entry.isDirectory() ? listFiles(child) : [child.split(sep).join('/')];
+    return entry.isDirectory() ? listFiles(child) : [child.split(sep).join('/')];
   });
 
 const validateLockedFiles = (base: string, files: Record<string, string>) => {
@@ -70,28 +90,35 @@ const validateLockedFiles = (base: string, files: Record<string, string>) => {
 };
 
 test('vendored harness snapshot is complete, confined, and hash-locked', () => {
-  for (const directory of ['.claude/agents', '.claude/hooks', '.claude/skills', 'templates']) {
+  for (const directory of vendoredDirectories) {
     const metadata = lstatSync(resolve(root, directory));
     assert.equal(metadata.isSymbolicLink(), false, `${directory} must not be a symlink`);
     assert.equal(metadata.isDirectory(), true, `${directory} must be a directory`);
   }
 
-  const supervisorRules = lstatSync(resolve(root, 'CLAUDE.md'));
-  assert.equal(supervisorRules.isSymbolicLink(), false, 'CLAUDE.md must not be a symlink');
-  assert.equal(supervisorRules.isFile(), true, 'CLAUDE.md must be a regular file');
+  for (const [link, target] of Object.entries(symlinkedDirectories)) {
+    const metadata = lstatSync(resolve(root, link));
+    assert.equal(metadata.isSymbolicLink(), true, `${link} must be a symlink`);
+    assert.equal(readlinkSync(resolve(root, link)), target, `${link} must point to ${target}`);
+    assert.equal(
+      realpathSync(resolve(root, link)),
+      realpathSync(resolve(root, target.replace('../', ''))),
+      `${link} must resolve to the canonical ${target.replace('../', '')} directory`,
+    );
+  }
+
+  for (const file of vendoredFiles) {
+    const metadata = lstatSync(resolve(root, file));
+    assert.equal(metadata.isSymbolicLink(), false, `${file} must not be a symlink`);
+    assert.equal(metadata.isFile(), true, `${file} must be a regular file`);
+  }
 
   const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as HarnessLock;
   assert.ok(lock.files['AGENTS.md'], 'the lock must cover the project-specific Codex adapter');
 
   const snapshotFiles = [
-    ...listFiles('.claude/agents'),
-    ...listFiles('.claude/hooks'),
-    ...listFiles('.claude/skills'),
-    ...listFiles('.cursor/rules'),
-    ...listFiles('docs/claude-md'),
-    ...listFiles('templates'),
-    'AGENTS.md',
-    'CLAUDE.md',
+    ...vendoredDirectories.flatMap(listFiles),
+    ...vendoredFiles,
   ].sort();
   assert.deepEqual(
     Object.keys(lock.files).sort(),

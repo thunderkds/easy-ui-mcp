@@ -6,3 +6,5 @@ reports/*
 __pycache__/
 .claude/hooks/.state/
 memory/event-trace/_untagged.jsonl
+.claude/agents.bak/
+.claude/skills.bak/
