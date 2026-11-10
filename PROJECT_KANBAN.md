@@ -14,6 +14,7 @@
 
 
 ### In Progress
+- [ ] **T035** — Docs and docs-site index page catch up with T029–T034 | backend-developer | ? | Risk: Low | ? | **Started 2026-11-10**: frontend-developer, in a worktree off main @ 4de8561
 
 ### Ready for Review
 
