@@ -11,11 +11,11 @@
 
 ### Todo
 > Re-prioritized 2026-10-30 by user direction. Focus: **executable, simple, easy for an agent to drive, readable results**. Web first; Android and human-in-the-loop on hold. Listed in pickup order. T017–T019 and T021 are draft scope from the 2026-10-30 investigation — Brainstorm: `BRAINSTORMING_LOG_agent-ergonomics.md` (paths chosen provisionally by Supervisor, pending user approval). TASK_GUIDEs generated 2026-10-30.
-- [ ] **T043** — Snapshot scope: opt-in `viewport` and `within` for `ui_get_page_state` (halves Wikipedia/HN snapshots in the baseline) | backend-developer | C2 | Risk: Medium | P2 | After T042 (same function). Guide: `tasks/TASK_GUIDE_T043.md`. Brainstorm: `BRAINSTORMING_LOG_snapshot-scope.md` (Option A; opt-in and both scopes decided by the Supervisor 2026-11-11, flagged to the user)
 
 - [ ] **T045** — Perf: `ui_get_page_state` takes about 17 s on a page with 3,959 interactive elements (en.wikipedia.org/wiki/Microsoft), same before and after T042; the work is done before the 200 cap | backend-developer | ? | Risk: Medium | P2 | Seen 2026-11-11 during T042 verification; no guide yet; needs a profile first
 
 ### In Progress
+- [ ] **T043** — Snapshot scope: opt-in `viewport` and `within` for `ui_get_page_state` (halves Wikipedia/HN snapshots in the baseline) | backend-developer | C2 | Risk: Medium | P2 | After T042 (same function). Guide: `tasks/TASK_GUIDE_T043.md`. Brainstorm: `BRAINSTORMING_LOG_snapshot-scope.md` (Option A; opt-in and both scopes decided by the Supervisor 2026-11-11, flagged to the user)
 
 ### Ready for Review
 
