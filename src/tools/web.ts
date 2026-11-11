@@ -689,7 +689,7 @@ export interface PageElementState {
 export interface PageElement {
   role: string;
   name: string;
-  /** Pass unchanged to ui_click / ui_fill; resolves to exactly this element. */
+  /** Resolves to exactly this element. Shown as is by format "full"; the compact form lists a ref for it instead (T040). */
   selector: string;
   state?: PageElementState;
 }
