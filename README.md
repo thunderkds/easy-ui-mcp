@@ -119,7 +119,7 @@ Sessions with no `ui_step` calls still render correctly, under a single implicit
 
 #### Use the refs from page state
 
-`ui_get_page_state` returns the page as short text: a `url:` line, a `title:` line, then one line per visible interactive element (up to 200) as `@eN role "name"` followed by its non-default state, and `messages:` (visible alert/status text such as validation errors). Pass the ref as the `selector` of `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_get_text`, `ui_take_screenshot` and `ui_upload_file` (and as `from` / `to` of `ui_drag`, `container` of `ui_scroll`) instead of guessing a CSS selector.
+`ui_get_page_state` returns the page as short text: a `url:` line, a `title:` line, then one line per visible interactive element (up to 200) as `@eN role "name"` followed by its non-default state, and `messages:` (visible alert/status text such as validation errors). Pass the ref as the `selector` of `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_get_text`, `ui_take_screenshot` and `ui_upload_file` (and as `from` / `to` of `ui_drag`, `container` of `ui_scroll`, `within` of `ui_get_page_state`) instead of guessing a CSS selector.
 
 ```
 url: https://shop.example/login
@@ -139,7 +139,14 @@ Page state also tells you what the page looks like right now, so you do not have
 - Custom widgets are listed too: `combobox`, `listbox`, `option`, `switch`, `slider`, `spinbutton`, `searchbox`, `treeitem`, `menuitemcheckbox`/`menuitemradio`, `summary`, `contenteditable` regions, and anything with a role and `tabindex >= 0`.
 - `overlay @o1 dialog "Confirm" modal` lists each open dialog, topmost first (`role=dialog`, `alertdialog`, `dialog[open]`, `aria-modal`); `@o1` is accepted wherever a selector is, for example by `ui_click_outside`. No overlay line means nothing is open, so a modal opening or closing shows up as the line appearing or disappearing.
 - `focused: @e2` names the element holding focus (as `role "name"` when it is not in the list). It is absent when focus is on the page body, in an iframe or in a shadow root.
-- `note:` appears when the list was cut at 200 elements.
+- `note:` appears when the list was cut at 200 elements (it then suggests `viewport` and `within`), or when you scoped the list and it left elements out.
+
+To read less on a long page, scope the list. Both arguments are optional and off by default, so with neither the reply is exactly as described above.
+
+- `viewport: true` lists only elements whose bounding box is at least partly on screen at the current scroll position.
+- `within` (a selector or an `@eN` / `@oN` ref) lists only the elements inside that one element; it fails, listing nothing, if it matches no element or several. An element with nothing interactive inside gives an empty list, not an error.
+- Pass both and an element must satisfy both. `overlays`, `focused` and `messages` are never scoped. Refs number the scoped list and work as usual.
+- A scoped reply that left elements out says so, for example `note: Showing 37 of 180 elements (viewport only); scroll, or call without viewport, for the rest`. The 200-element cap applies after scoping, and its note can follow on the same line.
 
 `ui_get_text` reads text: the trimmed visible text of one element (`selector`), or of the whole page body with no selector, cut at 4000 characters with a note of the real length. Use it to check a total, a heading or a field error. It fails on 0 or more than 1 match, like `ui_click`, and on an element that is not visible. The text it reads is returned to you but not stored in the report.
 #### Test at real sizes, type like a user, see what you capture
