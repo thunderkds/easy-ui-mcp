@@ -607,7 +607,7 @@ ui_click          ...
 ui_assert         ...
 ui_end_session</code></pre>
           <h3>Use the refs from page state</h3>
-          <p><code>ui_get_page_state</code> returns the page as short text: one line per visible interactive element, <code>@eN role "name"</code>, with its non-default state. Pass the ref as the selector of any tool instead of guessing a CSS selector. A ref means the latest snapshot of that page: if the element is gone, replaced or re-ordered, the call fails and says to call <code>ui_get_page_state</code> again, and it never acts on a different element. Reports show the real selector of each action; a refused ref is a soft step that does not fail the session. <code>format: "full"</code> returns the JSON with a verified selector per element instead, and no refs.</p>
+          <p><code>ui_get_page_state</code> returns the page as short text: one line per visible interactive element, <code>@eN role "name"</code>, with its non-default state. Pass the ref as the selector of any tool instead of guessing a CSS selector. A ref means the latest snapshot of that page and follows the element that was listed: if that element is gone or replaced, the call fails and says to call <code>ui_get_page_state</code> again, and it never acts on a different element. Reports show the real selector of each action; a refused ref is a soft step that does not fail the session. <code>format: "full"</code> returns the JSON with a verified selector per element instead, and no refs.</p>
 <pre><code>url: https://shop.example/login
 title: Sign in
 @e1 textbox "Email" required
