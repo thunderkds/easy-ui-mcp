@@ -25,7 +25,7 @@ Before writing any code:
 
 User, 2026-11-11: the low-token plan asks to "review tool schemas" and slim them where possible while staying an MCP server; after the baseline experiment the user said "do T041 after" T040.
 
-The baseline measured the `tools/list` reply at 26,821 characters (about 6,705 tokens) for 26 tools. That is 76–83% of an app-style flow. Where the characters go:
+The baseline measured the `tools/list` reply at 26,821 characters (about 6,705 tokens) for 26 tools; after T040 it is 27,207 characters (the breakdown below is from the baseline). That is 76–83% of an app-style flow. Where the characters go:
 
 | Part | Characters |
 |------|-----------|
@@ -69,7 +69,7 @@ The baseline measured the `tools/list` reply at 26,821 characters (about 6,705 t
 
 | # | Criterion (testable) | Traces to requirement |
 |---|----------------------|-----------------------|
-| 1 | `JSON.stringify` of the `tools/list` tools array is at most 20,000 characters (about 5,000 tokens; at least 25% below 26,821). A test pins this budget so later tasks cannot grow it silently. | costs fewer tokens |
+| 1 | `JSON.stringify` of the `tools/list` tools array is at most 20,000 characters (about 5,000 tokens; at least 26% below the 27,207 it is after T040). A test pins this budget so later tasks cannot grow it silently. | costs fewer tokens |
 | 2 | The same 26 tool names are listed, and for every tool the argument names, types, enums, numeric limits and `required` lists are identical to before the change. | nothing removed or changed |
 | 3 | Every fact in the "Facts that must survive" list below is still stated somewhere in the tool list, at least once, on the tool where an agent would look for it. | agent still learns what it needs |
 | 4 | The `session_id` argument description is one short phrase; the full rule (optional with one open session, required with several, returned by `ui_start_session`) is stated once, in `ui_start_session`. | repeated text removed |
@@ -143,7 +143,7 @@ Order of work, cheapest first:
 3. Tool descriptions: one or two sentences each — what it does, then only the non-obvious rule. Remove restated argument lists where the argument's own description already says it, and remove examples that repeat the argument description.
 4. Argument descriptions: drop ones that restate the name (`value`: "The value to fill into the input").
 
-Write the budget test first; it fails at 26,821 and passes when the work is done. Put the size check where the existing MCP-level tests already list tools.
+Write the budget test first; it fails at 27,207 and passes when the work is done. Put the size check where the existing MCP-level tests already list tools.
 
 ---
 
