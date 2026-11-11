@@ -1,4 +1,4 @@
-# easy-ui-mcp
+# EASY UI MCP
 
 **Not just another browser controller — a local UI-testing MCP that gives your agent structured, shareable test reports.**
 
