@@ -12,9 +12,9 @@
 ### Todo
 > Re-prioritized 2026-10-30 by user direction. Focus: **executable, simple, easy for an agent to drive, readable results**. Web first; Android and human-in-the-loop on hold. Listed in pickup order. T017–T019 and T021 are draft scope from the 2026-10-30 investigation — Brainstorm: `BRAINSTORMING_LOG_agent-ergonomics.md` (paths chosen provisionally by Supervisor, pending user approval). TASK_GUIDEs generated 2026-10-30.
 
-- [ ] **T045** — Perf: `ui_get_page_state` takes about 17 s on a page with 3,959 interactive elements (en.wikipedia.org/wiki/Microsoft), same before and after T042; the work is done before the 200 cap | backend-developer | ? | Risk: Medium | P2 | Seen 2026-11-11 during T042 verification; no guide yet; needs a profile first
 
 ### In Progress
+- [ ] **T045** — Perf: `ui_get_page_state` takes about 17 s on a page with 3,959 interactive elements (en.wikipedia.org/wiki/Microsoft), same before and after T042; the work is done before the 200 cap | backend-developer | C2 | Risk: Medium | P2 | Seen 2026-11-11 during T042 verification. Profile: ~27 s is per-element selector verification, ~2.6 s is 4,330 handles. Guide: `tasks/TASK_GUIDE_T045.md`; brainstorm: `BRAINSTORMING_LOG_snapshot-perf.md` (Option A, selectors on demand)
 
 ### Ready for Review
 
