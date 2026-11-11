@@ -19,6 +19,9 @@
 <!-- Format: - [Title](cold-file.md#section) — one-line summary (≤150 chars) -->
 - [Session-aware tools use `registerSessionTool`](learnings.md#gotchas) — plain `server.registerTool(` acts on no session; doc tests scan the literal call; onclose needs DELETE (T029)
 - [stdio entry: close on stdin end, await onclose cleanup](learnings.md#gotchas) — SDK stdio transport ignores stdin EOF; `settleClosing()` before exit or reports are lost (T038)
+- [Page state: compact text + identity-checked refs by default (T040)](decisions.md#architecture) — `@eN`/`@oN` resolve in `registerSessionTool`; refused ref is a soft step; `format: "full"` = old JSON and ends refs
+- [Token baseline script](learnings.md#gotchas) — `docs/experiments/token-baseline.mts`, `MODE=after`, `EASY_UI_SERVER_ROOT`; tool list ≈ 6.8k tokens is the big cost on app flows (T041)
+- [Another session can advance main mid-task](learnings.md#gotchas) — re-check main before integrating; expect README/site conflicts; full `npm test` on the combined tree
 - [Transport: HTTP default + stdio entry for hosted proxies](decisions.md#architecture) — `dist/stdio.js` for Glama `mcp-proxy`; `EASY_UI_MCP_NO_HTTP` skips listen (T038)
 - [Primitive tools + session bracketing](decisions.md#architecture) — no server-side LLM; Claude Code drives Playwright step-by-step via MCP tool calls
 - [MCP transport: HTTP/SSE](decisions.md#architecture) — StreamableHTTPServerTransport, session-per-connection, localhost:8765, not stdio

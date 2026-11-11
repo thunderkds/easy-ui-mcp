@@ -4,6 +4,12 @@
 
 ## Architecture
 
+### 2026-11-11 — Page state is compact text with refs by default; refs are identity-checked aliases (T040)
+**Decision**: `ui_get_page_state` replies with one text line per element (`@eN role "name" state`, `overlay @oN …`, `focused:`, `messages:`); `format: "full"` returns the earlier JSON with selectors and no refs. A ref is an alias for the verified selector of the latest snapshot of that page (`WeakMap<Page, …>` in `web.ts`), resolved once in `registerSessionTool` for `selector` / `from` / `to` / `container`. Resolution checks that the selector still matches exactly the stored element handle; otherwise the call is refused and recorded as a **soft** step. Every snapshot ends the earlier refs, a `format: "full"` one included.
+**Why**: the 2026-11-11 baseline (`docs/experiments/token-baseline-2026-11-11.md`) showed selectors and JSON keys were most of the reply. Measured on four flows: 1,413 → 807, 2,092 → 1,169, 26,192 → 4,871, 27,086 → 5,483 tokens. The user approved compact-by-default, refs invalidated per snapshot, viewport scoping later. A refused ref is soft because it says nothing about the app under test.
+**Trade-off**: selectors are still built per snapshot (no speed gain); pages that re-render nodes make refs stale and cost an extra snapshot; the tool list (6,802 tokens) is now the largest cost on app-style flows (T041).
+**Files**: `src/tools/web.ts`, `src/server.ts`, `test/web.test.ts`, `test/multi-session.test.ts`, `README.md`, `site/index.html`, `docs/experiments/token-baseline.mts`
+
 ### 2026-10-30 — Vercel hosts a static docs page only; `requirements.txt` renamed (T025)
 **Decision**: Vercel serves `site/index.html` (one self-contained Graphite Mint docs page, no JS) via `vercel.json` with `framework: null`, empty install/build commands and `outputDirectory: "site"`. The planning prose that sat at `requirements.txt` is now `docs/original-plan.md`. `test/site.test.ts` pins the config, the tool list, the tokens and self-containment.
 **Why**: the user's Vercel deploy failed because Vercel treats a root `requirements.txt` as Python deps and ran `uv pip install` on prose. The MCP server itself can't run on Vercel (long-lived process holding Chromium, Docker image, local `reports/` disk), so the user chose a docs page like https://personal-agentic-claude.vercel.app/. Serving only `site/` keeps `reports/`, `src/` and `memory/` off the public site.
