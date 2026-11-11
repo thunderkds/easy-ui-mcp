@@ -1742,7 +1742,7 @@ test("T040 AC7: in the compact reply a value is cut at 100 characters, a name at
   const big = renderCompact(await getPageState(fixturePage, { keepRefs: true }));
   assert.equal(big.split("\n").filter((l) => l.startsWith("@e")).length, 200);
   assert.ok(!big.includes("@e201"));
-  assert.match(big, /^note: Showing first 200 of 250 elements; use a CSS selector for the rest$/m);
+  assert.match(big, /^note: Showing first 200 of 250 elements; use viewport or within to narrow the list, or a CSS selector for the rest$/m);
 });
 
 test("T040 AC2: asking for refs does not change the struct getPageState returns (what format:full prints)", async () => {
@@ -2067,7 +2067,7 @@ test("T042 AC6: the cap note and the still-changing note can both appear, joined
     );
     const state = await getPageState(p);
     assert.equal(state.ok, true);
-    assert.match(state.note ?? "", /^Showing first \d+ of \d+ elements; use a CSS selector for the rest; .*still changing/);
+    assert.match(state.note ?? "", /^Showing first \d+ of \d+ elements; use viewport or within to narrow the list, or a CSS selector for the rest; .*still changing/);
     assert.equal(renderCompact(state).split("\n").filter((l) => l.includes("still changing")).length, 1);
   } finally {
     await p.close();
@@ -2111,4 +2111,284 @@ test("T042 edge: any other error, and a closed page, are returned promptly witho
   const closed = await getPageState(p, { keepRefs: true });
   assert.equal(closed.ok, false);
   assert.ok(Date.now() - started < 500);
+});
+
+// --- T043: snapshot scope (viewport, within) ---------------------------------------------------
+
+/** A 400x300 page, so "on screen" is easy to build. */
+const scopedPage = async (html: string): Promise<Page> => {
+  const p = await browser.newPage({ viewport: { width: 400, height: 300 } });
+  await p.setContent(`<!doctype html><body style="margin:0">${html}</body>`, { waitUntil: "domcontentloaded" });
+  return p;
+};
+const names = (state: PageState) => state.elements!.map((e) => e.name);
+const TALL_PAGE = `<button>Top 1</button><button>Top 2</button><button>Top 3</button>
+  <div style="height:2000px"></div>
+  <button>Bottom 1</button><button>Bottom 2</button><button>Bottom 3</button>`;
+
+test("T043 SC1/AC2/AC5: viewport lists what is on screen now, with a note of how many were left out; scrolling changes the list", async () => {
+  const p = await scopedPage(TALL_PAGE);
+  try {
+    const all = await getPageState(p);
+    assert.equal(all.elements!.length, 6);
+    assert.equal(all.note, undefined);
+
+    const top = await getPageState(p, { viewport: true });
+    assert.deepEqual(names(top), ["Top 1", "Top 2", "Top 3"]);
+    assert.equal(top.note, "Showing 3 of 6 elements (viewport only); scroll, or call without viewport, for the rest");
+    assert.match(renderCompact(top), /^note: Showing 3 of 6 elements \(viewport only\)/m);
+
+    await p.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const bottom = await getPageState(p, { viewport: true });
+    assert.deepEqual(names(bottom), ["Bottom 1", "Bottom 2", "Bottom 3"]);
+    assert.match(bottom.note ?? "", /^Showing 3 of 6 elements \(viewport only\)/);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 SC2/AC2: a button partly inside the viewport is listed; one just outside any edge is not", async () => {
+  const p = await scopedPage(`
+    <button style="position:absolute;top:280px;left:10px;height:40px">Straddles bottom</button>
+    <button style="position:absolute;top:300px;left:10px;height:40px">Just below</button>
+    <button style="position:absolute;top:10px;left:380px;width:60px;height:30px">Straddles right</button>
+    <button style="position:absolute;top:10px;left:400px;width:60px;height:30px">Just right</button>
+    <button style="position:absolute;top:-20px;left:200px;height:40px">Straddles top</button>
+    <button style="position:absolute;top:-40px;left:200px;height:40px">Just above</button>
+    <button style="position:absolute;top:100px;left:-20px;width:40px;height:30px">Straddles left</button>
+    <button style="position:absolute;top:150px;left:-40px;width:40px;height:30px">Just left</button>`);
+  try {
+    const state = await getPageState(p, { viewport: true });
+    assert.deepEqual(names(state).sort(), ["Straddles bottom", "Straddles left", "Straddles right", "Straddles top"]);
+    assert.match(state.note ?? "", /^Showing 4 of 8 elements/);
+  } finally {
+    await p.close();
+  }
+});
+
+const FORM_PAGE = `<a href="#1">Link 1</a><a href="#2">Link 2</a>
+  <form id="f"><input aria-label="First"><input aria-label="Second"></form>
+  <a href="#3">Link 3</a><a href="#4">Link 4</a>`;
+
+test("T043 SC3/AC3/AC5: within lists only the descendants of one element, with the note", async () => {
+  const p = await scopedPage(FORM_PAGE);
+  try {
+    const state = await getPageState(p, { within: "#f" });
+    assert.equal(state.ok, true);
+    assert.deepEqual(names(state), ["First", "Second"]);
+    assert.equal(state.note, 'Showing 2 of 6 elements (within "#f"); call without within for the rest');
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 SC3/AC3: within takes the @eN ref of a listed container and the @oN ref of a dialog, through resolveRefArgs", async () => {
+  const p = await scopedPage(`<button>Outside</button>
+    <div role="listbox" aria-label="Panel"><button>In panel A</button><button>In panel B</button></div>
+    <div role="dialog" aria-modal="true" aria-label="Confirm"><button>Yes</button></div>`);
+  try {
+    const first = await getPageState(p, { keepRefs: true });
+    const panelRef = `@e${first.elements!.findIndex((e) => e.name === "Panel") + 1}`;
+    const viaElement = await resolveRefArgs(p, { within: panelRef });
+    assert.equal(viaElement.ok, true);
+    const panel = await getPageState(p, { keepRefs: true, within: (viaElement as { args: { within: string } }).args.within });
+    assert.deepEqual(names(panel), ["In panel A", "In panel B"]);
+
+    await getPageState(p, { keepRefs: true });
+    const viaOverlay = await resolveRefArgs(p, { within: "@o1" });
+    assert.equal(viaOverlay.ok, true);
+    const dialog = await getPageState(p, { within: (viaOverlay as { args: { within: string } }).args.within });
+    assert.deepEqual(names(dialog), ["Yes"]);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 SC4/AC3: within that matches nothing, several elements, or is not a selector is an error and lists nothing", async () => {
+  const p = await scopedPage(FORM_PAGE);
+  try {
+    const none = await getPageState(p, { within: ".missing" });
+    assert.equal(none.ok, false);
+    assert.match(none.error ?? "", /\.missing/);
+    assert.equal(none.elements, undefined);
+
+    const several = await getPageState(p, { within: "a" });
+    assert.equal(several.ok, false);
+    assert.match(several.error ?? "", /matched 4 elements; expected exactly 1/);
+    assert.equal(several.elements, undefined);
+
+    const broken = await getPageState(p, { within: "div[" });
+    assert.equal(broken.ok, false);
+    assert.equal(broken.elements, undefined);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 SC4/AC3: a stale ref in within fails in resolveRefArgs, before anything is listed", async () => {
+  const p = await scopedPage(`<div role="listbox" aria-label="Panel"><button>Inner</button></div>`);
+  try {
+    const state = await getPageState(p, { keepRefs: true });
+    assert.equal(state.elements![0].name, "Panel");
+    await p.evaluate(() => {
+      const old = document.querySelector("[role=listbox]")!;
+      old.replaceWith(old.cloneNode(true));
+    });
+    const stale = await resolveRefArgs(p, { within: "@e1" });
+    assert.equal(stale.ok, false);
+    assert.match((stale as { error: string }).error, /@e1.*stale/);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 SC5: within an element with nothing interactive in it is an empty list with the scope note, not an error", async () => {
+  const p = await scopedPage(`<button>One</button><div id="empty"><p>Just text</p></div><button>Two</button>`);
+  try {
+    const state = await getPageState(p, { within: "#empty" });
+    assert.equal(state.ok, true);
+    assert.deepEqual(state.elements, []);
+    assert.equal(state.note, 'Showing 0 of 2 elements (within "#empty"); call without within for the rest');
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 AC3: the within root is not listed in its own scope, only its descendants", async () => {
+  const p = await scopedPage(`<div role="listbox" aria-label="Panel" id="panel"><button>Child</button></div>`);
+  try {
+    const state = await getPageState(p, { within: "#panel" });
+    assert.deepEqual(names(state), ["Child"]);
+    assert.match(state.note ?? "", /^Showing 1 of 2 elements/);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 AC4: viewport and within together keep only elements that satisfy both", async () => {
+  const p = await scopedPage(`<button>Outside</button>
+    <form id="f"><input aria-label="Near"><div style="height:1000px"></div><input aria-label="Far"></form>`);
+  try {
+    const state = await getPageState(p, { viewport: true, within: "#f" });
+    assert.deepEqual(names(state), ["Near"]);
+    assert.equal(state.note, 'Showing 1 of 3 elements (viewport only, within "#f"); scroll, or call without viewport or within, for the rest');
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 SC6/AC5/AC6: 250 buttons, 30 on screen: viewport lists 30 with only the scope note; no argument lists 200 with only the cap note", async () => {
+  const p = await scopedPage(
+    Array.from({ length: 250 }, (_, i) => `<button style="display:block;height:10px;margin:0;padding:0;border:0;font-size:8px">B${i}</button>`).join("")
+  );
+  try {
+    const scoped = await getPageState(p, { viewport: true });
+    assert.equal(scoped.elements!.length, 30);
+    assert.equal(scoped.note, "Showing 30 of 250 elements (viewport only); scroll, or call without viewport, for the rest");
+
+    const plain = await getPageState(p);
+    assert.equal(plain.elements!.length, 200);
+    assert.equal(plain.note, "Showing first 200 of 250 elements; use viewport or within to narrow the list, or a CSS selector for the rest");
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 AC6: the cap applies after scoping; when it still cuts the list both notes ride on the one note line", async () => {
+  const p = await scopedPage(
+    `<button>Outside</button><div id="box">${Array.from({ length: 230 }, (_, i) => `<button>In ${i}</button>`).join("")}</div>` +
+      Array.from({ length: 30 }, (_, i) => `<button>After ${i}</button>`).join("")
+  );
+  try {
+    const state = await getPageState(p, { within: "#box" });
+    assert.equal(state.elements!.length, 200);
+    assert.equal(state.elements![0].name, "In 0");
+    assert.equal(
+      state.note,
+      'Showing 230 of 261 elements (within "#box"); call without within for the rest; ' +
+        "Showing first 200 of 230 elements; use viewport or within to narrow the list, or a CSS selector for the rest"
+    );
+    assert.equal(renderCompact(state).split("\n").filter((l) => l.startsWith("note:")).length, 1);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 SC7/AC7: refs number the scoped list and each resolves to the element listed at that number", async () => {
+  const p = await scopedPage(TALL_PAGE);
+  try {
+    await p.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const state = await getPageState(p, { keepRefs: true, viewport: true });
+    assert.deepEqual(names(state), ["Bottom 1", "Bottom 2", "Bottom 3"]);
+    assert.match(renderCompact(state), /^@e1 button "Bottom 1"$/m);
+    for (const [i, el] of state.elements!.entries()) {
+      assert.deepEqual(await resolveRef(p, `@e${i + 1}`), { ok: true, selector: el.selector });
+      assert.equal(await p.locator(el.selector).innerText(), `Bottom ${i + 1}`);
+    }
+    assert.equal((await resolveRef(p, "@e4")).ok, false, "only the listed elements have refs");
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 AC8: overlays, focused and messages stay page-wide; a focused element outside the scope prints as role and name", async () => {
+  const p = await scopedPage(`<button>Visible</button>
+    <p role="status">Saved</p>
+    <div style="height:1500px"></div>
+    <div role="dialog" aria-label="Far dialog" style="position:absolute;top:1600px;left:0"><button>Dialog button</button></div>
+    <input aria-label="Far field" id="far">`);
+  try {
+    await p.evaluate(() => document.getElementById("far")!.focus({ preventScroll: true }));
+    const state = await getPageState(p, { keepRefs: true, viewport: true });
+    assert.deepEqual(names(state), ["Visible"]);
+    assert.deepEqual(state.messages, ["Saved"]);
+    assert.equal(state.focused!.name, "Far field");
+    assert.deepEqual(state.overlays!.map((o) => o.name), ["Far dialog"]);
+    const text = renderCompact(state);
+    assert.match(text, /^focused: textbox "Far field"$/m);
+    assert.match(text, /^messages: "Saved"$/m);
+    assert.match(text, /^overlay @o1 dialog "Far dialog"/m);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 AC1/SC8: no scope argument, or false / undefined ones, give the same reply as before", async () => {
+  const p = await scopedPage(FORM_PAGE + TALL_PAGE);
+  try {
+    const plain = await getPageState(p);
+    for (const options of [{}, { viewport: false }, { viewport: undefined, within: undefined }]) {
+      assert.equal(JSON.stringify(await getPageState(p, options)), JSON.stringify(plain));
+    }
+    assert.equal(plain.note, undefined);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 AC5: a scope that leaves nothing out carries no scope note", async () => {
+  const p = await scopedPage(`<form id="f"><input aria-label="Only"></form>`);
+  try {
+    assert.equal((await getPageState(p, { viewport: true })).note, undefined);
+    assert.equal((await getPageState(p, { within: "#f" })).note, undefined);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T043 edge: a within root that keeps being replaced ends as an error or the still-changing note, never a quiet empty list", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.goto(
+      "data:text/html," +
+        encodeURIComponent(`<!doctype html><body><div id="host"><div id="root"><button>Inside</button></div></div><script>
+          setInterval(() => { document.getElementById("host").innerHTML = '<div id="root"><button>Inside</button></div>'; }, 4);
+        </script></body>`)
+    );
+    const state = await getPageState(p, { within: "#root" });
+    const quietEmpty = state.ok && state.elements!.length === 0 && !state.note;
+    assert.equal(quietEmpty, false, JSON.stringify(state));
+  } finally {
+    await p.close();
+  }
 });
