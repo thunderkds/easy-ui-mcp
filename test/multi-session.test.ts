@@ -720,6 +720,34 @@ describe("T040: compact page state and refs", () => {
     assert.doesNotMatch(readFileSync(report.path.replace(/\.json$/, ".html"), "utf8"), /@[eo]\d/, "no bare ref in the HTML report");
   });
 
+  test("T045 SC8/AC11: a click by ref after a compact snapshot records the selector built when the ref was used, and the second of two look-alikes is the one clicked", async () => {
+    const conn = await connect();
+    const id = await conn.start("lazy-ref-report");
+    await conn.call(
+      "ui_navigate",
+      {
+        url: pageUrl(
+          `<p id="out"></p><button onclick="document.getElementById('out').textContent='first'">Item</button>
+           <button onclick="document.getElementById('out').textContent='second'">Item</button>`
+        ),
+        session_id: id,
+      }
+    );
+    const state = await conn.call("ui_get_page_state", { session_id: id });
+    assert.match(state.text, /^@e1 button "Item"$/m);
+    assert.match(state.text, /^@e2 button "Item"$/m);
+    assert.doesNotMatch(state.text, /nth=|role=/, "no selector in the compact reply");
+
+    const clicked = await conn.call("ui_click", { selector: "@e2", session_id: id });
+    assert.equal(clicked.isError, false, clicked.text);
+    assert.equal((await conn.call("ui_get_text", { selector: "#out", session_id: id })).text, "second");
+    await conn.call("ui_end_session", { session_id: id });
+
+    const click = reportFor(id)!.json.actions.find((x: any) => x.action === "ui_click");
+    assert.equal(click.ok, true);
+    assert.match(click.args.selector, /^role=button\[name="Item"\] >> nth=1$/, "the resolved selector, not the ref");
+  });
+
   test("AC4/AC5/AC7: a ref in another session, a changed page, an unknown number or no snapshot all fail and act on nothing", async () => {
     const conn = await connect();
     const a = await conn.start("refs-A");
