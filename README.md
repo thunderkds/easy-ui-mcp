@@ -6,7 +6,7 @@ easy-ui-mcp is a Dockerized MCP (Model Context Protocol) server for local UI tes
 
 A static docs page for this project lives in [`site/index.html`](site/index.html); it deploys to Vercel as plain static files (no install, no build — see `vercel.json`).
 
-## Why easy-ui-mcp
+## Highlights
 
 General browser automation answers "can the agent click this?". easy-ui-mcp answers "did the flow work, and where is the proof?". It is built for testing and for evidence.
 
@@ -22,7 +22,7 @@ General browser automation answers "can the agent click this?". easy-ui-mcp answ
 
 Report size was measured too: a soft-check run went from 357 KB to about 4 KB once soft failures stopped capturing a full-screen PNG. See [Measured](site/index.html#measured) on the docs page.
 
-## Quick Start
+### Quick Start
 
 ```bash
 docker compose up -d --build
@@ -40,7 +40,11 @@ Then ask Claude Code to navigate to a page and take a screenshot — it will cal
 
 **Using this from another repo?** MCP registration is per-project — run `claude mcp add` from that repo's root too (the container above only needs to run once, shared across repos). See [AGENTS.md → Using easy-ui-mcp From Another Repo](AGENTS.md#using-easy-ui-mcp-from-another-repo) for the full required steps.
 
-## Running over stdio (Glama, `mcp-proxy`)
+## How it works in detail
+
+Reference for each part of the server: transports, networking, every tool, sessions, reports and scope.
+
+### Running over stdio (Glama, `mcp-proxy`)
 
 Hosts that wrap a stdio MCP server, such as Glama's `mcp-proxy`, run `dist/stdio.js` instead of the HTTP server. It speaks the same tools over stdin/stdout, binds no port, and exits when stdin closes.
 
@@ -53,7 +57,7 @@ mcp-proxy -- node dist/stdio.js
 
 One stdio connection is one client, so the legacy shared page (the one `ui_navigate` uses without a session) is not shared with anyone else. The Docker/HTTP flow above is unchanged.
 
-## Networking
+### Networking
 
 The container runs with `network_mode: host` in `docker-compose.yml` (not a published port on a bridge
 network). This is required, not optional: the browser Playwright drives inside this container needs to
@@ -68,11 +72,11 @@ macOS/Windows, where host networking support is limited or absent), use `host.do
 target hostname instead of `localhost` when calling `ui_navigate`, and add a `network_mode: host` fallback
 of `extra_hosts: ["host.docker.internal:host-gateway"]` to `docker-compose.yml`.
 
-## Tools
+### Tools
 
 `ui_start_session`, `ui_end_session`, `ui_step`, `ui_navigate`, `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_set_viewport`, `ui_type`, `ui_navigate_history`, `ui_click_outside`, `ui_dialog`, `ui_assert`, `ui_check`, `ui_wait_for`, `ui_get_page_state`, `ui_get_text`, `ui_get_logs`, `ui_tabs`, `ui_upload_file`, `ui_drag`, `ui_take_screenshot` — plus a REST wrapper at `POST /api/run-test` for non-MCP callers.
 
-### Run several sessions side by side
+#### Run several sessions side by side
 
 One connection can hold several open sessions (default cap 3, set `MAX_SESSIONS_PER_CONNECTION` to change it), for example to compare two URLs or a logged-in and a logged-out user. `ui_start_session` returns a session id; pass it as `session_id` to any other tool to choose the session it acts on. Each session has its own browser, page, step label and report.
 
@@ -90,7 +94,7 @@ ui_end_session    session_id: <id-B>
 - A session is reachable only from the connection that started it. Another connection passing its id gets `Unknown session`.
 - A session with no tool call for 10 minutes (`SESSION_TIMEOUT_MS`, in milliseconds) is closed automatically: its browser is shut down and its report is written with status `timed_out`. A call with that id then returns `Session <id> was closed after 10 min idle`. When a connection closes, every session it still owns is ended and reported.
 
-### Label your steps
+#### Label your steps
 
 `ui_step(label)` groups everything that follows it under a plain-language heading, until the next `ui_step`. The label is the report's **only caller-authored statement of intent**. The server uses deterministic templates such as “Opened …”, “Clicked …”, and “Filled …” for individual actions—no LLM runs inside the container—so an unlabelled session still renders readable action descriptions under one implicit group.
 
@@ -107,13 +111,13 @@ ui_end_session
 
 Sessions with no `ui_step` calls still render correctly, under a single implicit group.
 
-### Close overlays and answer dialogs
+#### Close overlays and answer dialogs
 
 - **Click outside.** `ui_click_outside(selector)` clicks just outside the element you name (pass the modal panel, not the backdrop) and says what it hit, the way a user dismisses a modal by clicking its backdrop. If nothing safe exists around it, it fails and suggests `ui_press_key` with `Escape`.
 - **Click options.** `ui_click` also takes optional `button` (`right` fires `contextmenu`), `clickCount` (2 = double-click), `modifiers` (e.g. `["Shift"]`), `position` (offset inside the element) and `force` (click through a covering element). Without them it is a plain left click.
 - **Native dialogs.** A browser `alert`/`confirm`/`prompt`/`beforeunload` blocks the page, so the server holds it open and asks you. The call that opened it returns at once with `Browser is waiting on a confirm dialog: "Delete?"`. Every other tool is refused until you answer with `ui_dialog` (`accept` or `dismiss`, plus `text` for a prompt); its reply tells you what the interrupted action did next. Calling `ui_dialog` when nothing is waiting pre-sets the answer for the next dialog, which is then answered without pausing (use it in scripted flows). A dialog left unanswered for `DIALOG_TIMEOUT_MS` (default 120000) is dismissed and the next response says so. Every dialog is logged in the report with who answered it.
 
-### Use the selector from page state
+#### Use the selector from page state
 
 `ui_get_page_state` returns the URL, title, up to 200 visible interactive elements as `{role, name, selector}`, and `messages` (visible alert/status text such as validation errors). Each `selector` is checked against the live page before it is returned, so pass it **unchanged** to `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked` and `ui_scroll` rather than guessing a CSS selector. A selector containing `nth=` is positional: call `ui_get_page_state` again after the page changes before reusing it.
 
@@ -130,7 +134,7 @@ Page state also tells you what the page looks like right now, so you do not have
 - `focused` is `{role, name, selector}` for the element holding focus. It is absent when focus is on the page body, in an iframe or in a shadow root.
 
 `ui_get_text` reads text: the trimmed visible text of one element (`selector`), or of the whole page body with no selector, cut at 4000 characters with a note of the real length. Use it to check a total, a heading or a field error. It fails on 0 or more than 1 match, like `ui_click`, and on an element that is not visible. The text it reads is returned to you but not stored in the report.
-### Test at real sizes, type like a user, see what you capture
+#### Test at real sizes, type like a user, see what you capture
 
 - **Sizes and settings.** `ui_start_session` takes optional `device` (a Playwright device name such as `"iPhone 13"`: mobile user agent, touch, pixel ratio, size), `viewport` `{width, height}` (overrides the device size), `colorScheme` (`light`/`dark`), `locale` and `timezoneId`. An unknown device is an error that lists valid names. With none of them the browser is a 1280x720 desktop. These apply to the session only (not to the shared page used without a session). `ui_set_viewport(width, height)` resizes mid-flow (320-3840 x 320-2160); layouts can change, so call `ui_get_page_state` again afterwards. The settings appear in the report header.
 - **Typing.** `ui_fill` sets the whole value at once. `ui_type(selector, text, delayMs?)` types key by key (`keydown`/`input`/`keyup` per character, appended to what is there), for autocomplete, search-as-you-type, masked inputs and OTP boxes. The report's step line only says how many characters were typed. The text itself is replaced by `••••` (in the reply and the stored step) when the target is a password, one-time-code or card-number (`autocomplete`) field, or uses `-webkit-text-security`.
@@ -138,7 +142,7 @@ Page state also tells you what the page looks like right now, so you do not have
 - **Scrolling.** `ui_scroll` also takes `container` (the selector of a scroll area such as a chat panel, virtual table or carousel) and `direction` (`down`, `up`, `left`, `right`, `top`, `bottom`; default `down`). It moves one viewport (or container) step per call and says when the end was reached, so a loop over a lazy list knows when to stop.
 - **Screenshots.** `ui_take_screenshot` also takes `selector` (just that element), `fullPage` (the whole page, cut at 16000 device pixels tall and 3840px wide) and `inline: true`, which returns the PNG as image content (scaled to fit 1280x8000px) as well as writing it to `reports/`.
 
-### Debug a flow and work across tabs
+#### Debug a flow and work across tabs
 
 - **Logs.** `ui_get_logs` reads the browser problems captured so far: console errors, uncaught page errors, failed requests and HTTP 4xx/5xx responses (method and URL, never bodies or headers). `since: last` (default) returns only what is new since the previous call, `start` everything; `level: warning` adds console warnings. Repeats are grouped `×N`, 50 lines at most. Use it when an action seemed to do nothing.
 - **Tabs.** A `target=_blank` link or `window.open` popup opens a tab the session tracks. The next response says `New tab opened: <url> (tab 2)` but does not switch to it. `ui_tabs` with `list`, `switch` (with `index`) or `close` moves between tabs, numbered from 1; every other tool acts on the current tab. The last tab cannot be closed.
@@ -155,7 +159,7 @@ ui_tabs           action: "close"
 
 Tabs, logs and downloads exist only inside a `ui_start_session` bracket and belong to one session: with several open, pass `session_id`, and a popup opened in one session is neither listed nor announced in another.
 
-### Verifying vs waiting — pick the right one
+#### Verifying vs waiting — pick the right one
 
 A session is marked `failed` if any hard action fails, so *how* you verify decides whether the report tells the truth.
 
@@ -171,7 +175,7 @@ For both `ui_check` and `ui_wait_for`, a condition that cannot *run* (no page op
 
 Auto-failure screenshots are budgeted per session (`FAILURE_SCREENSHOT_BUDGET`, default 3). Identical screenshot content is embedded in the HTML report only once.
 
-### What the report shows
+#### What the report shows
 
 A verdict box (status, target, step/action/failure counts, duration), then the run as labelled steps with per-step outcomes and elapsed time, then any browser problems, and finally the raw action log collapsed behind a disclosure.
 
@@ -183,6 +187,6 @@ Reports are named `session-<YYYYMMDD-HHMMSS>-<slug>-<id8>.{json,html}`: the UTC 
 
 See [AGENTS.md](AGENTS.md) for the architecture and full MCP connection guide, and [HARNESS.md](HARNESS.md) for the REST API reference. Deploy/rollback procedures are in [RUNBOOK.md](RUNBOOK.md).
 
-## Scope (v1)
+### Scope (v1)
 
 Web only (Chromium) and local only. The server runs over HTTP/SSE by default and over stdio through `dist/stdio.js` (see [Running over stdio](#running-over-stdio-glama-mcp-proxy)). Android (Appium) work is on hold: the infrastructure is in the image, but no `android_*` tools are registered. See [PRD.md](PRD.md) for full product intent and [PROJECT_SPEC.md](PROJECT_SPEC.md) for architecture decisions.

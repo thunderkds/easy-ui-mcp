@@ -255,8 +255,17 @@ test('T039: the page and README lead with UI testing and evidence, and the Why s
 
   const readme = read('README.md');
   assert.match(readme, /local UI-testing MCP that gives your agent structured, shareable test reports/, 'README carries the positioning line');
-  assert.ok(readme.includes('## Why easy-ui-mcp'), 'README has the Why section');
-  assert.ok(readme.indexOf('## Why easy-ui-mcp') < readme.indexOf('## Quick Start'), 'Why comes before Quick Start');
+  // T044: two parts. Highlights (with Quick Start) first, the detail of how it works below.
+  const at = (h: string) => readme.indexOf(`\n${h}\n`);
+  assert.ok(at('## Highlights') > -1 && at('### Quick Start') > -1 && at('## How it works in detail') > -1, 'README has Highlights, Quick Start and How it works in detail');
+  assert.ok(at('## Highlights') < at('### Quick Start'), 'Highlights comes before Quick Start');
+  assert.ok(at('### Quick Start') < at('## How it works in detail'), 'Quick Start sits in the highlights part');
+  assert.ok(readme.indexOf('| What you get |') < at('## How it works in detail'), 'the six-point table is in the highlights part');
+  const detail = readme.slice(at('## How it works in detail'));
+  for (const h of ['### Tools', '### Networking', '### Scope (v1)', '#### What the report shows']) {
+    assert.ok(detail.includes(`\n${h}\n`), `the detail part holds ${h}`);
+  }
+  assert.ok(!/\n## (?!Highlights|How it works in detail)/.test(readme.replace(/```[\s\S]*?```/g, '')), 'README has exactly two top-level parts');
   assert.match(read('package.json'), /"description": "Local UI-testing MCP server/, 'package.json description matches');
 });
 
