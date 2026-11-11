@@ -21,6 +21,12 @@
 
 ## Gotchas
 
+### 2026-11-11 — A Playwright selector check costs time in proportion to the page, per call (T045)
+On a page with about 4,300 interactive elements one `page.locator("role=…").evaluateAll(...)` took 90–120 ms and `page.$$` took 2 s for 4,330 handles. Anything done once per listed element becomes tens of seconds. Do per-element work in one `evaluate` over an array handle, and defer selector checks to the moment a selector is used. Also: `page.$$(css)` pierces open shadow roots in tree order (own children before the shadow tree), so it is not `querySelectorAll`.
+
+### 2026-11-11 — The merge gate reads the board on main, not on the task branch
+`git merge` is blocked while main's `PROJECT_KANBAN.md` shows the task In Progress. Closing the row on the branch is not enough: commit the same board and review file on main first (`git checkout <branch> -- PROJECT_KANBAN.md tasks/TASK_REVIEW_Txxx.md`), then merge.
+
 ### 2026-11-11 — A snapshot read while a single-page app re-renders drops every element (T042)
 A client-side route change keeps `document.readyState` at `complete` and fires no `load`, so load-state waits do nothing. `getPageState` took handles, the framework replaced the DOM, and every stale handle was dropped as "vanished": a successful, empty reply. Fix: a pass reports whether its own handles were detached (`isConnected`) and is retaken within a 2 s budget. When a tool reads many handles over several round trips, check at the end that they are still connected.
 

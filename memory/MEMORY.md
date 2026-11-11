@@ -21,6 +21,8 @@
 - [stdio entry: close on stdin end, await onclose cleanup](learnings.md#gotchas) — SDK stdio transport ignores stdin EOF; `settleClosing()` before exit or reports are lost (T038)
 - [Page state: compact text + identity-checked refs by default (T040)](decisions.md#architecture) — `@eN`/`@oN` resolve in `registerSessionTool`; refused ref is a soft step; `format: "full"` = old JSON and ends refs
 - [Compact snapshots build selectors on demand (T045)](decisions.md#architecture) — `selectors: false` for compact; a ref's selector is built and identity-checked on first use; `format: "full"` still eager and slow on huge pages
+- [Per-element Playwright calls are slow on huge pages (T045)](learnings.md#gotchas) — ~100 ms per `locator` check, 2 s for 4,330 handles; batch in one `evaluate`; `page.$$` pierces shadow roots
+- [Merge gate reads main's board](learnings.md#gotchas) — commit the closed row and review file on main before `git merge`
 - [Snapshot scope is opt-in: `viewport`, `within` (T043)](decisions.md#architecture) — filter before the 200 cap; note with shown/total; default reply unchanged
 - [Tool list budget: 20,000 characters (T041)](decisions.md#architecture) — pinned in `test/health.test.ts` (19,362 after T043); shared rules stated once; a new tool must fit or raise it on purpose
 - [Snapshot during an SPA re-render dropped every element (T042)](learnings.md#gotchas) — no load event on a route change; a pass now checks its handles are still connected and retries within 2 s
