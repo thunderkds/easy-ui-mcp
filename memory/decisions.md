@@ -4,6 +4,12 @@
 
 ## Architecture
 
+### 2026-11-11 — The tool list has a size budget: 20,000 characters (T041)
+**Decision**: `test/health.test.ts` fails when `JSON.stringify` of the `tools/list` tools array exceeds 20,000 characters (19,017 after T041, 27,207 before). Shared rules are stated once: the `session_id` rule in `ui_start_session`, ref and `nth=` staleness in `ui_get_page_state`. Argument descriptions that only restate the name are gone.
+**Why**: the tool list is paid in every conversation and was 76–83% of an app-style flow in the 2026-11-11 baseline. `tasks/TASK_GUIDE_T041.md` holds the 17 facts the descriptions must keep.
+**Trade-off**: about 980 characters of headroom; a new tool or longer description must cut elsewhere or raise the budget on purpose.
+**Files**: `src/server.ts`, `test/health.test.ts`
+
 ### 2026-11-11 — Page state is compact text with refs by default; refs are identity-checked aliases (T040)
 **Decision**: `ui_get_page_state` replies with one text line per element (`@eN role "name" state`, `overlay @oN …`, `focused:`, `messages:`); `format: "full"` returns the earlier JSON with selectors and no refs. A ref is an alias for the verified selector of the latest snapshot of that page (`WeakMap<Page, …>` in `web.ts`), resolved once in `registerSessionTool` for `selector` / `from` / `to` / `container`. Resolution checks that the selector still matches exactly the stored element handle; otherwise the call is refused and recorded as a **soft** step. Every snapshot ends the earlier refs, a `format: "full"` one included.
 **Why**: the 2026-11-11 baseline (`docs/experiments/token-baseline-2026-11-11.md`) showed selectors and JSON keys were most of the reply. Measured on four flows: 1,413 → 807, 2,092 → 1,169, 26,192 → 4,871, 27,086 → 5,483 tokens. The user approved compact-by-default, refs invalidated per snapshot, viewport scoping later. A refused ref is soft because it says nothing about the app under test.

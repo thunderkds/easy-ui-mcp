@@ -67,6 +67,19 @@ The plan's "median under 400" holds on this mix, but the distribution has two cl
 4. Keep the short action echo; do not reduce it to `{"ok":true}`.
 5. Open a separate bug for the empty snapshot after a navigating click.
 
+## Outcome (added 2026-11-11, after T040 and T041)
+
+The same four flows, driven with refs through the real server (`MODE=after`):
+
+| Flow | Traffic before | After T040 | Ratio | With tool list: before → after T041 | Ratio |
+|---|---|---|---|---|---|
+| TodoMVC (small app) | 1,413 | 807 | 1.8× | 8,118 → 5,561 | 1.5× |
+| Saucedemo (login + checkout) | 2,092 | 1,169 | 1.8× | 8,797 → 5,923 | 1.5× |
+| Wikipedia (long article) | 26,192 | 4,871 | 5.4× | 32,897 → 9,625 | 3.4× |
+| Hacker News (link list) | 27,086 | 5,477 | 4.9× | 33,791 → 10,231 | 3.3× |
+
+The tool list went from 6,705 to 4,754 tokens (T041; T040 had added about 100). Evidence: `tasks/TASK_REVIEW_T040.md`, `tasks/TASK_REVIEW_T041.md`. Still open: viewport scoping (T043) and the empty snapshot after a navigating click (T042).
+
 ## Reproduce
 
 ```
