@@ -4,6 +4,12 @@
 
 ## Architecture
 
+### 2026-11-11 — Snapshot scope is opt-in: `viewport` and `within` (T043)
+**Decision**: `ui_get_page_state` accepts `viewport: true` (elements whose rect intersects the viewport now) and `within` (a selector or ref of exactly one element; lists its descendants). Scoping is a filter in the page-wide read pass, applied before the 200 cap; a scoped reply that left elements out carries a note with shown/total counts. `overlays`, `focused` and `messages` are never scoped. With neither argument the reply is unchanged (only the cap note's wording now names the two arguments).
+**Why**: content-heavy pages still cost 1,000–1,600 tokens per snapshot after T040. Opt-in, not automatic, because an element missing from a list is a worse failure for an agent than a long list (1 of 21 baseline targets was off-screen). Measured: Wikipedia 54% of unscoped, Hacker News 67%.
+**Trade-off**: saves nothing unless the agent asks; the tool list is at 19,362 of 20,000 characters. Revisit automatic scoping only with data from real agent runs.
+**Files**: `src/tools/web.ts`, `src/server.ts`, `test/web.test.ts`, `test/multi-session.test.ts`, `README.md`, `site/index.html`
+
 ### 2026-11-11 — The tool list has a size budget: 20,000 characters (T041)
 **Decision**: `test/health.test.ts` fails when `JSON.stringify` of the `tools/list` tools array exceeds 20,000 characters (19,017 after T041, 27,207 before). Shared rules are stated once: the `session_id` rule in `ui_start_session`, ref and `nth=` staleness in `ui_get_page_state`. Argument descriptions that only restate the name are gone.
 **Why**: the tool list is paid in every conversation and was 76–83% of an app-style flow in the 2026-11-11 baseline. `tasks/TASK_GUIDE_T041.md` holds the 17 facts the descriptions must keep.
