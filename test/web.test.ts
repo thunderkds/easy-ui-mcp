@@ -2058,7 +2058,13 @@ test("T042 SC5: a page with no interactive elements answers at once with an empt
 test("T042 AC6: the cap note and the still-changing note can both appear, joined into the one note", async () => {
   const p = await browser.newPage();
   try {
-    await p.goto(reRenderingPage(10, 0, 205));
+    // 205 steady buttons put the list over the 200 cap; one more is replaced every few ms and never settles.
+    await p.goto(
+      "data:text/html," +
+        encodeURIComponent(`<!doctype html><body>${"<button>Steady</button>".repeat(205)}<div id="f"></div><script>
+          setInterval(() => { document.getElementById("f").innerHTML = "<button>Flicker</button>"; }, 4);
+        </script></body>`)
+    );
     const state = await getPageState(p);
     assert.equal(state.ok, true);
     assert.match(state.note ?? "", /^Showing first \d+ of \d+ elements; use a CSS selector for the rest; .*still changing/);

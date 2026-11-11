@@ -933,12 +933,74 @@ export async function getPageState(
   if (!page) {
     return { ok: false, error: "No active page — call ui_navigate first" };
   }
+  // T042: a page that re-renders (a client-side route change) replaces the elements a pass has
+  // taken, so the pass drops them all. When a pass saw the page move under it, take it again.
+  const started = Date.now();
+  const mayRetry = () => Date.now() - started + SETTLE_RETRY_MS < SETTLE_BUDGET_MS;
+  for (;;) {
+    let pass: SnapshotPass;
+    try {
+      pass = await snapshotPass(page);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // A navigation that destroys the context mid-pass is the page moving; a closed page is not.
+      if (!page.isClosed() && PAGE_MOVED_ERROR.test(message) && mayRetry()) {
+        await new Promise((resolve) => setTimeout(resolve, SETTLE_RETRY_MS));
+        continue;
+      }
+      replaceRefTable(page, undefined);
+      return { ok: false, error: message };
+    }
+    if (pass.moved && mayRetry()) {
+      await disposeHandles(pass.handles);
+      await new Promise((resolve) => setTimeout(resolve, SETTLE_RETRY_MS));
+      continue;
+    }
+    // Only the returned pass may install the ref table (T040); the handles of everything else go.
+    const { result } = pass;
+    const kept = new Set<ElementHandle>();
+    if (pass.moved) result.note = result.note ? `${result.note}; ${STILL_CHANGING_NOTE}` : STILL_CHANGING_NOTE;
+    // Every snapshot ends the previous one's refs; only a snapshot that is shown with refs starts new ones.
+    if (options.keepRefs) {
+      for (const entry of [...pass.elementRefs, ...pass.overlayRefs]) kept.add(entry.handle);
+      replaceRefTable(page, { elements: pass.elementRefs, overlays: pass.overlayRefs });
+    } else {
+      replaceRefTable(page, undefined);
+    }
+    await disposeHandles(pass.handles.filter((h) => !kept.has(h)));
+    return result;
+  }
+}
+
+/** How long to wait before taking a snapshot pass again, and the total time a snapshot may spend doing so. */
+const SETTLE_RETRY_MS = 100;
+const SETTLE_BUDGET_MS = 2000;
+const STILL_CHANGING_NOTE = "The page was still changing while it was read, so this list may be incomplete: call ui_get_page_state again";
+/** Playwright's errors for a context or node that went away under a pass (navigation, re-render). */
+const PAGE_MOVED_ERROR =
+  /context was destroyed|JSHandles can be evaluated only in the context|not attached to the DOM|frame was detached|cannot find context/i;
+
+async function disposeHandles(handles: ElementHandle[]): Promise<void> {
+  await Promise.all(handles.map((h) => h.dispose().catch(() => undefined)));
+}
+
+interface SnapshotPass {
+  result: PageState;
+  /** True when something the pass had taken vanished from the document while it ran. */
+  moved: boolean;
+  elementRefs: RefEntry[];
+  overlayRefs: RefEntry[];
+  /** Every handle the pass took; the caller disposes them (the ref table keeps the ones it uses). */
+  handles: ElementHandle[];
+}
+
+/** One complete read of the page. Disposes its own handles if it throws; otherwise leaves that to the caller. */
+async function snapshotPass(page: Page): Promise<SnapshotPass> {
   // Handles pin the exact elements so selectors can be verified by identity.
   let handles: ElementHandle[] = [];
   let overlayHandles: ElementHandle[] = [];
   let focusEl: ElementHandle | null = null;
-  // Handles that became the page's ref table (T040); everything else is disposed below.
-  const kept = new Set<ElementHandle>();
+  let moved = false;
   try {
     handles = await page.$$(INTERACTIVE_SELECTOR);
     const focusHandle = await page.evaluateHandle(() => {
@@ -1103,6 +1165,8 @@ export async function getPageState(
         elements.push(element);
         // Refs are positions in the final list, so a dropped element shifts none of them.
         elementRefs.push({ selector, handle: handles[r.index] });
+      } else {
+        moved = true;
       }
     }
 
@@ -1174,6 +1238,8 @@ export async function getPageState(
       if (selector) {
         overlays.push({ role: r.role, name: r.name, selector, modal: r.modal });
         overlayRefs.push({ selector, handle: overlayHandles[r.index] });
+      } else {
+        moved = true;
       }
     }
 
@@ -1208,24 +1274,15 @@ export async function getPageState(
     if (found.length > shown.length) {
       result.note = `Showing first ${shown.length} of ${found.length} elements; use a CSS selector for the rest`;
     }
-    // Every snapshot ends the previous one's refs; only a snapshot that is shown with refs starts new ones.
-    if (options.keepRefs) {
-      for (const entry of [...elementRefs, ...overlayRefs]) kept.add(entry.handle);
-      replaceRefTable(page, { elements: elementRefs, overlays: overlayRefs });
-    } else {
-      replaceRefTable(page, undefined);
+    // One cheap check that reads nothing but `isConnected`: did an element this pass took leave the document?
+    const taken = [...handles, ...overlayHandles, ...(focusEl ? [focusEl] : [])];
+    if (!moved && taken.length > 0) {
+      moved = await page.evaluate((nodes) => nodes.some((n) => !n.isConnected), taken);
     }
-    return result;
+    return { result, moved, elementRefs, overlayRefs, handles: taken };
   } catch (err) {
-    replaceRefTable(page, undefined);
-    const message = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: message };
-  } finally {
-    await Promise.all(
-      [...handles, ...overlayHandles, ...(focusEl ? [focusEl] : [])]
-        .filter((h) => !kept.has(h))
-        .map((h) => h.dispose().catch(() => undefined))
-    );
+    await disposeHandles([...handles, ...overlayHandles, ...(focusEl ? [focusEl] : [])]);
+    throw err;
   }
 }
 
