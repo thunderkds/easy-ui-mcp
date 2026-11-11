@@ -1,7 +1,11 @@
 // Token baseline experiment: current ui_get_page_state vs compact+refs, on fixed flows.
 // Pass 1 drives the real MCP server over stdio and records every request/reply.
 // Pass 2 replays the same flows in-process to learn which elements are inside the viewport.
+// MODE=after drives the flows with refs from the compact reply (T040) and reports real traffic only;
+// EASY_UI_SERVER_ROOT points at the checkout whose src/stdio.ts is measured (default: this one).
 const ROOT = "/home/thunderkds/workspace/pets/easy-ui-mcp";
+const SERVER_ROOT = process.env.EASY_UI_SERVER_ROOT ?? ROOT;
+const AFTER = process.env.MODE === "after";
 const { Client } = await import(`${ROOT}/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js`);
 const { StdioClientTransport } = await import(`${ROOT}/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js`);
 const { chromium } = await import(`${ROOT}/node_modules/playwright/index.mjs`);
@@ -140,12 +144,22 @@ function compact(s: Snap, keep?: boolean[]): string {
 }
 
 // ---------- pass 1: real MCP server ----------
-type Rec = { tool: string; args: Record<string, unknown>; reply: string; isError: boolean; snap?: Snap; ref?: string; refName?: string };
+type Rec = { tool: string; args: Record<string, unknown>; reply: string; isError: boolean; snap?: Snap; isSnap?: boolean; ref?: string; refName?: string };
+
+/** Elements of a compact reply; `selector` holds the ref so the flows pass it straight back. */
+function parseCompact(text: string): El[] {
+  const els: El[] = [];
+  for (const line of text.split("\n")) {
+    const m = /^(@e\d+) (\S+) ("(?:[^"\\]|\\.)*")/.exec(line);
+    if (m) els.push({ selector: m[1], role: m[2], name: JSON.parse(m[3]) });
+  }
+  return els;
+}
 
 async function mcpDriver(): Promise<{ d: Driver; recs: Rec[]; close: () => Promise<void>; schemaChars: number }> {
   const transport = new StdioClientTransport({
-    command: `${ROOT}/node_modules/.bin/tsx`,
-    args: [`${ROOT}/src/stdio.ts`],
+    command: `${SERVER_ROOT}/node_modules/.bin/tsx`,
+    args: [`${SERVER_ROOT}/src/stdio.ts`],
     cwd: RUN_DIR,
     stderr: "ignore",
   });
@@ -158,7 +172,7 @@ async function mcpDriver(): Promise<{ d: Driver; recs: Rec[]; close: () => Promi
     const res: any = await client.callTool({ name: tool, arguments: args });
     const reply = (res.content ?? []).map((c: any) => (c.type === "text" ? c.text : `[${c.type}]`)).join("\n");
     const rec: Rec = { tool, args, reply, isError: !!res.isError };
-    if (t && typeof t !== "string") {
+    if (!AFTER && t && typeof t !== "string") {
       rec.ref = `@e${last.indexOf(t) + 1}`;
       rec.refName = `${t.role} ${JSON.stringify(t.name)}`;
     }
@@ -174,6 +188,11 @@ async function mcpDriver(): Promise<{ d: Driver; recs: Rec[]; close: () => Promi
     snap: async () => {
       await new Promise((r) => setTimeout(r, 800)); // client-side settle, costs no tokens
       const rec = await call("ui_get_page_state", {});
+      if (AFTER) {
+        rec.isSnap = true;
+        last = parseCompact(rec.reply);
+        return last;
+      }
       rec.snap = JSON.parse(rec.reply);
       last = rec.snap!.elements ?? [];
       rec.snap!.elements = last;
@@ -261,7 +280,9 @@ function account(recs: Rec[]) {
     const b = JSON.stringify({ name: r.tool, arguments: bArgs }).length;
     reqA += a; reqB += b;
     let ra = r.reply.length, rb = ra;
-    if (r.snap) {
+    if (r.isSnap) {
+      snapA += ra; snapB += rb;
+    } else if (r.snap) {
       rb = compact(r.snap).length;
       snapA += ra; snapB += rb;
     } else {
@@ -276,7 +297,7 @@ function account(recs: Rec[]) {
   const cumulative = (turns: number[]) => turns.reduce((sum, _t, i) => sum + turns.slice(0, i + 1).reduce((x, y) => x + y, 0), 0);
   return {
     calls: recs.length,
-    snapshots: recs.filter((r) => r.snap).length,
+    snapshots: recs.filter((r) => r.snap || r.isSnap).length,
     A: { requests: tok(reqA), snapshots: tok(snapA), otherReplies: tok(otherA), total: tok(reqA + snapA + otherA), cumulative: tok(cumulative(turnsA)) },
     B: { requests: tok(reqB), snapshots: tok(snapB), otherReplies: tok(otherB), total: tok(reqB + snapB + otherB), cumulative: tok(cumulative(turnsB)) },
     minimalReplies: { otherReplies: tok(otherMin), saved: tok(otherA - otherMin) },
@@ -298,11 +319,11 @@ for (const [name, flow] of Object.entries(FLOWS)) {
   let error: string | undefined;
   try { await flow(m.d); } catch (e) { error = String(e).slice(0, 300); }
   await m.close().catch(() => {});
-  const viewport = await viewportPass(flow);
+  const viewport = AFTER ? { snaps: [], targets: 0, targetsOffscreen: 0, error: undefined } : await viewportPass(flow);
   results[name] = { error, ...account(m.recs), viewport, sampleReplies: m.recs.filter((r) => !r.snap).slice(0, 40).map((r) => `${r.tool}: ${r.reply.slice(0, 160)}`) };
   console.error(`done: ${name}${error ? " ERROR " + error : ""}${viewport.error ? " VIEWPORT-ERROR " + viewport.error : ""}`);
 }
-fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ schemaTokens: tok(schemaChars), results }, null, 1));
+fs.writeFileSync(path.join(OUT, AFTER ? "results-after.json" : "results.json"), JSON.stringify({ schemaTokens: tok(schemaChars), results }, null, 1));
 console.log("schema tokens", tok(schemaChars));
 for (const [name, r] of Object.entries(results) as [string, any][]) {
   console.log(`\n== ${name}: ${r.calls} calls, ${r.snapshots} snapshots${r.error ? " ERROR " + r.error : ""}`);
