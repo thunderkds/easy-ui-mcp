@@ -101,6 +101,9 @@ describe("a held dialog is per session", () => {
       assert.equal((await conn.call("ui_navigate", { url: CONFIRM_PAGE, session_id: id })).isError, false);
     }
 
+    // T040: a snapshot in A, so a ref can be tried against the held dialog below
+    assert.match((await conn.call("ui_get_page_state", { session_id: a })).text, /^@e1 button "Delete"$/m);
+
     const opened = await conn.call("ui_click", { selector: "#del", session_id: a });
     assert.equal(opened.isError, false);
     assert.match(opened.text, /Browser is waiting on a confirm dialog: "Delete\?"/);
@@ -116,6 +119,10 @@ describe("a held dialog is per session", () => {
     const refused = await conn.call("ui_get_page_state", { session_id: a });
     assert.equal(refused.isError, true);
     assert.match(refused.text, /A confirm dialog is waiting: "Delete\?" — answer it with ui_dialog first/);
+    // a ref action is refused the same way, before the ref is looked at (the blocked page is never queried)
+    const refRefused = await conn.call("ui_click", { selector: "@e1", session_id: a });
+    assert.equal(refRefused.isError, true);
+    assert.match(refRefused.text, /A confirm dialog is waiting: "Delete\?" — answer it with ui_dialog first/);
 
     // ui_dialog answers the session it is called for: A's confirm becomes true.
     const answered = await conn.call("ui_dialog", { action: "accept", session_id: a });

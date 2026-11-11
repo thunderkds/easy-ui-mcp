@@ -18,7 +18,7 @@ General browser automation answers "can the agent click this?". easy-ui-mcp answ
 | **Local-first, one command** | `docker compose up -d --build`. No cloud account, no API key, nothing leaves your machine. |
 | **No LLM inside the server** | The server only runs tools and records the result. The agent does the reasoning, so cost and behaviour stay predictable. |
 | **Made for Claude Code** | Register it over HTTP/SSE with one `claude mcp add`. One connection can run up to 3 sessions side by side, for example staging and production. A stdio entry (`dist/stdio.js`) serves hosts that wrap stdio servers. |
-| **Fewer wasted calls** | `ui_get_page_state` returns selectors already checked against the live page, plus element state, open dialogs and focus. Native `alert`/`confirm`/`prompt` dialogs are held open for the agent to answer. |
+| **Fewer wasted calls** | `ui_get_page_state` returns one short line per element with a ref that is checked against the live page when you use it, plus element state, open dialogs and focus. Native `alert`/`confirm`/`prompt` dialogs are held open for the agent to answer. |
 
 Report size was measured too: a soft-check run went from 357 KB to about 4 KB once soft failures stopped capturing a full-screen PNG. See [Measured](site/index.html#measured) on the docs page.
 
@@ -117,21 +117,29 @@ Sessions with no `ui_step` calls still render correctly, under a single implicit
 - **Click options.** `ui_click` also takes optional `button` (`right` fires `contextmenu`), `clickCount` (2 = double-click), `modifiers` (e.g. `["Shift"]`), `position` (offset inside the element) and `force` (click through a covering element). Without them it is a plain left click.
 - **Native dialogs.** A browser `alert`/`confirm`/`prompt`/`beforeunload` blocks the page, so the server holds it open and asks you. The call that opened it returns at once with `Browser is waiting on a confirm dialog: "Delete?"`. Every other tool is refused until you answer with `ui_dialog` (`accept` or `dismiss`, plus `text` for a prompt); its reply tells you what the interrupted action did next. Calling `ui_dialog` when nothing is waiting pre-sets the answer for the next dialog, which is then answered without pausing (use it in scripted flows). A dialog left unanswered for `DIALOG_TIMEOUT_MS` (default 120000) is dismissed and the next response says so. Every dialog is logged in the report with who answered it.
 
-#### Use the selector from page state
+#### Use the refs from page state
 
-`ui_get_page_state` returns the URL, title, up to 200 visible interactive elements as `{role, name, selector}`, and `messages` (visible alert/status text such as validation errors). Each `selector` is checked against the live page before it is returned, so pass it **unchanged** to `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked` and `ui_scroll` rather than guessing a CSS selector. A selector containing `nth=` is positional: call `ui_get_page_state` again after the page changes before reusing it.
+`ui_get_page_state` returns the page as short text: a `url:` line, a `title:` line, then one line per visible interactive element (up to 200) as `@eN role "name"` followed by its non-default state, and `messages:` (visible alert/status text such as validation errors). Pass the ref as the `selector` of `ui_click`, `ui_fill`, `ui_select_option`, `ui_press_key`, `ui_hover`, `ui_set_checked`, `ui_scroll`, `ui_get_text`, `ui_take_screenshot` and `ui_upload_file` (and as `from` / `to` of `ui_drag`, `container` of `ui_scroll`) instead of guessing a CSS selector.
 
 ```
-{"role": "button", "name": "Sign in", "selector": "[data-testid=\"signin\"]"}
-ui_click  selector: [data-testid="signin"]
+url: https://shop.example/login
+title: Sign in
+@e1 textbox "Email" required
+@e2 button "Sign in" disabled
+ui_click  selector: @e2
 ```
+
+A ref means the latest snapshot of that page and nothing older. Each ref is checked against the live page when you use it: if the element is gone, replaced or re-ordered, the call fails with a message that names the ref and says to call `ui_get_page_state` again. It never acts on a different element, and nothing is clicked or typed. A ref from another session or tab, one used before any snapshot, and an unknown number fail the same way. Reports and the action log show the real selector of each successful action. A refused ref is listed as a soft failed step with the ref the agent tried; it does not fail the session or take a failure screenshot. CSS and Playwright selectors still work everywhere; elements without an accessible name are not listed, so reach those with a CSS selector.
+
+`format: "full"` returns the earlier JSON instead: the elements as `{role, name, selector, state?}` with a selector checked against the live page, plus `overlays`, `focused` and `messages`. It has no refs, and taking it ends the refs of the previous snapshot. A selector containing `nth=` is positional: call `ui_get_page_state` again after the page changes before reusing it.
 
 Page state also tells you what the page looks like right now, so you do not have to guess:
 
-- Each element may carry a `state` with only its non-default fields: `disabled`, `checked` (`true`, `false` or `"mixed"`), `value` (inputs, textarea, select; cut at 100 characters; **never** returned for a password field), `expanded`, `selected`, `pressed`, `required`, `invalid`.
+- An element line carries only its non-default state, as ` key` for `true` and ` key=value` otherwise: `disabled`, `checked` (`checked`, `checked=false` or `checked="mixed"`), `value="..."` (inputs, textarea, select; cut at 100 characters; **never** shown for a password field), `expanded`, `selected`, `pressed`, `required`, `invalid`. Names are quoted JSON strings, so a quote or a line break in a name cannot make a second line.
 - Custom widgets are listed too: `combobox`, `listbox`, `option`, `switch`, `slider`, `spinbutton`, `searchbox`, `treeitem`, `menuitemcheckbox`/`menuitemradio`, `summary`, `contenteditable` regions, and anything with a role and `tabindex >= 0`.
-- `overlays` lists each open dialog as `{role, name, selector, modal}`, topmost first (`role=dialog`, `alertdialog`, `dialog[open]`, `aria-modal`). The key is absent when nothing is open, so a modal opening or closing shows up as the key appearing or disappearing.
-- `focused` is `{role, name, selector}` for the element holding focus. It is absent when focus is on the page body, in an iframe or in a shadow root.
+- `overlay @o1 dialog "Confirm" modal` lists each open dialog, topmost first (`role=dialog`, `alertdialog`, `dialog[open]`, `aria-modal`); `@o1` is accepted wherever a selector is, for example by `ui_click_outside`. No overlay line means nothing is open, so a modal opening or closing shows up as the line appearing or disappearing.
+- `focused: @e2` names the element holding focus (as `role "name"` when it is not in the list). It is absent when focus is on the page body, in an iframe or in a shadow root.
+- `note:` appears when the list was cut at 200 elements.
 
 `ui_get_text` reads text: the trimmed visible text of one element (`selector`), or of the whole page body with no selector, cut at 4000 characters with a note of the real length. Use it to check a total, a heading or a field error. It fails on 0 or more than 1 match, like `ui_click`, and on an element that is not visible. The text it reads is returned to you but not stored in the report.
 #### Test at real sizes, type like a user, see what you capture

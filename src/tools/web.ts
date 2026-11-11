@@ -689,7 +689,7 @@ export interface PageElementState {
 export interface PageElement {
   role: string;
   name: string;
-  /** Pass unchanged to ui_click / ui_fill; resolves to exactly this element. */
+  /** Resolves to exactly this element. Shown as is by format "full"; the compact form lists a ref for it instead (T040). */
   selector: string;
   state?: PageElementState;
 }
@@ -926,7 +926,10 @@ async function buildSelector(
  * read), custom-widget roles are listed, `overlays` names the open dialogs
  * topmost first, and `focused` names the element holding focus.
  */
-export async function getPageState(page: Page | undefined): Promise<PageState> {
+export async function getPageState(
+  page: Page | undefined,
+  options: { keepRefs?: boolean } = {}
+): Promise<PageState> {
   if (!page) {
     return { ok: false, error: "No active page — call ui_navigate first" };
   }
@@ -934,6 +937,8 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
   let handles: ElementHandle[] = [];
   let overlayHandles: ElementHandle[] = [];
   let focusEl: ElementHandle | null = null;
+  // Handles that became the page's ref table (T040); everything else is disposed below.
+  const kept = new Set<ElementHandle>();
   try {
     handles = await page.$$(INTERACTIVE_SELECTOR);
     const focusHandle = await page.evaluateHandle(() => {
@@ -1087,6 +1092,7 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
       .filter((e) => e.visible && e.name.length > 0 && !NON_ELEMENT_ROLES.includes(e.role));
     const shown = found.slice(0, MAX_PAGE_ELEMENTS);
     const elements: PageElement[] = [];
+    const elementRefs: RefEntry[] = [];
     const sharedRoleMatches = new Map<string, number[]>();
     for (const r of shown) {
       const selector = await buildSelector(page, r, handles, sharedRoleMatches);
@@ -1095,6 +1101,8 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
         const element: PageElement = { role: r.role, name: r.name, selector };
         if (r.state) element.state = r.state;
         elements.push(element);
+        // Refs are positions in the final list, so a dropped element shifts none of them.
+        elementRefs.push({ selector, handle: handles[r.index] });
       }
     }
 
@@ -1159,10 +1167,14 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
       }));
     }, overlayHandles);
     const overlays: PageOverlay[] = [];
+    const overlayRefs: RefEntry[] = [];
     const overlayShared = new Map<string, number[]>();
     for (const r of overlayRows) {
       const selector = await buildSelector(page, r, overlayHandles, overlayShared, OVERLAY_SELECTOR);
-      if (selector) overlays.push({ role: r.role, name: r.name, selector, modal: r.modal });
+      if (selector) {
+        overlays.push({ role: r.role, name: r.name, selector, modal: r.modal });
+        overlayRefs.push({ selector, handle: overlayHandles[r.index] });
+      }
     }
 
     let focused: PageFocus | undefined;
@@ -1196,15 +1208,160 @@ export async function getPageState(page: Page | undefined): Promise<PageState> {
     if (found.length > shown.length) {
       result.note = `Showing first ${shown.length} of ${found.length} elements; use a CSS selector for the rest`;
     }
+    // Every snapshot ends the previous one's refs; only a snapshot that is shown with refs starts new ones.
+    if (options.keepRefs) {
+      for (const entry of [...elementRefs, ...overlayRefs]) kept.add(entry.handle);
+      replaceRefTable(page, { elements: elementRefs, overlays: overlayRefs });
+    } else {
+      replaceRefTable(page, undefined);
+    }
     return result;
   } catch (err) {
+    replaceRefTable(page, undefined);
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };
   } finally {
     await Promise.all(
-      [...handles, ...overlayHandles, ...(focusEl ? [focusEl] : [])].map((h) => h.dispose().catch(() => undefined))
+      [...handles, ...overlayHandles, ...(focusEl ? [focusEl] : [])]
+        .filter((h) => !kept.has(h))
+        .map((h) => h.dispose().catch(() => undefined))
     );
   }
+}
+
+// --- T040: refs ---------------------------------------------------------------
+
+/** One listed element a ref stands for: the verified selector, and the exact element it was built for. */
+interface RefEntry {
+  selector: string;
+  handle: ElementHandle;
+}
+
+interface RefTable {
+  elements: RefEntry[];
+  overlays: RefEntry[];
+}
+
+/** The refs of each page's latest snapshot. A page nobody snapshotted has no entry. */
+const refTables = new WeakMap<Page, RefTable>();
+
+/** Install `next` (or nothing) as the page's table and release the handles of the table it replaces. */
+function replaceRefTable(page: Page, next: RefTable | undefined): void {
+  const previous = refTables.get(page);
+  if (next) refTables.set(page, next);
+  else refTables.delete(page);
+  if (!previous) return;
+  for (const entry of [...previous.elements, ...previous.overlays]) void entry.handle.dispose().catch(() => undefined);
+}
+
+/** `@e12` (an element) or `@o1` (an overlay) - nothing else is a ref. */
+const REF_PATTERN = /^@([eo])(\d+)$/;
+
+/** Arguments that name an element; a ref in any of them is replaced by its selector before the tool runs. */
+export const REF_ARGUMENTS = ["selector", "from", "to", "container"] as const;
+
+/**
+ * The selector a ref stands for, or an error. The ref must be in the page's latest snapshot AND its
+ * selector must still match exactly one element, the very element that was listed. Anything else
+ * (page changed, node replaced, no snapshot) fails: a ref never reaches a different element.
+ */
+export async function resolveRef(
+  page: Page | undefined,
+  ref: string
+): Promise<{ ok: true; selector: string } | { ok: false; error: string }> {
+  if (!page) return { ok: false, error: "No active page — call ui_navigate first" };
+  const again = "call ui_get_page_state again to get fresh refs";
+  const match = REF_PATTERN.exec(ref);
+  const table = refTables.get(page);
+  if (!match || !table) {
+    return {
+      ok: false,
+      error: `Ref ${ref} has no snapshot to point into on this page: ${again}, then use the @e/@o refs it lists.`,
+    };
+  }
+  const list = match[1] === "e" ? table.elements : table.overlays;
+  const n = Number(match[2]);
+  const entry = String(n) === match[2] ? list[n - 1] : undefined;
+  if (!entry) {
+    const have = list.length === 0 ? "none" : `@${match[1]}1 to @${match[1]}${list.length}`;
+    return { ok: false, error: `Ref ${ref} is not in the latest snapshot of this page (it has ${have}): ${again}.` };
+  }
+  const hit = await locate(page, entry.selector, entry.handle);
+  if (hit.count !== 1 || hit.position !== 0) {
+    return {
+      ok: false,
+      error: `Ref ${ref} is stale: the page changed and it no longer points to the element that was listed. Nothing was done; ${again}.`,
+    };
+  }
+  return { ok: true, selector: entry.selector };
+}
+
+/**
+ * Replace every ref under `selector`, `from`, `to` and `container` with its selector. The first
+ * ref that cannot be resolved fails the whole call, so a tool never runs on part of its arguments.
+ */
+export async function resolveRefArgs<T extends Record<string, unknown>>(
+  page: Page | undefined,
+  args: T
+): Promise<{ ok: true; args: T } | { ok: false; error: string }> {
+  const resolved: Record<string, unknown> = { ...args };
+  for (const key of REF_ARGUMENTS) {
+    const value = args[key];
+    if (typeof value !== "string" || !REF_PATTERN.test(value)) continue;
+    const r = await resolveRef(page, value);
+    if (!r.ok) return r;
+    resolved[key] = r.selector;
+  }
+  return { ok: true, args: resolved as T };
+}
+
+// --- T040: compact rendering ------------------------------------------------------
+
+/** A string as one JSON-quoted token; the line-break characters JSON leaves raw are escaped too. */
+function quoteToken(value: string): string {
+  return JSON.stringify(value).replace(/[\u0085\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
+/** Plain text (url, title, note) cut to one line. */
+function oneLine(value: string): string {
+  return value.replace(/[\r\n\u0085\u2028\u2029]+/g, " ");
+}
+
+/** A role is a bare word unless the page gave it something odd; then it is quoted like a name. */
+function roleToken(role: string): string {
+  return /^[a-z][a-z0-9-]*$/i.test(role) ? role : quoteToken(role);
+}
+
+function stateTokens(state: PageElementState | undefined): string {
+  if (!state) return "";
+  return Object.entries(state)
+    .map(([key, value]) => (value === true ? ` ${key}` : ` ${key}=${typeof value === "string" ? quoteToken(value) : String(value)}`))
+    .join("");
+}
+
+/**
+ * The page state as plain text for the agent: `url:`, `title:`, one `@eN role "name" state...` line
+ * per element, `overlay @oN ...`, `focused:`, `messages:`, `note:`. No selector is printed; the refs
+ * stand for the selectors of the same snapshot (see resolveRef). Pure: reads only `state`.
+ */
+export function renderCompact(state: PageState): string {
+  const lines: string[] = [];
+  if (state.url) lines.push(`url: ${oneLine(state.url)}`);
+  if (state.title) lines.push(`title: ${oneLine(state.title)}`);
+  const elements = state.elements ?? [];
+  elements.forEach((e, i) => lines.push(`@e${i + 1} ${roleToken(e.role)} ${quoteToken(e.name)}${stateTokens(e.state)}`));
+  (state.overlays ?? []).forEach((o, i) =>
+    lines.push(`overlay @o${i + 1} ${roleToken(o.role)}${o.name ? ` ${quoteToken(o.name)}` : ""}${o.modal ? " modal" : ""}`)
+  );
+  if (state.focused) {
+    const at = elements.findIndex((e) => e.selector === state.focused!.selector);
+    lines.push(
+      `focused: ${at >= 0 ? `@e${at + 1}` : `${roleToken(state.focused.role)} ${quoteToken(state.focused.name)}`}`
+    );
+  }
+  if (state.messages && state.messages.length > 0) lines.push(`messages: ${state.messages.map(quoteToken).join(" | ")}`);
+  if (state.note) lines.push(`note: ${oneLine(state.note)}`);
+  return lines.join("\n");
 }
 
 /** `ui_get_text` is capped here so one call cannot flood the agent's context. */

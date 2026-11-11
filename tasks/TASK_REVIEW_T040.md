@@ -45,8 +45,22 @@ Not done: merge (yours); <auto verify: running (T182) | auto verify: <result> | 
 
 ## Evidence
 
-| Check | Result | Notes / output snippet |
-|-------|--------|------------------------|
+| Check | Result | Notes |
+|-------|--------|-------|
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/web.test.ts` (15 T040 tests: renderer, ref resolution, stale cases, per-page tables, state rules), `test/multi-session.test.ts` ("T040: compact page state and refs", 6 tests), `test/dialog-sessions.test.ts` (held dialog refuses a ref) |
+| Verification command run | ☑ pass | Supervisor on 210de6c: `npx tsc --noEmit -p tsconfig.json` clean; `npm test` → tests 334, suites 8, pass 334, fail 0 (traced under T040) |
+| Negative cases hold | ☑ pass | Mutation run by the implementer: removing the identity check (`hit.position !== 0`) in `resolveRef` fails both stale-ref tests (re-ordered list, look-alike node); restored. Stale, unknown, `@e0`, other-session and no-snapshot refs are refused and nothing is clicked |
+| verify | ☑ pass | pass — Supervisor real run 2026-11-11T04:07Z against `src/stdio.ts` of 210de6c through an MCP client: the four baseline flows (TodoMVC, Saucedemo login + checkout, Wikipedia, Hacker News) completed driven only by `@eN` refs plus one CSS selector; traffic 807 / 1,169 / 4,871 / 5,483 tokens, all within AC 8 limits (910 / 1,330 / 5,400 / 6,050). The `verify` skill is not installed in this session; this run is the live check |
+| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☑ pass | Reviewed `src/tools/web.ts`, `src/server.ts`, the three test files, README / RUNBOOK / `site/index.html` / PROJECT_SPEC / PRD diffs, and the only caller of `getPageState` in `src/`. Not re-read: `session.ts`, `reports/index.ts`, `api/run-test.ts`, `stdio.ts` (unchanged) |
+| Full smoke suite still green (no regression) | ☑ pass | `npm test` 334/334 on 210de6c |
+| Code review | ☑ pass | 0 P0; 1 P1 fixed in 210de6c (a refused ref was a hard failure: now soft, session still passes, no failure screenshot); 2 P2 fixed (`ui_drag` description, "never a ref" wording); P3 accepted: lane_check `C2, 10 files, 795 lines, EXCEEDS (lines 795 > 500)` (511 lines are tests), tool list 6,705 → 6,802 tokens (T041). Report: `reports/code-review_worktree-agent-a029d373b63504de0_20261111T110930.html` |
+| Security review | ☑ pass | no findings: strict ref pattern and bounds, identity check before any action, per-page tables behind the session lookup, snapshot lines cannot be forged by page content, password value never read. Report: `reports/security-review_worktree-agent-a029d373b63504de0_20261111T110930.html` |
+| **Companion score (easy-verifier)** | ☑ N/A | easy-verifier not run in this session |
+| **UI: Visual regression (diff or verdict pasted)** | ☑ N/A | no UI change beyond docs-site text; `test/site.test.ts` green |
+| **UI: Design-system compliance (tokens/colors/typography verified)** | ☑ N/A | no new styles |
+| **UI: Responsiveness at target viewports** | ☑ N/A | text-only docs edit |
+
+-------|--------|------------------------|
 | **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | [test file path(s) — required before Done] |
 | Verification command run | ☐ pass / ☐ fail | [paste actual output] |
 | Negative cases hold | ☐ pass / ☐ fail | [paste the red run against the prior content, or the mutation diff (`git diff --stat`, non-empty) before each verdict] |
@@ -82,9 +96,21 @@ schema tokens 6705
 ```
 `ui_get_page_state` replies with JSON carrying a selector per element; `ui_click` with `@e1` fails as an invalid selector. Full numbers: `docs/experiments/token-baseline-2026-11-11.md`.
 
-**AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
+**AFTER**: captured 2026-11-11T04:07Z on 210de6c, by the Supervisor:
+```
+$ MODE=after EASY_UI_SERVER_ROOT=<T040 worktree> node_modules/.bin/tsx docs/experiments/token-baseline.mts
+schema tokens 6802
+== todomvc (small app): 18 calls, 3 snapshots
+ A current       {"requests":289,"snapshots":244,"otherReplies":274,"total":807,"cumulative":6672}
+== saucedemo (login + checkout): 25 calls, 6 snapshots
+ A current       {"requests":358,"snapshots":580,"otherReplies":231,"total":1169,"cumulative":14819}
+== wikipedia (long article): 14 calls, 3 snapshots
+ A current       {"requests":211,"snapshots":4474,"otherReplies":187,"total":4871,"cumulative":36241}
+== hacker news (link list): 14 calls, 4 snapshots
+ A current       {"requests":195,"snapshots":5115,"otherReplies":173,"total":5483,"cumulative":39713}
+```
+`ui_get_page_state` now replies e.g. `@e1 textbox "Username"` / `@e3 button "Login"`, and `ui_click` with `@e3` clicks that button (reply: `Clicked "#login-button"`).
 
-**DELTA**: [one sentence — what a user can now do that they could not before]
+**DELTA**: An agent can read a page as one short line per element and act on `@eN` refs; the same four flows cost 1.7× to 5.4× less tool traffic (1,413 → 807, 2,092 → 1,169, 26,192 → 4,871, 27,086 → 5,483 tokens), and a ref that no longer points at the listed element is refused instead of acting on another one.
 
-**WITNESS**: [who ran it and when — derived from `memory/event-trace/Txxx.jsonl`, never the
-implementing agent alone]
+**WITNESS**: Supervisor, 2026-11-11; `npm test` 334/334 and the real MCP run above executed by the Supervisor against 210de6c and traced in `memory/event-trace/T040.jsonl`; implementation by backend-developer in a separate worktree.
