@@ -754,7 +754,33 @@ describe("T040: compact page state and refs", () => {
     await conn.call("ui_end_session", { session_id: a });
     await conn.call("ui_end_session", { session_id: b });
     const failedB = reportFor(b)!.json.actions.filter((x: any) => x.action === "ui_click");
-    assert.ok(failedB.length > 0 && failedB.every((x: any) => x.ok === false), "a refused ref is a failed step in the report");
+    assert.ok(
+      failedB.length > 0 && failedB.every((x: any) => x.ok === false && x.soft === true),
+      "a refused ref is a soft failed step in the report"
+    );
+  });
+
+  test("a refused ref is a soft step: the session still passes and no failure screenshot is taken for it", async () => {
+    const conn = await connect();
+    const id = await conn.start("refs-soft");
+    await conn.call("ui_navigate", { url: COUNTER_PAGE, session_id: id });
+    const refused = await conn.call("ui_click", { selector: "@e1", session_id: id }); // no snapshot yet
+    assert.equal(refused.isError, true, "the tool reply is still an error");
+    assert.match(refused.text, /@e1.*ui_get_page_state/);
+    // the documented retry path works and is a normal hard-checked step
+    const state = await conn.call("ui_get_page_state", { session_id: id });
+    assert.equal((await conn.call("ui_click", { selector: refOf(state.text, "Increase"), session_id: id })).isError, false);
+
+    const ended = await conn.call("ui_end_session", { session_id: id });
+    assert.match(ended.text, /ended \(passed\)/, ended.text);
+    const report = reportFor(id)!.json;
+    assert.equal(report.status, "passed", "(a) a refused ref alone does not fail the session");
+    const step = report.actions.find((x: any) => x.action === "ui_click" && x.ok === false);
+    assert.ok(step, "the refused click is in the report");
+    assert.equal(step.soft, true);
+    assert.deepEqual(step.args, { selector: "@e1" }, "the ref the agent tried is the step's target");
+    assert.match(step.detail, /@e1.*ui_get_page_state/);
+    assert.equal(report.failureScreenshot, undefined, "(b) no failure screenshot for a refused ref");
   });
 
   test("AC3: ui_drag with two refs, ui_scroll with a container ref and ui_press_key with a selector ref act on the listed elements", async () => {

@@ -248,7 +248,8 @@ export function buildMcpServer(): McpServer {
           const resolved = await resolveRefArgs(resolvePageForRead(), args);
           if (!resolved.ok) {
             const tried = Object.fromEntries(REF_ARGUMENTS.filter((k) => typeof args[k] === "string").map((k) => [k, args[k]]));
-            await recordAction(name, tried, false, resolved.error);
+            // Soft: a stale or unknown ref is the agent using old information, not a fault of the app under test.
+            await recordAction(name, tried, false, resolved.error, true);
             return { isError: true, content: [{ type: "text" as const, text: resolved.error }] };
           }
           return (await handler(resolved.args as z.infer<z.ZodObject<S>>)) as ToolResponse;
@@ -912,7 +913,7 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.drag,
       description:
-        "Drag the single element matching `from` onto the single element matching `to` with real pointer events: reorders HTML5 drag-and-drop lists, kanban cards and pointer-based sortables. Use the `selector` values from ui_get_page_state." +
+        "Drag the single element matching `from` onto the single element matching `to` with real pointer events: reorders HTML5 drag-and-drop lists, kanban cards and pointer-based sortables. Use `@eN` refs or selectors from ui_get_page_state." +
         NTH_NOTE,
       inputSchema: {
         from: z.string().describe(SELECTOR_DESCRIPTION + " of the element to pick up"),
