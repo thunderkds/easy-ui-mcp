@@ -45,8 +45,21 @@ Not done: merge (yours); <auto verify: running (T182) | auto verify: <result> | 
 
 ## Evidence
 
-| Check | Result | Notes / output snippet |
-|-------|--------|------------------------|
+| Check | Result | Notes |
+|-------|--------|-------|
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/health.test.ts`: the `tools/list` test now asserts 26 tools and `JSON.stringify(tools).length <= 20_000` (red at 27,207 in 290783e, green in ecc3f41) |
+| Verification command run | ☑ pass | Supervisor on ecc3f41: `npx tsc --noEmit -p tsconfig.json` clean; `npm test` → tests 334, suites 8, pass 334, fail 0 (traced under T041) |
+| Negative cases hold | ☑ pass | Budget test failed on the starting commit with "tools array is 27207 characters; the budget is 20000". Schema-unchanged check by the Supervisor: with every string `description` removed, the tools arrays of main and ecc3f41 are identical (names, argument names, types, enums, limits, `required`) |
+| verify | ☑ pass | pass — Supervisor real run 2026-11-11T04:20Z against `src/stdio.ts` of ecc3f41 through an MCP client: `tools/list` returns 26 tools in 19,017 characters (was 27,207); the four baseline flows completed with refs (807 / 1,169 / 4,871 / 5,477 tokens). The 17 "Facts that must survive" were each read in the new tool list and are present. The `verify` skill is not installed in this session; this run is the live check |
+| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☑ pass | `src/server.ts` description strings and `test/health.test.ts` only; `test/docs-tools.test.ts` and `test/stdio.test.ts` green unchanged |
+| Full smoke suite still green (no regression) | ☑ pass | `npm test` 334/334 on ecc3f41 |
+| Code review | ☑ pass | 0 findings; lane_check `C1, 2 files, 225 lines, FITS`. Report: `reports/code-review_worktree-agent-a6901d89c9f470270_20261111T112247.html` |
+| **Companion score (easy-verifier)** | ☑ N/A | easy-verifier not run in this session |
+| **UI: Visual regression (diff or verdict pasted)** | ☑ N/A | no UI change |
+| **UI: Design-system compliance (tokens/colors/typography verified)** | ☑ N/A | no UI change |
+| **UI: Responsiveness at target viewports** | ☑ N/A | no UI change |
+
+-------|--------|------------------------|
 | **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | [test file path(s) — required before Done] |
 | Verification command run | ☐ pass / ☐ fail | [paste actual output] |
 | Negative cases hold | ☐ pass / ☐ fail | [paste the red run against the prior content, or the mutation diff (`git diff --stat`, non-empty) before each verdict] |
@@ -74,9 +87,14 @@ $ (initialize + tools/list over stdin) | npx tsx src/stdio.ts | node -e '…JSON
 ```
 The `tools/list` tools array is 27,207 characters (about 6,802 tokens). The `session_id` argument description is repeated in full on 25 tools.
 
-**AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
+**AFTER**: captured 2026-11-11T04:20Z on ecc3f41, by the Supervisor:
+```
+$ (initialize + tools/list over stdin) | tsx src/stdio.ts | node -e '…JSON.stringify(tools).length'
+before 27207 after 19017 schema identical: true
+$ MODE=after EASY_UI_SERVER_ROOT=<T041 worktree> node_modules/.bin/tsx docs/experiments/token-baseline.mts
+schema tokens 4754
+```
 
-**DELTA**: [one sentence — what a user can now do that they could not before]
+**DELTA**: Every conversation that connects to the server now pays about 4,750 tokens for the tool list instead of about 6,800, with the same 26 tools and arguments; a test stops the list growing past 20,000 characters unnoticed.
 
-**WITNESS**: [who ran it and when — derived from `memory/event-trace/Txxx.jsonl`, never the
-implementing agent alone]
+**WITNESS**: Supervisor, 2026-11-11; `npm test` 334/334, the tool-list comparison and the four-flow run executed by the Supervisor against ecc3f41 and traced in `memory/event-trace/T041.jsonl`; implementation by backend-developer in a separate worktree.

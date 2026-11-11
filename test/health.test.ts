@@ -6,6 +6,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 const PORT = 8765;
 const BASE_URL = `http://localhost:${PORT}`;
+/** About 5,000 tokens; the tools array was 27,207 characters before T041. */
+const TOOLS_LIST_BUDGET_CHARS = 20_000;
 
 let server: ChildProcessWithoutNullStreams;
 
@@ -93,4 +95,12 @@ test("MCP initialize handshake succeeds and advertises ui_navigate", async () =>
   });
   const text = await listRes.text();
   assert.match(text, /ui_navigate/);
+
+  // T041: the tool list is paid for in every conversation, so its size is pinned. Raise this only on purpose.
+  const data = text.split("\n").find((line) => line.startsWith("data: "));
+  assert.ok(data, "expected an SSE data frame");
+  const { tools } = JSON.parse(data.slice("data: ".length)).result as { tools: unknown[] };
+  assert.equal(tools.length, 26);
+  const size = JSON.stringify(tools).length;
+  assert.ok(size <= TOOLS_LIST_BUDGET_CHARS, `tools array is ${size} characters; the budget is ${TOOLS_LIST_BUDGET_CHARS}`);
 });

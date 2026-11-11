@@ -116,10 +116,7 @@ const TOOL = {
 /** What `ui_type` leaves in the report in place of the text it typed into a password field. */
 const MASKED_TEXT = "••••";
 
-const SELECTOR_DESCRIPTION =
-  "CSS selector, or an `@eN` / `@oN` ref from the latest ui_get_page_state (a stale ref fails: call it again)";
-const NTH_NOTE =
-  ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.';
+const SELECTOR_DESCRIPTION = "Selector or `@eN` / `@oN` ref; must match one element";
 const REPORTS_DIR = path.join(process.cwd(), "reports");
 const MAX_SESSIONS_PER_CONNECTION = Number(process.env.MAX_SESSIONS_PER_CONNECTION ?? 3);
 
@@ -128,9 +125,7 @@ const sessionIdShape = {
   session_id: z
     .string()
     .optional()
-    .describe(
-      "Which open session to act on, as returned by ui_start_session. Optional with one open session; required when several are open."
-    ),
+    .describe("Session id from ui_start_session"),
 };
 
 const app = express();
@@ -396,25 +391,24 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_start_session",
       description:
-        "Start a session bracket: opens a fresh browser context and begins logging subsequent primitive tool calls into a report. " +
-        "A connection can hold several sessions at once (up to MAX_SESSIONS_PER_CONNECTION, default 3): pass the returned session id as `session_id` " +
-        "to every other tool to choose which session it acts on. A session left unused for 10 minutes is closed automatically and its report is written with status timed_out. " +
-        "Optionally test at the sizes and settings real users have: `device` (a Playwright device name such as \"iPhone 13\": mobile user agent, touch, pixel ratio and size), " +
-        "`viewport` (overrides the device size), `colorScheme`, `locale`, `timezoneId`. With none of them the browser is a 1280x720 desktop. " +
-        "These apply to this session only; use ui_set_viewport to resize mid-flow.",
+        "Open a fresh browser session and log the following tool calls into a report; returns a session id. " +
+        "A connection can hold several sessions (up to MAX_SESSIONS_PER_CONNECTION, default 3): pass the id as `session_id` to the other tools " +
+        "(optional with one open session, required with several). A session unused for 10 minutes is closed and its report written with status timed_out. " +
+        "Native alert/confirm/prompt dialogs are held for you during a session (answer with ui_dialog). " +
+        "Default is a 1280x720 desktop; set `device`, `viewport`, `colorScheme`, `locale` or `timezoneId` to test as real users do (this session only; ui_set_viewport resizes later).",
       inputSchema: {
-        target: z.string().describe("Label/URL identifying what this session tests"),
+        target: z.string().describe("Label or URL of what this session tests"),
         viewport: z
           .object({
             width: z.number().int().min(MIN_VIEWPORT_WIDTH).max(MAX_VIEWPORT_WIDTH),
             height: z.number().int().min(MIN_VIEWPORT_HEIGHT).max(MAX_VIEWPORT_HEIGHT),
           })
           .optional()
-          .describe(`Page size in CSS pixels (${MIN_VIEWPORT_WIDTH}-${MAX_VIEWPORT_WIDTH} x ${MIN_VIEWPORT_HEIGHT}-${MAX_VIEWPORT_HEIGHT}), e.g. {width: 375, height: 812} for a phone`),
-        device: z.string().optional().describe('Playwright device name, e.g. "iPhone 13", "Pixel 7", "iPad Pro 11"'),
-        colorScheme: z.enum(["light", "dark"]).optional().describe("prefers-color-scheme the page sees"),
-        locale: z.string().optional().describe('Browser locale, e.g. "fr-FR"'),
-        timezoneId: z.string().optional().describe('IANA timezone, e.g. "Asia/Tokyo"'),
+          .describe("CSS pixels; overrides the device size, e.g. {width: 375, height: 812}"),
+        device: z.string().optional().describe('Playwright device name (mobile user agent, touch, size), e.g. "iPhone 13", "Pixel 7"'),
+        colorScheme: z.enum(["light", "dark"]).optional(),
+        locale: z.string().optional().describe('e.g. "fr-FR"'),
+        timezoneId: z.string().optional().describe('IANA, e.g. "Asia/Tokyo"'),
       },
     },
     async ({ target, viewport, device, colorScheme, locale, timezoneId }) => {
@@ -450,7 +444,7 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_end_session",
       description:
-        "End a session bracket: writes a JSON + HTML report and returns their paths. Pass `session_id` to choose which one; it can be omitted only when exactly one session is open.",
+        "Close the session and write its JSON and HTML report; returns their paths.",
       inputSchema: { ...sessionIdShape },
     },
     async ({ session_id }) => {
@@ -491,8 +485,8 @@ export function buildMcpServer(): McpServer {
     "ui_navigate",
     {
       title: "ui_navigate",
-      description: "Navigate the browser to the given URL and report the result.",
-      inputSchema: { url: z.string().describe("The URL to navigate to") },
+      description: "Navigate to a URL and report the result.",
+      inputSchema: { url: z.string() },
     },
     async ({ url }) => {
       const target = await resolvePageForWrite();
@@ -517,26 +511,24 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_click",
       description:
-        "Click the single element matching the given selector. The selector may be a CSS selector or an `@eN` ref from ui_get_page_state." +
-        ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.' +
-        " Optional: `button` (right/middle), `clickCount` 2 for a double-click, `modifiers` for Shift/Control-click, `position` for an offset inside the element, `force` to click through an element covering it." +
-        " If the click opens a native alert/confirm/prompt, the reply says the browser is waiting: answer it with ui_dialog.",
+        "Click the one element matching `selector`; optional `button`, `clickCount`, `modifiers`, `position`, `force`. " +
+        "If the click opens a native alert/confirm/prompt, the reply says the browser is waiting: answer it with ui_dialog.",
       inputSchema: {
         selector: z.string().describe(SELECTOR_DESCRIPTION),
-        button: z.enum(["left", "right", "middle"]).optional().describe("Mouse button (default left); right fires contextmenu"),
-        clickCount: z.number().int().min(1).max(3).optional().describe("2 = double-click, 3 = triple-click (default 1)"),
+        button: z.enum(["left", "right", "middle"]).optional().describe("Default left; right fires contextmenu"),
+        clickCount: z.number().int().min(1).max(3).optional().describe("2 = double-click, 3 = triple (default 1)"),
         modifiers: z
           .array(z.enum(["Alt", "Control", "Meta", "Shift", "ControlOrMeta"]))
           .optional()
-          .describe("Keys held during the click, e.g. [\"Shift\"] for a range select"),
+          .describe("Keys held during the click, e.g. [\"Shift\"]"),
         position: z
           .object({ x: z.number(), y: z.number() })
           .optional()
-          .describe("Click this offset from the element's top-left corner, in CSS pixels (default: its centre)"),
+          .describe("Offset from the top-left corner in CSS px (default: centre)"),
         force: z
           .boolean()
           .optional()
-          .describe("Skip the check that nothing covers the element (e.g. a transparent overlay); the click lands on whatever is on top"),
+          .describe("Click through a covering element (e.g. a transparent overlay); it lands on whatever is on top"),
       },
     },
     async ({ selector, button, clickCount, modifiers, position, force }) => {
@@ -571,11 +563,10 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.clickOutside,
       description:
-        "Click just outside the single element matching the selector, the way a user closes a modal, drawer or popover by clicking its backdrop. Picks a point whose topmost element is not inside the target and not a control, and says what it hit. " +
-        "Pass the dialog panel, not the backdrop. Fails if no safe point exists (the element fills the viewport): use ui_press_key with Escape then." +
-        NTH_NOTE,
+        "Close a modal, drawer or popover the way a user does: click just outside the element matching `selector` (pass the panel, not the backdrop) on a point that is not a control; says what it hit. " +
+        "Fails if no safe point exists (the element fills the viewport): use ui_press_key with Escape then.",
       inputSchema: {
-        selector: z.string().describe(SELECTOR_DESCRIPTION + " of the modal/panel to click outside of"),
+        selector: z.string().describe(SELECTOR_DESCRIPTION),
       },
     },
     async ({ selector }) => {
@@ -613,12 +604,11 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.dialog,
       description:
-        "Answer a native browser dialog (alert, confirm, prompt, beforeunload). When a tool call opens one, its reply says \"Browser is waiting on a <type> dialog\" and every other tool is refused until you answer here. " +
-        "`accept` = OK / Leave; `dismiss` = Cancel / Stay; for a prompt add `text`. The reply also reports what the interrupted action did next. " +
-        "With no dialog waiting, this pre-sets the answer for the NEXT dialog, which is then answered at once (one answer, used once). An unanswered dialog is dismissed after a safety timeout.",
+        "Answer a native browser dialog (alert, confirm, prompt, beforeunload). When a tool call opens one, its reply says the browser is waiting and every other tool is refused until you answer here; the reply then reports what the interrupted action did. " +
+        "With no dialog waiting, it pre-sets the answer for the next dialog (used once). An unanswered dialog is dismissed after a safety timeout.",
       inputSchema: {
         action: z.enum(["accept", "dismiss"]).describe("accept = OK / Leave; dismiss = Cancel / Stay"),
-        text: z.string().optional().describe("Text to enter into a prompt dialog (accept only)"),
+        text: z.string().optional().describe("Answer for a prompt (accept only)"),
       },
     },
     async ({ action, text }) => {
@@ -674,11 +664,10 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_fill",
       description:
-        "Fill the single input element matching the given selector with a value. The selector may be a CSS selector or an `@eN` ref from ui_get_page_state." +
-        ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.',
+        "Replace the value of the one input matching `selector` at once; for inputs that react to each keystroke use ui_type.",
       inputSchema: {
         selector: z.string().describe(SELECTOR_DESCRIPTION),
-        value: z.string().describe("The value to fill into the input"),
+        value: z.string(),
       },
     },
     async ({ selector, value }) => {
@@ -701,11 +690,10 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.selectOption,
       description:
-        "Choose an option of the single <select> matching the selector, by option value or visible label. For a <select multiple> this selects exactly that one option. Use the `selector` from ui_get_page_state." +
-        NTH_NOTE,
+        "Choose an option of the one <select> matching `selector`, by option value or visible label. For a <select multiple> this selects exactly that option.",
       inputSchema: {
         selector: z.string().describe(SELECTOR_DESCRIPTION),
-        value: z.string().describe("The option's value attribute or its visible label"),
+        value: z.string(),
       },
     },
     async ({ selector, value }) =>
@@ -722,11 +710,10 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.pressKey,
       description:
-        "Press a key (Playwright key name such as Enter, Tab, Escape, ArrowDown, or a combo like Control+a). With `selector` it presses on that element; without, on whatever has focus. Enter in a text input submits its form." +
-        NTH_NOTE,
+        "Press a key (Playwright name such as Enter, Tab, Escape, ArrowDown, or a combo like Control+a) on `selector`, or on whatever has focus without one. Enter in a text input submits its form.",
       inputSchema: {
-        key: z.string().describe("Playwright key name, e.g. Enter, Tab, Escape, ArrowDown"),
-        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; omit to press on the focused element"),
+        key: z.string(),
+        selector: z.string().optional().describe(SELECTOR_DESCRIPTION),
       },
     },
     async ({ key, selector }) =>
@@ -743,8 +730,7 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.hover,
       description:
-        "Move the pointer over the single element matching the selector, to reveal :hover or mouseenter content such as dropdown menus. Use the `selector` from ui_get_page_state." +
-        NTH_NOTE,
+        "Move the pointer over the one element matching `selector`, to reveal :hover or mouseenter content such as dropdown menus.",
       inputSchema: { selector: z.string().describe(SELECTOR_DESCRIPTION) },
     },
     async ({ selector }) =>
@@ -756,11 +742,10 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.setChecked,
       description:
-        "Set the single checkbox or radio button matching the selector to checked or unchecked. Idempotent: already in that state is fine. A radio cannot be unchecked directly. Use the `selector` from ui_get_page_state." +
-        NTH_NOTE,
+        "Set the one checkbox or radio matching `selector` to checked or unchecked. Idempotent; a radio cannot be unchecked directly.",
       inputSchema: {
         selector: z.string().describe(SELECTOR_DESCRIPTION),
-        checked: z.boolean().describe("true to check, false to uncheck"),
+        checked: z.boolean(),
       },
     },
     async ({ selector, checked }) =>
@@ -777,14 +762,13 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.scroll,
       description:
-        "Scroll one step. With `selector`, bring that element into view. Otherwise scroll by one viewport height (or width) in `direction` (down, up, left, right, or jump to top / bottom, default down): " +
-        "the page, or with `container` the scroll area matching that selector (a chat panel, a virtual table, a carousel). " +
-        "The result says when the end was reached (nothing more to scroll that way): stop looping then. A page or panel with nothing to scroll is not an error." +
-        NTH_NOTE,
+        "Scroll one step: with `selector`, bring that element into view; otherwise move one viewport step in `direction` (default down; top / bottom jump to the end), " +
+        "in the page or in the `container` scroll area (chat panel, virtual table, carousel). " +
+        "The reply says when the end is reached: stop looping then. Nothing to scroll is not an error.",
       inputSchema: {
-        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; scrolls that element into view. Do not combine with container or direction"),
-        container: z.string().optional().describe("Selector or `@eN` ref of the scroll area to scroll (a single element); omit to scroll the page"),
-        direction: z.enum(["down", "up", "left", "right", "top", "bottom"]).optional().describe("Which way to scroll; default down"),
+        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; scrolled into view. Not with container or direction"),
+        container: z.string().optional().describe(SELECTOR_DESCRIPTION + "; omit to scroll the page"),
+        direction: z.enum(["down", "up", "left", "right", "top", "bottom"]).optional(),
       },
     },
     async ({ selector, container, direction }) =>
@@ -805,11 +789,11 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.setViewport,
       description:
-        `Resize the current page's viewport (${MIN_VIEWPORT_WIDTH}-${MAX_VIEWPORT_WIDTH} x ${MIN_VIEWPORT_HEIGHT}-${MAX_VIEWPORT_HEIGHT} CSS pixels), e.g. 375x812 for a phone or 768x1024 for a tablet. ` +
-        "Layouts can change when the page is resized, so call ui_get_page_state again afterwards.",
+        `Resize the viewport to whole CSS pixels (${MIN_VIEWPORT_WIDTH}-${MAX_VIEWPORT_WIDTH} x ${MIN_VIEWPORT_HEIGHT}-${MAX_VIEWPORT_HEIGHT}), e.g. 375x812 for a phone. ` +
+        "Layouts can change, so call ui_get_page_state again afterwards.",
       inputSchema: {
-        width: z.number().int().min(MIN_VIEWPORT_WIDTH).max(MAX_VIEWPORT_WIDTH).describe("Width in CSS pixels"),
-        height: z.number().int().min(MIN_VIEWPORT_HEIGHT).max(MAX_VIEWPORT_HEIGHT).describe("Height in CSS pixels"),
+        width: z.number().int().min(MIN_VIEWPORT_WIDTH).max(MAX_VIEWPORT_WIDTH),
+        height: z.number().int().min(MIN_VIEWPORT_HEIGHT).max(MAX_VIEWPORT_HEIGHT),
       },
     },
     async ({ width, height }) =>
@@ -826,20 +810,19 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.type,
       description:
-        "Type text into the single editable element matching the selector one key at a time, like a user (keydown, input and keyup per character), appending to what is already there. " +
-        "Use it instead of ui_fill for autocomplete, search-as-you-type, masked inputs (phone, card) and OTP boxes. Use the `selector` from ui_get_page_state. " +
-        "Text typed into a password, one-time-code or card-number field is never stored in the report." +
-        NTH_NOTE,
+        "Type text into the one editable element matching `selector` key by key like a user (keydown, input, keyup per character), appending to the current value. " +
+        "Use it instead of ui_fill for autocomplete, search-as-you-type, masked inputs and OTP boxes. " +
+        "Text typed into a password, one-time-code or card-number field is never stored in the report.",
       inputSchema: {
         selector: z.string().describe(SELECTOR_DESCRIPTION),
-        text: z.string().describe("The text to type"),
+        text: z.string(),
         delayMs: z
           .number()
           .int()
           .min(0)
           .max(MAX_TYPE_DELAY_MS)
           .optional()
-          .describe(`Pause between keystrokes in ms (0-${MAX_TYPE_DELAY_MS}, default 0), for fields that debounce input`),
+          .describe(`Pause between keystrokes in ms (0-${MAX_TYPE_DELAY_MS}, default 0)`),
       },
     },
     async ({ selector, text, delayMs }) => {
@@ -869,11 +852,10 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.navigateHistory,
       description:
-        "Go back or forward in the browser history, or reload the current page, and report the resulting URL and title. " +
-        "Unlike ui_navigate this keeps the history, so it can check that state survives a reload. " +
-        "Going back or forward with no such history entry is an error that says so.",
+        "Go back or forward in the history, or reload, and report the resulting URL and title. " +
+        "Unlike ui_navigate it keeps the history. Back or forward with no such entry is an error.",
       inputSchema: {
-        action: z.enum(["back", "forward", "reload"]).describe("back, forward, or reload"),
+        action: z.enum(["back", "forward", "reload"]),
       },
     },
     async ({ action }) =>
@@ -891,8 +873,7 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.uploadFile,
       description:
-        `Upload the built-in test file ${UPLOAD_FILE_NAME} (a tiny PNG) to the single element matching the selector: an input[type=file] (hidden ones work), or a button/label whose click opens the file chooser. Takes no path: this is the only file it can ever upload. If the input's accept excludes images the response says so.` +
-        NTH_NOTE,
+        `Upload the built-in test file ${UPLOAD_FILE_NAME} (a tiny PNG) to the one element matching \`selector\`: an input[type=file] (hidden ones work) or a button/label that opens the file chooser. Takes no path: it can upload nothing else. The reply warns if the input's accept excludes images.`,
       inputSchema: { selector: z.string().describe(SELECTOR_DESCRIPTION) },
     },
     async ({ selector }) => {
@@ -913,11 +894,10 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.drag,
       description:
-        "Drag the single element matching `from` onto the single element matching `to` with real pointer events: reorders HTML5 drag-and-drop lists, kanban cards and pointer-based sortables. Use `@eN` refs or selectors from ui_get_page_state." +
-        NTH_NOTE,
+        "Drag the one element matching `from` onto the one matching `to` with real pointer events: HTML5 drag-and-drop lists, kanban cards, pointer-based sortables.",
       inputSchema: {
-        from: z.string().describe(SELECTOR_DESCRIPTION + " of the element to pick up"),
-        to: z.string().describe(SELECTOR_DESCRIPTION + " of the element to drop onto"),
+        from: z.string().describe(SELECTOR_DESCRIPTION),
+        to: z.string().describe(SELECTOR_DESCRIPTION),
       },
     },
     async ({ from, to }) =>
@@ -929,10 +909,10 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.getLogs,
       description:
-        "Read the browser problems captured in this session so far: console errors, uncaught page errors, failed requests and HTTP 4xx/5xx responses (method + URL, never bodies or headers). Use it when an action seemed to do nothing. `since: last` (default) returns only what is new since the previous call; `start` returns everything. Pass level: warning to include console warnings. Repeats are grouped (×N); at most 50 lines.",
+        "Read the browser problems captured in this session: console errors, page errors, failed requests and HTTP 4xx/5xx responses (method + URL only). Use it when an action seemed to do nothing. Repeats are grouped (×N); at most 50 lines.",
       inputSchema: {
-        since: z.enum(["start", "last"]).optional().describe("last (default): new since the previous ui_get_logs; start: everything"),
-        level: z.enum(["error", "warning"]).optional().describe("error (default), or warning to also include console warnings"),
+        since: z.enum(["start", "last"]).optional().describe("last (default): new since the previous call; start: everything"),
+        level: z.enum(["error", "warning"]).optional().describe("error (default); warning adds console warnings"),
       },
     },
     async ({ since, level }) => {
@@ -954,10 +934,10 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.tabs,
       description:
-        "Manage browser tabs of this session (numbered from 1). A link with target=_blank or window.open opens a new tab, announced on the next tool response but not switched to. list: index, url, title, current. switch: make that tab the one every tool acts on. close: close that tab (default: the current one) and fall back to the previous one; the last tab cannot be closed.",
+        "Manage this session's tabs (numbered from 1): list (index, url, title, current), switch (every tool then acts on that tab), close (default: current; the last tab cannot be closed). A new tab (target=_blank, window.open) is announced in the next reply but not switched to.",
       inputSchema: {
-        action: z.enum(["list", "switch", "close"]).describe("list, switch or close"),
-        index: z.number().int().optional().describe("Tab number from `list` (required for switch)"),
+        action: z.enum(["list", "switch", "close"]),
+        index: z.number().int().optional().describe("Tab number from list (required for switch)"),
       },
     },
     async ({ action, index }) => {
@@ -983,11 +963,10 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_assert",
       description:
-        "Assert a JS expression against the current page. This is a HARD check: if it evaluates false the whole session is marked failed. " +
-        "Use it only for claims about the application under test. To wait for the page to become ready use ui_wait_for, and for a " +
-        "non-fatal observation use ui_check — do not call ui_assert in a retry loop, as the first false result permanently fails the run.",
+        "Assert a JS expression in the page. HARD check: false fails the whole session, so use it only for claims about the app under test, never in a retry loop. " +
+        "To wait for the page use ui_wait_for; for a non-fatal observation use ui_check.",
       inputSchema: {
-        condition: z.string().describe("JS expression evaluated in the page context"),
+        condition: z.string().describe("JS expression evaluated in the page"),
       },
     },
     async ({ condition }) => {
@@ -1012,12 +991,10 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_step",
       description:
-        "Label what you are about to do, in plain language. Every following action is grouped under this label in the report " +
-        "until the next ui_step. Call it before each meaningful part of the flow (e.g. \"Log in as jcarlin\", " +
-        "\"Toggle Manual Invoice access on\", \"Reload and confirm it persisted\") — this label is the only human-readable " +
-        "description the report has, so write it for the person who will read the result, not for yourself.",
+        "Label the actions that follow, in plain language (e.g. \"Log in as jcarlin\"), until the next ui_step. " +
+        "Call it before each meaningful part of the flow: the label is the report's only human-readable description, so write it for the person reading the result.",
       inputSchema: {
-        label: z.string().min(1).describe("Short description of what this step verifies or does"),
+        label: z.string().min(1),
       },
     },
     async ({ label }) => {
@@ -1043,11 +1020,10 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_check",
       description:
-        "Check a JS expression against the current page WITHOUT failing the session if it is false. " +
-        "Use this for observations you want recorded in the report but which should not condemn the run. " +
-        "If the expression cannot run at all (no page open, or it throws) that is still a hard failure.",
+        "Check a JS expression in the page and record a soft result in the report; false does NOT fail the session. " +
+        "If the expression cannot run (no page open, or it throws) that is still a hard failure.",
       inputSchema: {
-        condition: z.string().describe("JS expression evaluated in the page context"),
+        condition: z.string().describe("JS expression evaluated in the page"),
       },
     },
     async ({ condition }) => {
@@ -1068,17 +1044,16 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_wait_for",
       description:
-        "Poll a JS expression until it becomes true or the timeout elapses. Use this to wait for the page to render " +
-        "instead of retrying ui_assert. Returning true is recorded as one action; timing out fails the session.",
+        "Poll a JS expression until it is true or the timeout passes; use it instead of retrying ui_assert. A timeout fails the session.",
       inputSchema: {
-        condition: z.string().describe("JS expression evaluated in the page context"),
+        condition: z.string().describe("JS expression evaluated in the page"),
         timeoutMs: z
           .number()
           .int()
           .positive()
           .max(MAX_WAIT_MS)
           .default(5000)
-          .describe(`How long to keep polling before giving up (max ${MAX_WAIT_MS}ms)`),
+          .describe(`Polling limit in ms (max ${MAX_WAIT_MS}, default 5000)`),
       },
     },
     async ({ condition, timeoutMs }) => {
@@ -1098,17 +1073,16 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_get_page_state",
       description:
-        "Return the current page as text: `url:`, `title:`, then one line per visible interactive element, `@eN role \"name\"` plus its non-default state " +
-        "(disabled, checked, value, expanded, selected, pressed, required, invalid; a password's value is never shown; at most 200 elements), " +
-        "`overlay @oN ...` for each open dialog (topmost first), `focused:` and `messages:` (visible alert/status text). " +
-        "Pass an `@eN` / `@oN` ref as the selector of any tool. A ref is valid only for the latest snapshot: after the page changes it fails, so call this again. " +
-        "`format: \"full\"` returns JSON instead, with a verified `selector` per element and no refs. " +
-        "Custom widgets (combobox, listbox, option, switch, slider, contenteditable, summary...) are listed too. To read page text use ui_get_text.",
+        "Return the current page as text: `url:`, `title:`, one line per visible interactive element `@eN role \"name\"` plus non-default state " +
+        "(disabled, checked, value, expanded, selected, pressed, required, invalid; a password's value is never shown; at most 200 elements; custom widgets such as combobox, switch, slider included), " +
+        "`overlay @oN ...` per open dialog (topmost first), `focused:` and `messages:` (visible alert/status text). " +
+        "Selector arguments of any tool take a CSS / Playwright selector or one of these refs. A ref is valid only for the latest snapshot, and a selector containing \"nth=\" is positional: after the page changes call this again. " +
+        "`format: \"full\"` returns JSON with a verified `selector` per element and no refs. To read page text use ui_get_text.",
       inputSchema: {
         format: z
           .enum(["compact", "full"])
           .optional()
-          .describe("compact (default): one text line per element with refs. full: JSON with selectors, no refs"),
+          .describe("compact (default): text lines with refs. full: JSON with selectors"),
       },
     },
     async ({ format }) => {
@@ -1126,11 +1100,10 @@ export function buildMcpServer(): McpServer {
     {
       title: TOOL.getText,
       description:
-        "Read the trimmed visible text of the single element matching the selector, or of the whole page body when no selector is given (cut at 4000 characters with a note of the real length). " +
-        "Use it to check content: a table value, a heading, an error under a field, a total. Fails if the selector matches no element, more than one, or an element that is not visible." +
-        NTH_NOTE,
+        "Read the trimmed visible text of the one element matching `selector`, or of the whole body without one (cut at 4000 characters, with a note of the real length). " +
+        "Use it to check content: a table value, a heading, an error under a field, a total. Fails if the selector matches no element, several, or an invisible one.",
       inputSchema: {
-        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; omit to read the whole page body"),
+        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; omit for the whole body"),
       },
     },
     async ({ selector: rawSelector }) => {
@@ -1154,14 +1127,12 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_take_screenshot",
       description:
-        "Capture the current viewport and save it as a PNG to the reports output. " +
-        "With `selector`, capture just that element; with `fullPage`, the whole scrollable page (cut at 16000 device pixels tall and 3840px wide). " +
-        `With \`inline: true\` the image itself is also returned (scaled to fit ${MAX_INLINE_WIDTH}x${MAX_INLINE_HEIGHT}px; the file on disk stays full size) so you can look at it.` +
-        NTH_NOTE,
+        "Save a PNG of the viewport to the reports folder; `selector` captures just that element, `fullPage` the whole scrollable page (cut at 16000 px tall, 3840 wide). " +
+        `\`inline: true\` also returns the image in the reply, scaled to fit ${MAX_INLINE_WIDTH}x${MAX_INLINE_HEIGHT}px (the saved file stays full size).`,
       inputSchema: {
-        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; captures only that element. Not with fullPage"),
-        fullPage: z.boolean().optional().describe("Capture the whole scrollable page, not just the viewport"),
-        inline: z.boolean().optional().describe("Also return the PNG as image content, scaled down"),
+        selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; not with fullPage"),
+        fullPage: z.boolean().optional(),
+        inline: z.boolean().optional(),
       },
     },
     async ({ selector, fullPage, inline }) => {
