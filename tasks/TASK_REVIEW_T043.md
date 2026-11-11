@@ -45,8 +45,22 @@ Not done: merge (yours); <auto verify: running (T182) | auto verify: <result> | 
 
 ## Evidence
 
-| Check | Result | Notes / output snippet |
-|-------|--------|------------------------|
+| Check | Result | Notes |
+|-------|--------|-------|
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/web.test.ts` (16 `T043` tests: viewport at the current scroll position, edge-straddling element, within by selector / `@eN` / `@oN`, failures, both scopes, notes, cap after scope, refs, page-wide overlays / focus / messages, vanishing root), `test/multi-session.test.ts` ("T043: viewport and within on ui_get_page_state") |
+| Verification command run | ☑ pass | Supervisor on 7dbd379: `npx tsc --noEmit -p tsconfig.json` clean; `npm test` → tests 360, suites 9, pass 360, fail 0 (traced under T043) |
+| Negative cases hold | ☑ pass | Tests committed red first (80a8fd6). `within` matching nothing, several elements or a stale ref is an error with no list (real page: `within: Selector ".vector-header-container" matched 2 elements; expected exactly 1`). No argument, `viewport: false` and `within: undefined` give the plain reply |
+| verify | ☑ pass | pass — Supervisor real run 2026-11-11T08:22Z against `src/stdio.ts` of 7dbd379 through an MCP client: Wikipedia `viewport: true` 3,310 of 6,182 characters (54%, 100 of 512 elements, note present); Hacker News 3,642 of 5,474 (67%, 125 of 198); saucedemo login unchanged (3 elements, no note); `within: "#vector-toc"` lists 13 of 512 elements with the note. The four baseline flows pass (807 / 1,210 / 4,623 / 5,486 tokens). AC 10 (at most 65%) is met on Wikipedia and missed by 2 points on Hacker News. The `verify` skill is not installed in this session; this run is the live check |
+| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☑ pass | `getPageState` / `snapshotPass` / `REF_ARGUMENTS` in `src/tools/web.ts`, the `ui_get_page_state` handler in `src/server.ts`, tests, four docs |
+| Full smoke suite still green (no regression) | ☑ pass | `npm test` 360/360 on 7dbd379; tool list 19,362 characters (budget 20,000) |
+| Code review | ☑ pass | 0 P0 / P1; 1 P2 recorded (AC 10 partly missed, see verify row); 3 P3 accepted; lane_check `C2, 8 files, 448 lines, FITS`. Report: `reports/code-review_worktree-agent-a888cb9a44729fe10_20261111T152518.html` |
+| Security review | ☑ pass | no findings. Report: `reports/security-review_worktree-agent-a888cb9a44729fe10_20261111T152518.html` |
+| **Companion score (easy-verifier)** | ☑ N/A | easy-verifier not run in this session |
+| **UI: Visual regression (diff or verdict pasted)** | ☑ N/A | docs-site text only; `test/site.test.ts` green |
+| **UI: Design-system compliance (tokens/colors/typography verified)** | ☑ N/A | no new styles |
+| **UI: Responsiveness at target viewports** | ☑ N/A | text-only docs edit |
+
+-------|--------|------------------------|
 | **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | [test file path(s) — required before Done] |
 | Verification command run | ☐ pass / ☐ fail | [paste actual output] |
 | Negative cases hold | ☐ pass / ☐ fail | [paste the red run against the prior content, or the mutation diff (`git diff --stat`, non-empty) before each verdict] |
@@ -76,9 +90,15 @@ within .vector-header-container: 6140 chars 200 els | note: Showing first 200 of
 within (2 matches): 200 els
 ```
 
-**AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
+**AFTER**: captured 2026-11-11T08:22Z on 7dbd379, by the Supervisor, same script against the task branch:
+```
+en.wikipedia.org/wiki/Playwright_(softwa | unscoped 6182 chars 200 els | viewport:true 3310 chars 100 els (54%) | note: Showing 100 of 512 elements (viewport only); scroll, or call without viewport, for the rest
+news.ycombinator.com/ | unscoped 5474 chars 198 els | viewport:true 3642 chars 125 els (67%) | note: Showing 125 of 198 elements (viewport only); scroll, or call without viewport, for the rest
+www.saucedemo.com/ | unscoped 113 chars 3 els | viewport:true 113 chars 3 els (100%) | (no note)
+within .vector-header-container: ERROR within: Selector ".vector-header-container" matched 2 elements; expected exactly 1
+within #vector-toc: 546 chars 13 els | note: Showing 13 of 512 elements (within "#vector-toc"); call without within for the rest
+```
 
-**DELTA**: [one sentence — what a user can now do that they could not before]
+**DELTA**: An agent can ask for only what is on screen or only what is inside one element: a Wikipedia snapshot drops from 6,182 to 3,310 characters with `viewport: true` and to 546 with `within` on the table of contents, and the reply says how many elements were left out.
 
-**WITNESS**: [who ran it and when — derived from `memory/event-trace/Txxx.jsonl`, never the
-implementing agent alone]
+**WITNESS**: Supervisor, 2026-11-11; `npm test` 360/360, the scope measurement and the four-flow run executed by the Supervisor against 7dbd379 and traced in `memory/event-trace/T043.jsonl`; implementation by backend-developer in a separate worktree.
