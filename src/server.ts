@@ -1089,7 +1089,7 @@ export function buildMcpServer(): McpServer {
       },
     },
     async ({ format, viewport, within }) => {
-      const result = await getPageState(resolvePageForRead(), { keepRefs: format !== "full", viewport, within });
+      const result = await getPageState(resolvePageForRead(), { keepRefs: format !== "full", selectors: format === "full", viewport, within });
       // A `within` that names no single element is the agent aiming wrong, not a fault of the app: soft, like a refused ref.
       await recordAction("ui_get_page_state", undefined, result.ok, result.ok ? undefined : result.error, within !== undefined);
       if (!result.ok) {
