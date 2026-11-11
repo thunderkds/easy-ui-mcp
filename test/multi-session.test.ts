@@ -844,3 +844,70 @@ describe("T040: compact page state and refs", () => {
     await conn.call("ui_end_session", { session_id: id });
   });
 });
+
+// ---------------------------------------------------------------------------
+// T043: snapshot scope
+// ---------------------------------------------------------------------------
+
+describe("T043: viewport and within on ui_get_page_state", () => {
+  before(() => startServer({ SESSION_TIMEOUT_MS: "600000", MAX_SESSIONS_PER_CONNECTION: "3" }));
+  after(async () => {
+    await closeAllConnections();
+    await stopServer();
+  });
+
+  const SCOPED_PAGE = pageUrl(
+    `<button>Top</button>
+     <div role="listbox" aria-label="Panel"><button>Inside A</button><button>Inside B</button></div>
+     <div style="height:3000px"></div>
+     <button>Bottom</button>`
+  );
+
+  test("viewport and within (selector and ref) scope the compact and the full reply, say so, and a bad within is a soft refusal", async () => {
+    const conn = await connect();
+    const id = await conn.start("scope");
+    await conn.call("ui_navigate", { url: SCOPED_PAGE, session_id: id });
+
+    const everything = await conn.call("ui_get_page_state", { session_id: id });
+    assert.doesNotMatch(everything.text, /^note:/m, "no argument: no scope note");
+    assert.match(everything.text, /"Bottom"/);
+
+    const onScreen = await conn.call("ui_get_page_state", { viewport: true, session_id: id });
+    assert.equal(onScreen.isError, false, onScreen.text);
+    assert.doesNotMatch(onScreen.text, /"Bottom"/);
+    assert.match(onScreen.text, /^@e1 button "Top"$/m);
+    assert.match(onScreen.text, /^note: Showing 4 of 5 elements \(viewport only\); scroll, or call without viewport, for the rest$/m);
+
+    const bySelector = await conn.call("ui_get_page_state", { within: "[role=listbox]", session_id: id });
+    assert.equal(bySelector.isError, false, bySelector.text);
+    assert.match(bySelector.text, /^@e1 button "Inside A"$/m);
+    assert.match(bySelector.text, /^@e2 button "Inside B"$/m);
+    assert.doesNotMatch(bySelector.text, /"Top"|"Bottom"/);
+    assert.match(bySelector.text, /^note: Showing 2 of 5 elements \(within "\[role=listbox\]"\)/m);
+
+    const state = await conn.call("ui_get_page_state", { session_id: id });
+    const panel = /^(@e\d+) listbox "Panel"$/m.exec(state.text)![1];
+    const byRef = await conn.call("ui_get_page_state", { within: panel, session_id: id });
+    assert.equal(byRef.isError, false, byRef.text);
+    assert.match(byRef.text, /^@e1 button "Inside A"$/m);
+    assert.match(byRef.text, /within /);
+
+    const full = await conn.call("ui_get_page_state", { format: "full", viewport: true, within: "[role=listbox]", session_id: id });
+    const parsed = JSON.parse(full.text);
+    assert.deepEqual(parsed.elements.map((e: any) => e.name), ["Inside A", "Inside B"]);
+    assert.match(parsed.note, /^Showing 2 of 5 elements \(viewport, within /);
+
+    for (const within of [".missing", "button"]) {
+      const bad = await conn.call("ui_get_page_state", { within, session_id: id });
+      assert.equal(bad.isError, true, within);
+      assert.doesNotMatch(bad.text, /^@e\d/m);
+    }
+    const stale = await conn.call("ui_get_page_state", { within: "@e99", session_id: id });
+    assert.equal(stale.isError, true);
+    assert.match(stale.text, /@e99.*ui_get_page_state/);
+
+    const ended = await conn.call("ui_end_session", { session_id: id });
+    assert.match(ended.text, /ended \(passed\)/, ended.text);
+    assert.equal(reportFor(id)!.json.status, "passed", "a mistaken scope does not fail the session");
+  });
+});

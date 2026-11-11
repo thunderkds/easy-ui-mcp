@@ -718,7 +718,7 @@ export interface PageState {
   /** The element holding focus. Omitted when focus is on the body, in an iframe, or in a shadow root. */
   focused?: PageFocus;
   messages?: string[];
-  /** Set when `elements` was capped at MAX_PAGE_ELEMENTS. */
+  /** Set when `elements` was capped at MAX_PAGE_ELEMENTS, or left some elements out by scope (T043). */
   note?: string;
   error?: string;
 }
@@ -814,6 +814,8 @@ interface RawElement {
 /** What the in-page pass returns per element; `state` is null when every field is default. */
 interface RawPageElement extends RawElement {
   visible: boolean;
+  /** T043: inside the requested `viewport` / `within` scope (always true when neither was asked for). */
+  inScope?: boolean;
   state: PageElementState | null;
 }
 
@@ -925,10 +927,14 @@ async function buildSelector(
  * pressed/required/invalid, non-default fields only; a password value is never
  * read), custom-widget roles are listed, `overlays` names the open dialogs
  * topmost first, and `focused` names the element holding focus.
+ *
+ * T043: `viewport` keeps only elements whose bounding rect intersects the viewport now, and `within`
+ * (a selector of exactly one element) only the elements inside it. Both: an element must satisfy both.
+ * `overlays`, `focused` and `messages` are never scoped.
  */
 export async function getPageState(
   page: Page | undefined,
-  options: { keepRefs?: boolean } = {}
+  options: { keepRefs?: boolean; viewport?: boolean; within?: string } = {}
 ): Promise<PageState> {
   if (!page) {
     return { ok: false, error: "No active page — call ui_navigate first" };
@@ -940,7 +946,7 @@ export async function getPageState(
   for (;;) {
     let pass: SnapshotPass;
     try {
-      pass = await snapshotPass(page);
+      pass = await snapshotPass(page, { viewport: options.viewport === true, within: options.within });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // A navigation that destroys the context mid-pass is the page moving; a closed page is not.
@@ -956,6 +962,8 @@ export async function getPageState(
       await new Promise((resolve) => setTimeout(resolve, SETTLE_RETRY_MS));
       continue;
     }
+    // A `within` that does not name exactly one element: nothing was read, and the previous refs stand.
+    if (!pass.result.ok) return pass.result;
     // Only the returned pass may install the ref table (T040); the handles of everything else go.
     const { result } = pass;
     const kept = new Set<ElementHandle>();
@@ -994,14 +1002,37 @@ interface SnapshotPass {
   handles: ElementHandle[];
 }
 
+interface SnapshotScope {
+  viewport: boolean;
+  within?: string;
+}
+
+/** The note for a scoped reply that left elements out: counts, the scope used, and how to see the rest. */
+function scopeNote(scope: SnapshotScope, shown: number, total: number): string {
+  const within = `within ${JSON.stringify(scope.within)}`;
+  const both = scope.viewport && scope.within !== undefined;
+  const label = both ? `viewport, ${within}` : scope.viewport ? "viewport only" : within;
+  const rest = both ? "scroll, or call without viewport or within," : scope.viewport ? "scroll, or call without viewport," : "call without within";
+  return `Showing ${shown} of ${total} elements (${label}); ${rest} for the rest`;
+}
+
 /** One complete read of the page. Disposes its own handles if it throws; otherwise leaves that to the caller. */
-async function snapshotPass(page: Page): Promise<SnapshotPass> {
+async function snapshotPass(page: Page, scope: SnapshotScope): Promise<SnapshotPass> {
   // Handles pin the exact elements so selectors can be verified by identity.
   let handles: ElementHandle[] = [];
   let overlayHandles: ElementHandle[] = [];
   let focusEl: ElementHandle | null = null;
+  let rootEl: ElementHandle | null = null;
   let moved = false;
   try {
+    if (scope.within !== undefined) {
+      // Exactly one element, or the call fails: an empty list would read as "nothing there".
+      const unique = await resolveUniqueLocator(page, scope.within);
+      if (!unique.ok) {
+        return { result: { ok: false, error: `within: ${unique.error}` }, moved: false, elementRefs: [], overlayRefs: [], handles: [] };
+      }
+      rootEl = await unique.locator.elementHandle({ timeout: 1000 });
+    }
     handles = await page.$$(INTERACTIVE_SELECTOR);
     const focusHandle = await page.evaluateHandle(() => {
       const active = document.activeElement;
@@ -1018,7 +1049,7 @@ async function snapshotPass(page: Page): Promise<SnapshotPass> {
     // NOTE: no named inner functions/consts in these callbacks — tsx/esbuild wraps
     // them in a `__name` helper that does not exist in the browser context.
     const pass: { rows: RawPageElement[]; focusIndex: number } = await page.evaluate(
-      ({ nodes, focus }) => {
+      ({ nodes, focus, root, viewport }) => {
         const all = focus && !nodes.includes(focus) ? [...nodes, focus] : nodes;
         const focusIndex = focus ? all.indexOf(focus) : -1;
         const tri = new Map<string, boolean | "mixed">([
@@ -1032,6 +1063,10 @@ async function snapshotPass(page: Page): Promise<SnapshotPass> {
           if (!(rect.width > 0 && rect.height > 0)) {
             return { index, visible: false, role: "", name: "", testId: "", id: "", state: null };
           }
+          // T043: partly visible counts as on screen; the root of `within` is not inside itself.
+          const inScope =
+            (!viewport || (rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth)) &&
+            (!root || (el !== root && root.contains(el)));
           const explicitRole = el.getAttribute("role");
           const tag = el.tagName.toLowerCase();
           const input = el as HTMLInputElement;
@@ -1134,6 +1169,7 @@ async function snapshotPass(page: Page): Promise<SnapshotPass> {
           return {
             index,
             visible: true,
+            inScope,
             role,
             name: name.length > 80 ? `${name.slice(0, 80)}…` : name,
             testId: el.getAttribute("data-testid") ?? "",
@@ -1145,14 +1181,16 @@ async function snapshotPass(page: Page): Promise<SnapshotPass> {
         });
         return { rows, focusIndex };
       },
-      { nodes: handles, focus: focusEl }
+      { nodes: handles, focus: focusEl, root: rootEl, viewport: scope.viewport }
     );
 
     const found = pass.rows
       .slice(0, handles.length)
       // Alerts/status regions are reported in `messages`, dialogs in `overlays`, not as elements.
       .filter((e) => e.visible && e.name.length > 0 && !NON_ELEMENT_ROLES.includes(e.role));
-    const shown = found.slice(0, MAX_PAGE_ELEMENTS);
+    // The scope filters before the cap and before selectors are built; the page-wide list above is what positions index.
+    const scoped = found.filter((e) => e.inScope);
+    const shown = scoped.slice(0, MAX_PAGE_ELEMENTS);
     const elements: PageElement[] = [];
     const elementRefs: RefEntry[] = [];
     const sharedRoleMatches = new Map<string, number[]>();
@@ -1271,17 +1309,20 @@ async function snapshotPass(page: Page): Promise<SnapshotPass> {
     };
     if (overlays.length > 0) result.overlays = overlays;
     if (focused) result.focused = focused;
-    if (found.length > shown.length) {
-      result.note = `Showing first ${shown.length} of ${found.length} elements; use a CSS selector for the rest`;
+    const notes: string[] = [];
+    if (scoped.length < found.length) notes.push(scopeNote(scope, scoped.length, found.length));
+    if (scoped.length > shown.length) {
+      notes.push(`Showing first ${shown.length} of ${scoped.length} elements; use viewport or within to narrow the list, or a CSS selector for the rest`);
     }
+    if (notes.length > 0) result.note = notes.join("; ");
     // One cheap check that reads nothing but `isConnected`: did an element this pass took leave the document?
-    const taken = [...handles, ...overlayHandles, ...(focusEl ? [focusEl] : [])];
+    const taken = [...handles, ...overlayHandles, ...(focusEl ? [focusEl] : []), ...(rootEl ? [rootEl] : [])];
     if (!moved && taken.length > 0) {
       moved = await page.evaluate((nodes) => nodes.some((n) => !n.isConnected), taken);
     }
     return { result, moved, elementRefs, overlayRefs, handles: taken };
   } catch (err) {
-    await disposeHandles([...handles, ...overlayHandles, ...(focusEl ? [focusEl] : [])]);
+    await disposeHandles([...handles, ...overlayHandles, ...(focusEl ? [focusEl] : []), ...(rootEl ? [rootEl] : [])]);
     throw err;
   }
 }
@@ -1315,7 +1356,7 @@ function replaceRefTable(page: Page, next: RefTable | undefined): void {
 const REF_PATTERN = /^@([eo])(\d+)$/;
 
 /** Arguments that name an element; a ref in any of them is replaced by its selector before the tool runs. */
-export const REF_ARGUMENTS = ["selector", "from", "to", "container"] as const;
+export const REF_ARGUMENTS = ["selector", "from", "to", "container", "within"] as const;
 
 /**
  * The selector a ref stands for, or an error. The ref must be in the page's latest snapshot AND its
@@ -1354,7 +1395,7 @@ export async function resolveRef(
 }
 
 /**
- * Replace every ref under `selector`, `from`, `to` and `container` with its selector. The first
+ * Replace every ref under `selector`, `from`, `to`, `container` and `within` with its selector. The first
  * ref that cannot be resolved fails the whole call, so a tool never runs on part of its arguments.
  */
 export async function resolveRefArgs<T extends Record<string, unknown>>(

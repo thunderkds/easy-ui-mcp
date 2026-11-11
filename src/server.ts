@@ -1077,17 +1077,21 @@ export function buildMcpServer(): McpServer {
         "(disabled, checked, value, expanded, selected, pressed, required, invalid; a password's value is never shown; at most 200 elements; custom widgets such as combobox, switch, slider included), " +
         "`overlay @oN ...` per open dialog (topmost first), `focused:` and `messages:` (visible alert/status text). " +
         "Selector arguments of any tool take a CSS / Playwright selector or one of these refs. A ref is valid only for the latest snapshot, and a selector containing \"nth=\" is positional: after the page changes call this again. " +
+        "`viewport: true` lists only elements on screen, `within` only those inside one element; a note gives how many were left out. " +
         "`format: \"full\"` returns JSON with a verified `selector` per element and no refs. To read page text use ui_get_text.",
       inputSchema: {
         format: z
           .enum(["compact", "full"])
           .optional()
           .describe("compact (default): text lines with refs. full: JSON with selectors"),
+        viewport: z.boolean().optional().describe("true: only elements on screen now"),
+        within: z.string().min(1).optional().describe(SELECTOR_DESCRIPTION + "; list only what is inside it"),
       },
     },
-    async ({ format }) => {
-      const result = await getPageState(resolvePageForRead(), { keepRefs: format !== "full" });
-      await recordAction("ui_get_page_state", undefined, result.ok, result.ok ? undefined : result.error);
+    async ({ format, viewport, within }) => {
+      const result = await getPageState(resolvePageForRead(), { keepRefs: format !== "full", viewport, within });
+      // A `within` that names no single element is the agent aiming wrong, not a fault of the app: soft, like a refused ref.
+      await recordAction("ui_get_page_state", undefined, result.ok, result.ok ? undefined : result.error, within !== undefined);
       if (!result.ok) {
         return { isError: true, content: [{ type: "text", text: result.error ?? "Failed to get page state" }] };
       }

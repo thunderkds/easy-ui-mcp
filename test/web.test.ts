@@ -2271,7 +2271,7 @@ test("T043 AC4: viewport and within together keep only elements that satisfy bot
   try {
     const state = await getPageState(p, { viewport: true, within: "#f" });
     assert.deepEqual(names(state), ["Near"]);
-    assert.equal(state.note, 'Showing 1 of 3 elements (viewport only, within "#f"); scroll, or call without viewport or within, for the rest');
+    assert.equal(state.note, 'Showing 1 of 3 elements (viewport, within "#f"); scroll, or call without viewport or within, for the rest');
   } finally {
     await p.close();
   }
