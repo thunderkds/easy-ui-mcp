@@ -11,9 +11,7 @@
 
 ### Todo
 > Re-prioritized 2026-10-30 by user direction. Focus: **executable, simple, easy for an agent to drive, readable results**. Web first; Android and human-in-the-loop on hold. Listed in pickup order. T017–T019 and T021 are draft scope from the 2026-10-30 investigation — Brainstorm: `BRAINSTORMING_LOG_agent-ergonomics.md` (paths chosen provisionally by Supervisor, pending user approval). TASK_GUIDEs generated 2026-10-30.
-
-
-- [ ] **T043** — Snapshot scope: viewport-only or `within` for content-heavy pages (halves Wikipedia/HN snapshots; 1 of 21 targets off-screen in the baseline) | backend-developer | ? | Risk: Medium | P2 | After T040; no guide yet
+- [ ] **T043** — Snapshot scope: opt-in `viewport` and `within` for `ui_get_page_state` (halves Wikipedia/HN snapshots in the baseline) | backend-developer | C2 | Risk: Medium | P2 | After T042 (same function). Guide: `tasks/TASK_GUIDE_T043.md`. Brainstorm: `BRAINSTORMING_LOG_snapshot-scope.md` (Option A; opt-in and both scopes decided by the Supervisor 2026-11-11, flagged to the user)
 
 ### In Progress
 - [ ] **T042** — Bug: a page-state snapshot taken while the page re-renders comes back empty (0 elements straight after a route-changing click) | backend-developer | C1 | Risk: Low | P1 | Reproduced 5/5 on saucedemo 2026-11-11; cause: DOM replaced mid-snapshot, every element dropped. Guide: `tasks/TASK_GUIDE_T042.md`
