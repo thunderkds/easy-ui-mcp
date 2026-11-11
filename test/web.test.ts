@@ -1915,3 +1915,194 @@ test("T040 AC3: resolveRefArgs turns exactly @eN / @oN under selector, from, to 
   assert.equal(bad.ok, false);
   assert.match((bad as { error: string }).error, STALE_MESSAGE("@e77"));
 });
+
+// --- T042: a snapshot taken while the page re-renders returns the settled page ---
+
+/** A page whose script replaces its whole list of buttons every `everyMs` until `forMs` has passed (0 = forever). */
+const reRenderingPage = (everyMs: number, forMs: number, count = 3) =>
+  "data:text/html," +
+  encodeURIComponent(`<!doctype html><body><div id="list"></div><script>
+    const list = document.getElementById("list");
+    const started = Date.now();
+    let gen = 0;
+    const render = (label) => {
+      list.innerHTML = Array.from({ length: ${count} }, (_, i) => '<button>' + label + ' ' + (i + 1) + '</button>').join("");
+    };
+    render("Gen0");
+    const timer = setInterval(() => {
+      if (${forMs} > 0 && Date.now() - started >= ${forMs}) { clearInterval(timer); render("Final"); return; }
+      render("Gen" + (++gen));
+    }, ${everyMs});
+  </script></body>`);
+
+/** Count `page.$$` calls (one per snapshot pass for elements, one for overlays) and keep every handle they return. */
+const spyOnHandles = (p: Page) => {
+  const spy = { calls: 0, handles: [] as Awaited<ReturnType<Page["$$"]>> };
+  const original = p.$$.bind(p);
+  (p as { $$: unknown }).$$ = async (selector: string) => {
+    spy.calls++;
+    const found = await original(selector);
+    spy.handles.push(...found);
+    return found;
+  };
+  return spy;
+};
+
+test("T042 SC1: a snapshot requested while the page replaces its buttons returns the settled buttons, not an empty list", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.goto(reRenderingPage(8, 300));
+    const state = await getPageState(p);
+    assert.equal(state.ok, true);
+    assert.deepEqual(
+      state.elements!.map((e) => e.name),
+      ["Final 1", "Final 2", "Final 3"]
+    );
+    assert.equal(state.note, undefined, "it settled, so no note");
+  } finally {
+    await p.close();
+  }
+});
+
+test("T042 SC2: a page that never settles gets an answer within the budget, with a note saying so", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.goto(reRenderingPage(4, 0));
+    const started = Date.now();
+    const state = await getPageState(p);
+    const took = Date.now() - started;
+    assert.equal(state.ok, true);
+    assert.ok(took < 2500, `took ${took} ms`);
+    assert.ok(took >= 1500, `gave up after only ${took} ms`);
+    assert.match(state.note ?? "", /still changing/i);
+    assert.match(state.note ?? "", /ui_get_page_state again/);
+    assert.match(renderCompact(state), /still changing/i, "the compact reply carries it too");
+  } finally {
+    await p.close();
+  }
+});
+
+test("T042 SC3: a static page takes one pass and no added wait", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.setContent(`<button id="a">Alpha</button><button id="b">Beta</button>`, { waitUntil: "domcontentloaded" });
+    const spy = spyOnHandles(p);
+    const state = await getPageState(p);
+    assert.deepEqual(state.elements!.map((e) => e.name), ["Alpha", "Beta"]);
+    assert.equal(state.note, undefined);
+    assert.equal(spy.calls, 2, "one pass = one $$ for elements and one for overlays");
+  } finally {
+    await p.close();
+  }
+});
+
+test("T042 edge: a ticking clock and a running animation, which detach nothing, do not cause a retry", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.setContent(
+      `<button id="go" style="animation: nudge 50ms infinite alternate">Go</button><p id="clock"></p>
+       <style>@keyframes nudge { to { transform: translateX(20px); } }</style>
+       <script>setInterval(() => { document.getElementById("clock").textContent = String(Date.now()); }, 2);</script>`,
+      { waitUntil: "domcontentloaded" }
+    );
+    const spy = spyOnHandles(p);
+    const state = await getPageState(p);
+    assert.deepEqual(state.elements!.map((e) => e.name), ["Go"]);
+    assert.equal(state.note, undefined);
+    assert.equal(spy.calls, 2);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T042 SC4: after a retried snapshot every returned ref resolves to the listed element, and abandoned handles are disposed", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.goto(reRenderingPage(8, 300));
+    const spy = spyOnHandles(p);
+    const state = await getPageState(p, { keepRefs: true });
+    assert.ok(spy.calls > 2, `expected the pass to be repeated, saw ${spy.calls} $$ calls`);
+    assert.deepEqual(state.elements!.map((e) => e.name), ["Final 1", "Final 2", "Final 3"]);
+    for (const [i, element] of state.elements!.entries()) {
+      const resolved = await resolveRef(p, `@e${i + 1}`);
+      assert.deepEqual(resolved, { ok: true, selector: element.selector });
+      assert.equal(await p.locator(element.selector).innerText(), element.name);
+    }
+    // A handle that still answers although its element left the document was an abandoned pass that was not disposed.
+    for (const handle of spy.handles) {
+      const connected = await handle.evaluate((el) => el.isConnected).catch(() => "disposed");
+      assert.notEqual(connected, false, "a detached handle was left alive");
+    }
+  } finally {
+    await p.close();
+  }
+});
+
+test("T042 SC5: a page with no interactive elements answers at once with an empty list and no note", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.setContent(`<h1>Nothing to press</h1><p>Just text.</p>`, { waitUntil: "domcontentloaded" });
+    const spy = spyOnHandles(p);
+    const started = Date.now();
+    const state = await getPageState(p);
+    assert.equal(state.ok, true);
+    assert.deepEqual(state.elements, []);
+    assert.equal(state.note, undefined);
+    assert.equal(spy.calls, 2);
+    assert.ok(Date.now() - started < 500);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T042 AC6: the cap note and the still-changing note can both appear, joined into the one note", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.goto(reRenderingPage(10, 0, 205));
+    const state = await getPageState(p);
+    assert.equal(state.ok, true);
+    assert.match(state.note ?? "", /^Showing first \d+ of \d+ elements; use a CSS selector for the rest; .*still changing/);
+    assert.equal(renderCompact(state).split("\n").filter((l) => l.includes("still changing")).length, 1);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T042 edge: an execution context destroyed mid-pass is retried, not returned as an error", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.setContent(`<button>Stay</button>`, { waitUntil: "domcontentloaded" });
+    const original = p.evaluate.bind(p);
+    let failures = 1;
+    (p as { evaluate: unknown }).evaluate = (...args: unknown[]) => {
+      if (failures-- > 0) {
+        return Promise.reject(new Error("page.evaluate: Execution context was destroyed, most likely because of a navigation"));
+      }
+      return (original as (...a: unknown[]) => unknown)(...args);
+    };
+    const state = await getPageState(p);
+    assert.equal(state.ok, true);
+    assert.deepEqual(state.elements!.map((e) => e.name), ["Stay"]);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T042 edge: any other error, and a closed page, are returned promptly without retrying", async () => {
+  const p = await browser.newPage();
+  await p.setContent(`<button>Stay</button>`, { waitUntil: "domcontentloaded" });
+  const original = p.evaluate.bind(p);
+  (p as { evaluate: unknown }).evaluate = () => Promise.reject(new Error("boom"));
+  let started = Date.now();
+  const boom = await getPageState(p);
+  assert.equal(boom.ok, false);
+  assert.match(boom.error ?? "", /boom/);
+  assert.ok(Date.now() - started < 500);
+  (p as { evaluate: unknown }).evaluate = original;
+
+  await p.close();
+  started = Date.now();
+  const closed = await getPageState(p, { keepRefs: true });
+  assert.equal(closed.ok, false);
+  assert.ok(Date.now() - started < 500);
+});
