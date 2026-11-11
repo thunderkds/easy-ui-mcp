@@ -1,10 +1,10 @@
-# easy-ui-mcp
+# EASY UI MCP
 
 **Not just another browser controller — a local UI-testing MCP that gives your agent structured, shareable test reports.**
 
 easy-ui-mcp is a Dockerized MCP (Model Context Protocol) server for local UI testing. It exposes Playwright-based browser tools over HTTP/SSE so an AI agent (like Claude Code) can drive web UI flows step-by-step and get back a JSON + HTML report with screenshots — no server-side LLM, no test scripts to write.
 
-A static docs page for this project lives in [`site/index.html`](site/index.html); it deploys to Vercel as plain static files (no install, no build — see `vercel.json`).
+A static docs page for this project lives in [`site/index.html`](https://easy-ui-mcp.vercel.app/); it deploys to Vercel as plain static files (no install, no build — see `vercel.json`).
 
 ## Highlights
 
