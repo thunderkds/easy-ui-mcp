@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type JSHandle, type Page } from "playwright";
 import {
   navigate,
   click,
@@ -2391,4 +2391,397 @@ test("T043 edge: a within root that keeps being replaced ends as an error or the
   } finally {
     await p.close();
   }
+});
+
+// --- T045: a compact snapshot builds selectors only when a ref is used -------------------------
+
+/** The options the server passes for the compact format. */
+const LAZY = { keepRefs: true, selectors: false };
+
+/** Count `page.locator(...)` calls: each one is a selector-verification round trip. */
+const countLocators = (p: Page) => {
+  const spy = { calls: 0 };
+  const original = p.locator.bind(p);
+  (p as { locator: unknown }).locator = (...args: Parameters<Page["locator"]>) => {
+    spy.calls++;
+    return original(...args);
+  };
+  return spy;
+};
+
+/** Keep every JSHandle that `page.evaluateHandle` returns, and the ones its `getProperties` returns. */
+const spyOnJsHandles = (p: Page) => {
+  const all: JSHandle[] = [];
+  const original = p.evaluateHandle.bind(p) as (...a: unknown[]) => Promise<JSHandle>;
+  (p as { evaluateHandle: unknown }).evaluateHandle = async (...args: unknown[]) => {
+    const handle = await original(...args);
+    all.push(handle);
+    const getProperties = handle.getProperties.bind(handle);
+    handle.getProperties = async () => {
+      const props = await getProperties();
+      all.push(...props.values());
+      return props;
+    };
+    return handle;
+  };
+  const alive = async () => {
+    let n = 0;
+    for (const h of all) if (await h.evaluate(() => 1).then(() => true, () => false)) n++;
+    return n;
+  };
+  return { all, alive };
+};
+
+const manyButtons = (n: number) => Array.from({ length: n }, (_, i) => `<button id="b${i}">Button ${i}</button>`).join("");
+const withOverlayAndFocus = (buttons: string) =>
+  `<input id="f" aria-label="Field">${buttons}<div role="dialog" id="dlg" aria-label="Confirm"><button id="ok">Okay</button></div>`;
+
+test("T045 SC1: the number of selector round trips in a lazy snapshot does not depend on how many elements are listed", async () => {
+  const counts: Record<string, number> = {};
+  for (const [label, n, options] of [
+    ["lazy5", 5, LAZY],
+    ["lazy198", 198, LAZY],
+    ["eager198", 198, { keepRefs: true }],
+  ] as const) {
+    const p = await browser.newPage();
+    try {
+      await p.setContent(withOverlayAndFocus(manyButtons(n)), { waitUntil: "domcontentloaded" });
+      await p.focus("#f");
+      const spy = countLocators(p);
+      const state = await getPageState(p, options);
+      assert.equal(state.elements!.length, n + 2, `${label}: every element is listed`);
+      counts[label] = spy.calls;
+    } finally {
+      await p.close();
+    }
+  }
+  assert.equal(counts.lazy5, counts.lazy198, JSON.stringify(counts));
+  assert.ok(counts.lazy198 <= 3, `the lazy count is small: ${JSON.stringify(counts)}`);
+  assert.ok(counts.eager198 > 190, `the eager mode still verifies each element: ${JSON.stringify(counts)}`);
+});
+
+const RICH_PAGE = `<!doctype html><html><head><title>Rich</title></head><body>
+  <button id="save">Save</button><button class="dup">Item</button><button class="dup">Item</button>
+  <input id="user" type="text" aria-label="User" value="alice">
+  <select aria-label="Sort"><option>A</option><option>B</option></select>
+  <details><summary>More</summary><p>x</p></details>
+  <div contenteditable aria-label="Notes">n</div>
+  <div role="switch" aria-checked="true" tabindex="0">Dark</div>
+  <div role="dialog" aria-modal="true" aria-label="Confirm" id="dlg"><button id="ok">OK</button></div>
+  <p role="alert">Careful</p>
+</body></html>`;
+
+test("T045 SC2: the compact text is the same with and without selectors, for each existing kind of page", async () => {
+  const pages: [string, string, (p: Page) => Promise<void>][] = [
+    ["compact fixture", COMPACT_FIXTURE, async () => {}],
+    ["rich page, listed element focused", RICH_PAGE, (p) => p.focus("#user")],
+    ["rich page, nothing focused", RICH_PAGE, async () => {}],
+    ["cap note", manyButtons(250), async () => {}],
+    ["nothing interactive", "<h1>Hi</h1>", async () => {}],
+  ];
+  for (const [label, html, prepare] of pages) {
+    const p = await browser.newPage({ viewport: { width: 400, height: 300 } });
+    try {
+      await p.setContent(html, { waitUntil: "domcontentloaded" });
+      await prepare(p);
+      const eager = renderCompact(await getPageState(p, { keepRefs: true }));
+      const lazy = renderCompact(await getPageState(p, LAZY));
+      assert.equal(lazy, eager, label);
+      assert.equal(
+        renderCompact(await getPageState(p, { ...LAZY, viewport: true })),
+        renderCompact(await getPageState(p, { keepRefs: true, viewport: true })),
+        `${label} (viewport)`
+      );
+    } finally {
+      await p.close();
+    }
+  }
+});
+
+test("T045 SC2: a lazy snapshot lists elements without a selector, and the focus without one; overlays keep theirs", async () => {
+  await fixturePage.setContent(RICH_PAGE, { waitUntil: "domcontentloaded" });
+  await fixturePage.focus("#user");
+  const state = await getPageState(fixturePage, LAZY);
+  assert.ok(state.elements!.length > 5);
+  for (const e of state.elements!) assert.equal("selector" in e, false, e.name);
+  assert.equal("selector" in state.focused!, false);
+  assert.equal(state.overlays![0].selector, "#dlg");
+});
+
+test("T045 SC3: the focused line is @eN when the element is listed, role and name when it is not", async () => {
+  const p = await scopedPage(
+    `<input id="near" aria-label="Near"><div id="panel" tabindex="-1" aria-label="Results panel">x</div>
+     <div style="height:1500px"></div><input aria-label="Far field" id="far">`
+  );
+  try {
+    await p.focus("#near");
+    const listed = renderCompact(await getPageState(p, LAZY));
+    assert.match(listed, /^@e1 textbox "Near"$/m);
+    assert.match(listed, /^focused: @e1$/m);
+
+    await p.focus("#panel");
+    assert.match(renderCompact(await getPageState(p, LAZY)), /^focused: div "Results panel"$/m, "outside the interactive list");
+
+    await p.evaluate(() => document.getElementById("far")!.focus({ preventScroll: true }));
+    const scoped = renderCompact(await getPageState(p, { ...LAZY, viewport: true }));
+    assert.match(scoped, /^focused: textbox "Far field"$/m, "on the page but outside the scope");
+    assert.match(renderCompact(await getPageState(p, LAZY)), /^focused: @e2$/m, "listed once the scope is gone");
+
+    await p.evaluate(() => (document.activeElement as HTMLElement).blur());
+    assert.doesNotMatch(renderCompact(await getPageState(p, LAZY)), /^focused:/m);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T045 SC4/AC4: every ref of a lazy snapshot resolves to a selector that matches exactly one element, the one the eager pass names, and again to the same one", async () => {
+  await fixturePage.setContent(RICH_PAGE, { waitUntil: "domcontentloaded" });
+  const eager = await getPageState(fixturePage, { keepRefs: true });
+  const state = await getPageState(fixturePage, LAZY);
+  assert.deepEqual(state.elements!.map((e) => e.name), eager.elements!.map((e) => e.name));
+  for (const [i] of state.elements!.entries()) {
+    const first = await resolveRef(fixturePage, `@e${i + 1}`);
+    assert.equal(first.ok, true, `@e${i + 1}`);
+    const selector = (first as { selector: string }).selector;
+    assert.equal(await fixturePage.locator(selector).count(), 1, selector);
+    assert.equal(selector, eager.elements![i].selector, "the selector the eager pass builds");
+    assert.deepEqual(await resolveRef(fixturePage, `@e${i + 1}`), first, "second call, same selector");
+  }
+  assert.equal((await resolveRef(fixturePage, "@o1")).ok, true);
+});
+
+test("T045 SC4: a click by a lazy ref lands on the listed element", async () => {
+  await fixturePage.setContent(
+    `<button id="a" onclick="window.hit='a'">Alpha</button><button id="b" onclick="window.hit='b'">Beta</button>`,
+    { waitUntil: "domcontentloaded" }
+  );
+  await getPageState(fixturePage, LAZY);
+  const r = await resolveRef(fixturePage, "@e2");
+  assert.deepEqual(r, { ok: true, selector: "#b" });
+  assert.deepEqual(await click(fixturePage, (r as { selector: string }).selector), { ok: true });
+  assert.equal(await fixturePage.evaluate(() => (window as unknown as { hit?: string }).hit), "b");
+});
+
+test("T045 SC5/AC5: with lazy refs a replaced node, a removed node and a navigation make the ref stale", async () => {
+  const html = `<button id="go" onclick="window.fired=1">Go</button><button id="other">Other</button>`;
+  await fixturePage.setContent(html, { waitUntil: "domcontentloaded" });
+  await getPageState(fixturePage, LAZY);
+  await fixturePage.evaluate(() => {
+    const old = document.getElementById("go")!;
+    old.replaceWith(old.cloneNode(true));
+  });
+  await assertStale(fixturePage, "@e1");
+  assert.deepEqual(await resolveRef(fixturePage, "@e2"), { ok: true, selector: "#other" }, "the untouched element still resolves");
+
+  await fixturePage.evaluate(() => document.getElementById("other")!.remove());
+  await assertStale(fixturePage, "@e2");
+
+  await fixturePage.setContent(html, { waitUntil: "domcontentloaded" });
+  await getPageState(fixturePage, LAZY);
+  await fixturePage.setContent(html, { waitUntil: "domcontentloaded" }); // same markup, new document
+  await assertStale(fixturePage, "@e1");
+  assert.equal(await fixturePage.evaluate(() => (window as unknown as { fired?: number }).fired), undefined);
+});
+
+test("T045 SC5: a lazy ref that was resolved once also goes stale when its node is replaced afterwards", async () => {
+  await fixturePage.setContent(`<button id="go">Go</button>`, { waitUntil: "domcontentloaded" });
+  await getPageState(fixturePage, LAZY);
+  assert.deepEqual(await resolveRef(fixturePage, "@e1"), { ok: true, selector: "#go" });
+  await fixturePage.evaluate(() => {
+    const old = document.getElementById("go")!;
+    old.replaceWith(old.cloneNode(true));
+  });
+  await assertStale(fixturePage, "@e1");
+});
+
+test("T045 AC5: a ref whose selector cannot be verified when it is used fails as stale and nothing is done", async () => {
+  await fixturePage.setContent(`<button id="go" onclick="window.fired=1">Go</button>`, { waitUntil: "domcontentloaded" });
+  await getPageState(fixturePage, LAZY);
+  // The node is still in the document, but no candidate reaches it: its id and name are gone and it left its place in the list.
+  await fixturePage.evaluate(() => {
+    const el = document.getElementById("go")!;
+    el.removeAttribute("id");
+    el.textContent = "Renamed";
+    document.body.prepend(document.createElement("button"));
+  });
+  await assertStale(fixturePage, "@e1");
+  assert.equal(await fixturePage.evaluate(() => (window as unknown as { fired?: number }).fired), undefined);
+});
+
+test("T045 SC6/AC6: a lazy ref to one of several identical siblings still reaches that node after they are re-ordered", async () => {
+  await fixturePage.setContent(
+    `<div id="box"><button onclick="window.clicks=(window.clicks||'')+'1'">Item</button><button onclick="window.clicks=(window.clicks||'')+'2'">Item</button><button onclick="window.clicks=(window.clicks||'')+'3'">Item</button></div>`,
+    { waitUntil: "domcontentloaded" }
+  );
+  const state = await getPageState(fixturePage, LAZY);
+  assert.equal(state.elements!.length, 3);
+  await fixturePage.evaluate(() => {
+    const box = document.getElementById("box")!;
+    box.prepend(box.lastElementChild!);
+  });
+  const r = await resolveRef(fixturePage, "@e1");
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(await click(fixturePage, (r as { selector: string }).selector), { ok: true });
+  assert.equal(await fixturePage.evaluate(() => (window as unknown as { clicks?: string }).clicks), "1", "the node that was first");
+  const third = await resolveRef(fixturePage, "@e3");
+  assert.equal(third.ok, true);
+  assert.deepEqual(await click(fixturePage, (third as { selector: string }).selector), { ok: true });
+  assert.equal(await fixturePage.evaluate(() => (window as unknown as { clicks?: string }).clicks), "13");
+});
+
+test("T045 AC7: the full struct is what it was: the default and selectors:true agree, no ref field, a selector on every element", async () => {
+  await fixturePage.setContent(RICH_PAGE, { waitUntil: "domcontentloaded" });
+  const plain = await getPageState(fixturePage);
+  assert.deepEqual(await getPageState(fixturePage, { selectors: true }), plain);
+  assert.deepEqual(await getPageState(fixturePage, { keepRefs: true, selectors: true }), plain);
+  for (const e of plain.elements!) assert.equal(typeof e.selector, "string");
+  assert.doesNotMatch(JSON.stringify(plain), /"ref"|listed|@e\d/);
+});
+
+test("T045 AC9: a lazy pass leaves only the listed elements' handles alive, and none when no refs are kept", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.setContent(manyButtons(210), { waitUntil: "domcontentloaded" });
+    const spy = spyOnJsHandles(p);
+    const state = await getPageState(p, LAZY);
+    assert.equal(state.elements!.length, 200);
+    assert.equal(await spy.alive(), 200, "the 200 listed elements only; not the 210 candidates, not the arrays");
+    await getPageState(p, { keepRefs: false, selectors: false });
+    assert.equal(await spy.alive(), 0, "the new snapshot ends the previous table and keeps none");
+  } finally {
+    await p.close();
+  }
+});
+
+test("T045 AC9: a lazy pass that throws leaves no handle alive", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.setContent(manyButtons(5) + `<input aria-label="F" id="f">`, { waitUntil: "domcontentloaded" });
+    await p.focus("#f");
+    const spy = spyOnJsHandles(p);
+    const original = p.evaluate.bind(p);
+    (p as { evaluate: unknown }).evaluate = () => Promise.reject(new Error("boom"));
+    const state = await getPageState(p, LAZY);
+    (p as { evaluate: unknown }).evaluate = original;
+    assert.equal(state.ok, false);
+    assert.match(state.error ?? "", /boom/);
+    assert.ok(spy.all.length > 0, "the pass did take handles");
+    assert.equal(await spy.alive(), 0);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T045 edge: candidates in open shadow roots are listed in Playwright's order with and without selectors, and their refs work", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.setContent(
+      `<button>L1</button><div id="h1"></div><button>L2</button><div id="h2"><button>Light in host</button></div><button>L3</button>
+       <script>
+         const a = document.getElementById("h1").attachShadow({ mode: "open" });
+         a.innerHTML = '<button>S1a</button><div id="inner"></div><button>S1b</button>';
+         a.getElementById("inner").attachShadow({ mode: "open" }).innerHTML = '<button>N1</button>';
+         document.getElementById("h2").attachShadow({ mode: "open" }).innerHTML = '<button>S2</button><slot></slot><a href="#x">S2 link</a>';
+       </script>`,
+      { waitUntil: "domcontentloaded" }
+    );
+    const eager = await getPageState(p, { keepRefs: true });
+    const lazy = await getPageState(p, LAZY);
+    // a comma list: Playwright returns it in tree order, a host's own children before its shadow tree
+    const playwrightOrder = await p.$$eval("button, a[href]", (els) => els.map((e) => e.textContent));
+    assert.equal(playwrightOrder.length, 9);
+    assert.deepEqual(eager.elements!.map((e) => e.name), playwrightOrder);
+    assert.deepEqual(lazy.elements!.map((e) => e.name), playwrightOrder);
+    assert.equal(renderCompact(lazy), renderCompact(eager));
+    for (const [i, e] of eager.elements!.entries()) {
+      assert.deepEqual(await resolveRef(p, `@e${i + 1}`), { ok: true, selector: e.selector }, e.name);
+    }
+  } finally {
+    await p.close();
+  }
+});
+
+test("T045 SC7: a lazy snapshot taken during a re-render returns the settled page, with refs that resolve and no abandoned handle alive", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.goto(reRenderingPage(8, 300));
+    const spy = spyOnJsHandles(p);
+    const state = await getPageState(p, LAZY);
+    assert.deepEqual(state.elements!.map((e) => e.name), ["Final 1", "Final 2", "Final 3"]);
+    assert.equal(state.note, undefined, "it settled, so no note");
+    for (const [i, e] of state.elements!.entries()) {
+      const r = await resolveRef(p, `@e${i + 1}`);
+      assert.equal(r.ok, true);
+      assert.equal(await p.locator((r as { selector: string }).selector).innerText(), e.name);
+    }
+    assert.ok(spy.all.length > 3, "the pass was repeated");
+    assert.equal(await spy.alive(), 3, "only the 3 listed handles live");
+  } finally {
+    await p.close();
+  }
+});
+
+test("T045 SC7: a lazy snapshot of a page that never settles answers within about 2.5 s with the still-changing note", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.goto(reRenderingPage(4, 0));
+    const started = Date.now();
+    const state = await getPageState(p, LAZY);
+    const took = Date.now() - started;
+    assert.equal(state.ok, true);
+    assert.ok(took < 2500, `took ${took} ms`);
+    assert.ok(took >= 1500, `gave up after only ${took} ms`);
+    assert.match(renderCompact(state), /still changing/i);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T045 SC7: a lazy snapshot of a static page takes one pass and no added wait", async () => {
+  const p = await browser.newPage();
+  try {
+    await p.setContent(`<button id="a">Alpha</button><button id="b">Beta</button>`, { waitUntil: "domcontentloaded" });
+    const spy = spyOnHandles(p);
+    const started = Date.now();
+    const state = await getPageState(p, LAZY);
+    assert.deepEqual(state.elements!.map((e) => e.name), ["Alpha", "Beta"]);
+    assert.equal(state.note, undefined);
+    assert.equal(spy.calls, 1, "one pass: the candidates are one array handle, `$$` only for overlays");
+    assert.ok(Date.now() - started < 1000);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T045 edge: a lazy snapshot of a closed page, and a ref on it, do not throw", async () => {
+  const p = await browser.newPage();
+  await p.setContent(`<button>Stay</button>`, { waitUntil: "domcontentloaded" });
+  await getPageState(p, LAZY);
+  await p.close();
+  assert.equal((await getPageState(p, LAZY)).ok, false);
+  assert.equal((await resolveRef(p, "@e1")).ok, false);
+});
+
+test("T045 edge: within and the cap scope a lazy snapshot like an eager one", async () => {
+  const p = await scopedPage(`<div id="box"><button>In 1</button><button>In 2</button></div><button>Out</button>${manyButtons(205)}`);
+  try {
+    assert.equal(
+      renderCompact(await getPageState(p, { ...LAZY, within: "#box" })),
+      renderCompact(await getPageState(p, { keepRefs: true, within: "#box" }))
+    );
+    const capped = renderCompact(await getPageState(p, LAZY));
+    assert.equal(capped, renderCompact(await getPageState(p, { keepRefs: true })));
+    assert.match(capped, /^note: Showing first 200 of /m);
+  } finally {
+    await p.close();
+  }
+});
+
+test("T045 edge: within: @eN of a lazy snapshot resolves, and lists only what is inside", async () => {
+  // only a listed element has a ref, so the root is a tab that holds a button
+  await fixturePage.setContent(`<div role="tab" tabindex="0" id="tab">Tab<button>Inner</button></div><button>Out</button>`, { waitUntil: "domcontentloaded" });
+  await getPageState(fixturePage, LAZY);
+  const args = await resolveRefArgs(fixturePage, { within: "@e1" });
+  assert.deepEqual(args, { ok: true, args: { within: "#tab" } });
+  assert.deepEqual((await getPageState(fixturePage, { within: "#tab" })).elements!.map((e) => e.name), ["Inner"]);
 });

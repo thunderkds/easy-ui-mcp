@@ -4,6 +4,11 @@
 
 ## Architecture
 
+### 2026-11-11 — Compact snapshots build selectors on demand (T045)
+- **Decision**: `getPageState(page, { selectors: false })` (what the server passes for the compact format) builds no selector for listed elements. A ref entry holds the element handle and the row facts; `resolveRef` builds the selector with `buildSelector` on first use, verified by element identity, and keeps it. Candidates are one array handle in the page; element handles are taken for the listed rows only.
+- **Why**: on a page with 4,330 candidates a snapshot took 19–31 s: about 300 `page.locator` round trips at 90–120 ms each to verify selectors the compact reply never prints, plus 2.6 s for a handle per candidate. After: about 0.5 s.
+- **Consequences**: in the compact mode a ref follows the listed node, so a re-ordered identical sibling still resolves (eager mode: stale). `format: "full"` (default `selectors: true`) is unchanged, still uses `page.$$`, and stays slow on huge pages. The in-page candidate walk copies Playwright's order through open shadow roots (own children before the shadow tree); a test pins it against `page.$$eval`.
+
 ### 2026-11-11 — Snapshot scope is opt-in: `viewport` and `within` (T043)
 **Decision**: `ui_get_page_state` accepts `viewport: true` (elements whose rect intersects the viewport now) and `within` (a selector or ref of exactly one element; lists its descendants). Scoping is a filter in the page-wide read pass, applied before the 200 cap; a scoped reply that left elements out carries a note with shown/total counts. `overlays`, `focused` and `messages` are never scoped. With neither argument the reply is unchanged (only the cap note's wording now names the two arguments).
 **Why**: content-heavy pages still cost 1,000–1,600 tokens per snapshot after T040. Opt-in, not automatic, because an element missing from a list is a worse failure for an agent than a long list (1 of 21 baseline targets was off-screen). Measured: Wikipedia 54% of unscoped, Hacker News 67%.

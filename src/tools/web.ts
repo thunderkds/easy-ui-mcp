@@ -1,7 +1,7 @@
 // Primitive web-automation tools.
 // T001: ui_navigate. T002: ui_click, ui_fill, ui_assert, ui_get_page_state, ui_take_screenshot.
 
-import type { Page } from "playwright";
+import type { JSHandle, Page } from "playwright";
 import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -689,8 +689,11 @@ export interface PageElementState {
 export interface PageElement {
   role: string;
   name: string;
-  /** Resolves to exactly this element. Shown as is by format "full"; the compact form lists a ref for it instead (T040). */
-  selector: string;
+  /**
+   * Resolves to exactly this element. Shown as is by format "full"; the compact form lists a ref for it instead (T040).
+   * Absent when the snapshot was taken with `selectors: false` (T045): the ref builds it when it is used.
+   */
+  selector?: string;
   state?: PageElementState;
 }
 
@@ -705,7 +708,10 @@ export interface PageOverlay {
 export interface PageFocus {
   role: string;
   name: string;
-  selector: string;
+  /** Absent when the snapshot was taken with `selectors: false` (T045); `listedAs` says whether it is listed. */
+  selector?: string;
+  /** T045, `selectors: false` only: the 1-based position of this element in `elements`; absent when it is not listed. */
+  listedAs?: number;
 }
 
 export interface PageState {
@@ -843,20 +849,29 @@ async function locate(
 }
 
 /**
+ * For several targets of one candidate list: `all` is that list (handles, or one array handle), and `matches`
+ * remembers, per role+name candidate, every list element's position among its matches.
+ */
+interface SharedRoleMatches {
+  all: ElementHandle[] | JSHandle;
+  matches: Map<string, number[]>;
+}
+
+/**
  * Pick the first selector (data-testid > #id > role+name > role+name >> nth) that
  * resolves to exactly `target` and nothing else. Every candidate is checked against
  * the live page by element identity, so a quoting/escaping mistake or hostile page
  * content can only cause a fall-through, never a selector that hits another element.
  * Returns undefined if nothing verifies (element vanished); caller drops it.
+ * `target` is the element's handle; `raw.index` is its position in the page-wide candidate list.
  */
 async function buildSelector(
   page: Page,
   raw: RawElement,
-  handles: ElementHandle[],
-  sharedRoleMatches: Map<string, number[]>,
+  target: ElementHandle,
+  shared?: SharedRoleMatches,
   positionalBase: string = INTERACTIVE_SELECTOR
 ): Promise<string | undefined> {
-  const target = handles[raw.index];
   const isOnlyTarget = async (selector: string) => {
     const hit = await locate(page, selector, target);
     return hit.count === 1 && hit.position === 0;
@@ -882,19 +897,19 @@ async function buildSelector(
   if (/^[a-z][a-z0-9-]*$/i.test(raw.role)) {
     const candidate = `role=${raw.role}[name=${quoteSelectorString(raw.name)}]`;
     // Elements sharing a role+name (e.g. 500 identical buttons) are resolved with one
-    // page round-trip: `shared` maps every interactive element to its position in
+    // page round-trip: the shared map holds, for every interactive element, its position in
     // this candidate's matches (-1 if absent), and is reused by the later ones.
-    let shared = sharedRoleMatches.get(candidate);
+    let positions = shared?.matches.get(candidate);
     let hit: { count: number; position: number };
-    if (shared) {
-      hit = { count: shared.filter((p) => p >= 0).length, position: shared[raw.index] };
+    if (positions) {
+      hit = { count: positions.filter((p) => p >= 0).length, position: positions[raw.index] };
     } else {
       hit = await locate(page, candidate, target);
-      if (hit.count > 1) {
-        shared = await page
+      if (shared && hit.count > 1) {
+        positions = await page
           .locator(candidate)
-          .evaluateAll((els, all) => (all as HTMLElement[]).map((h) => els.indexOf(h)), handles);
-        sharedRoleMatches.set(candidate, shared);
+          .evaluateAll((els, all) => (all as HTMLElement[]).map((h) => els.indexOf(h)), shared.all);
+        shared.matches.set(candidate, positions);
       }
     }
     if (hit.count === 1 && hit.position === 0) return candidate;
@@ -931,10 +946,15 @@ async function buildSelector(
  * T043: `viewport` keeps only elements whose bounding rect intersects the viewport now, and `within`
  * (a selector of exactly one element) only the elements inside it. Both: an element must satisfy both.
  * `overlays`, `focused` and `messages` are never scoped.
+ *
+ * T045: `selectors: false` (the compact format) builds no selector for listed elements: the pass is one read
+ * of the page and takes handles for the listed elements only. Their ref entries hold the handle and the row
+ * facts, and `resolveRef` builds and verifies the selector of that one element when the ref is used. The
+ * default (`true`) builds and verifies every selector up front, as before.
  */
 export async function getPageState(
   page: Page | undefined,
-  options: { keepRefs?: boolean; viewport?: boolean; within?: string } = {}
+  options: { keepRefs?: boolean; viewport?: boolean; within?: string; selectors?: boolean } = {}
 ): Promise<PageState> {
   if (!page) {
     return { ok: false, error: "No active page — call ui_navigate first" };
@@ -946,7 +966,11 @@ export async function getPageState(
   for (;;) {
     let pass: SnapshotPass;
     try {
-      pass = await snapshotPass(page, { viewport: options.viewport === true, within: options.within });
+      pass = await snapshotPass(page, {
+        viewport: options.viewport === true,
+        within: options.within,
+        selectors: options.selectors !== false,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // A navigation that destroys the context mid-pass is the page moving; a closed page is not.
@@ -998,13 +1022,15 @@ interface SnapshotPass {
   moved: boolean;
   elementRefs: RefEntry[];
   overlayRefs: RefEntry[];
-  /** Every handle the pass took; the caller disposes them (the ref table keeps the ones it uses). */
+  /** Every element handle the pass kept (with `selectors: false`: the listed ones, not every candidate); the caller disposes them (the ref table keeps the ones it uses). */
   handles: ElementHandle[];
 }
 
 interface SnapshotScope {
   viewport: boolean;
   within?: string;
+  /** False (T045): build no selector for listed elements; their refs build it when used. */
+  selectors: boolean;
 }
 
 /** The note for a scoped reply that left elements out: counts, the scope used, and how to see the rest. */
@@ -1018,8 +1044,10 @@ function scopeNote(scope: SnapshotScope, shown: number, total: number): string {
 
 /** One complete read of the page. Disposes its own handles if it throws; otherwise leaves that to the caller. */
 async function snapshotPass(page: Page, scope: SnapshotScope): Promise<SnapshotPass> {
-  // Handles pin the exact elements so selectors can be verified by identity.
+  // Handles pin the exact elements so selectors can be verified by identity. With selectors, one per candidate;
+  // without (T045), `candidates` holds every candidate as one array in the page and `handles` only the listed ones.
   let handles: ElementHandle[] = [];
+  let candidates: JSHandle<(HTMLElement | SVGElement)[]> | undefined;
   let overlayHandles: ElementHandle[] = [];
   let focusEl: ElementHandle | null = null;
   let rootEl: ElementHandle | null = null;
@@ -1033,7 +1061,30 @@ async function snapshotPass(page: Page, scope: SnapshotScope): Promise<SnapshotP
       }
       rootEl = await unique.locator.elementHandle({ timeout: 1000 });
     }
-    handles = await page.$$(INTERACTIVE_SELECTOR);
+    if (scope.selectors) {
+      handles = await page.$$(INTERACTIVE_SELECTOR);
+    } else {
+      // The list `page.$$` returns, without a handle per element: Playwright's order is a tree-order walk in which
+      // an element's own children come before its open shadow root's. Positions index this list (`>> nth=`).
+      candidates = await page.evaluateHandle((selector) => {
+        const trees: (Document | ShadowRoot)[] = [document];
+        for (let t = 0; t < trees.length; t++) {
+          for (const el of trees[t].querySelectorAll("*")) if (el.shadowRoot) trees.push(el.shadowRoot);
+        }
+        if (trees.length === 1) return Array.from(document.querySelectorAll<HTMLElement | SVGElement>(selector));
+        const found: (HTMLElement | SVGElement)[] = [];
+        const stack: Element[] = document.documentElement ? [document.documentElement] : [];
+        while (stack.length > 0) {
+          const el = stack.pop()!;
+          if (el.matches(selector)) found.push(el as HTMLElement | SVGElement);
+          const children: Element[] = [];
+          for (let c = el.firstElementChild; c; c = c.nextElementSibling) children.push(c);
+          if (el.shadowRoot) for (let c = el.shadowRoot.firstElementChild; c; c = c.nextElementSibling) children.push(c);
+          for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+        }
+        return found;
+      }, INTERACTIVE_SELECTOR);
+    }
     const focusHandle = await page.evaluateHandle(() => {
       const active = document.activeElement;
       if (!active || active === document.body || active === document.documentElement) return null;
@@ -1048,7 +1099,7 @@ async function snapshotPass(page: Page, scope: SnapshotScope): Promise<SnapshotP
 
     // NOTE: no named inner functions/consts in these callbacks — tsx/esbuild wraps
     // them in a `__name` helper that does not exist in the browser context.
-    const pass: { rows: RawPageElement[]; focusIndex: number } = await page.evaluate(
+    const pass: { rows: RawPageElement[]; focusIndex: number; count: number } = await page.evaluate(
       ({ nodes, focus, root, viewport }) => {
         const all = focus && !nodes.includes(focus) ? [...nodes, focus] : nodes;
         const focusIndex = focus ? all.indexOf(focus) : -1;
@@ -1179,13 +1230,13 @@ async function snapshotPass(page: Page, scope: SnapshotScope): Promise<SnapshotP
             state: Object.keys(state).length > 0 ? state : null,
           };
         });
-        return { rows, focusIndex };
+        return { rows, focusIndex, count: nodes.length };
       },
-      { nodes: handles, focus: focusEl, root: rootEl, viewport: scope.viewport }
+      { nodes: candidates ?? handles, focus: focusEl, root: rootEl, viewport: scope.viewport }
     );
 
     const found = pass.rows
-      .slice(0, handles.length)
+      .slice(0, pass.count)
       // Alerts/status regions are reported in `messages`, dialogs in `overlays`, not as elements.
       .filter((e) => e.visible && e.name.length > 0 && !NON_ELEMENT_ROLES.includes(e.role));
     // The scope filters before the cap and before selectors are built; the page-wide list above is what positions index.
@@ -1193,16 +1244,28 @@ async function snapshotPass(page: Page, scope: SnapshotScope): Promise<SnapshotP
     const shown = scoped.slice(0, MAX_PAGE_ELEMENTS);
     const elements: PageElement[] = [];
     const elementRefs: RefEntry[] = [];
-    const sharedRoleMatches = new Map<string, number[]>();
-    for (const r of shown) {
-      const selector = await buildSelector(page, r, handles, sharedRoleMatches);
+    const sharedRoleMatches: SharedRoleMatches = { all: candidates ?? handles, matches: new Map() };
+    // Handles of the listed rows, in order. Without selectors these are the only element handles the pass takes.
+    const shownHandles = candidates
+      ? await takeHandles(page, candidates, shown.map((r) => r.index))
+      : shown.map((r) => handles[r.index]);
+    if (candidates) handles = shownHandles;
+    for (const [k, r] of shown.entries()) {
+      if (!scope.selectors) {
+        const element: PageElement = { role: r.role, name: r.name };
+        if (r.state) element.state = r.state;
+        elements.push(element);
+        elementRefs.push({ handle: shownHandles[k], row: r });
+        continue;
+      }
+      const selector = await buildSelector(page, r, shownHandles[k], sharedRoleMatches);
       // Unverifiable means the element vanished mid-read; omit rather than guess.
       if (selector) {
         const element: PageElement = { role: r.role, name: r.name, selector };
         if (r.state) element.state = r.state;
         elements.push(element);
         // Refs are positions in the final list, so a dropped element shifts none of them.
-        elementRefs.push({ selector, handle: handles[r.index] });
+        elementRefs.push({ selector, handle: shownHandles[k] });
       } else {
         moved = true;
       }
@@ -1272,7 +1335,7 @@ async function snapshotPass(page: Page, scope: SnapshotScope): Promise<SnapshotP
     const overlayRefs: RefEntry[] = [];
     const overlayShared = new Map<string, number[]>();
     for (const r of overlayRows) {
-      const selector = await buildSelector(page, r, overlayHandles, overlayShared, OVERLAY_SELECTOR);
+      const selector = await buildSelector(page, r, overlayHandles[r.index], { all: overlayHandles, matches: overlayShared }, OVERLAY_SELECTOR);
       if (selector) {
         overlays.push({ role: r.role, name: r.name, selector, modal: r.modal });
         overlayRefs.push({ selector, handle: overlayHandles[r.index] });
@@ -1284,10 +1347,15 @@ async function snapshotPass(page: Page, scope: SnapshotScope): Promise<SnapshotP
     let focused: PageFocus | undefined;
     const focusRow = focusEl ? pass.rows[pass.focusIndex] : undefined;
     if (focusEl && focusRow?.visible) {
-      // An element outside INTERACTIVE_SELECTOR sits after `handles` in the in-page pass.
-      const selectorHandles = pass.focusIndex >= handles.length ? [...handles, focusEl] : handles;
-      const selector = await buildSelector(page, focusRow, selectorHandles, new Map());
-      if (selector) focused = { role: focusRow.role, name: focusRow.name, selector };
+      if (scope.selectors) {
+        const selector = await buildSelector(page, focusRow, focusEl);
+        if (selector) focused = { role: focusRow.role, name: focusRow.name, selector };
+      } else {
+        // No selector: the focused element is listed when it is one of the shown rows (compared by position in the pass).
+        focused = { role: focusRow.role, name: focusRow.name };
+        const at = shown.findIndex((r) => r.index === pass.focusIndex);
+        if (at >= 0) focused.listedAs = at + 1;
+      }
     }
 
     const messages = await page.$$eval(MESSAGE_SELECTOR, (nodes) => {
@@ -1316,23 +1384,45 @@ async function snapshotPass(page: Page, scope: SnapshotScope): Promise<SnapshotP
     }
     if (notes.length > 0) result.note = notes.join("; ");
     // One cheap check that reads nothing but `isConnected`: did an element this pass took leave the document?
-    const taken = [...handles, ...overlayHandles, ...(focusEl ? [focusEl] : []), ...(rootEl ? [rootEl] : [])];
-    if (!moved && taken.length > 0) {
-      moved = await page.evaluate((nodes) => nodes.some((n) => !n.isConnected), taken);
+    const others = [...overlayHandles, ...(focusEl ? [focusEl] : []), ...(rootEl ? [rootEl] : [])];
+    if (!moved && (pass.count > 0 || others.length > 0)) {
+      moved = await page.evaluate(({ nodes, rest }) => nodes.some((n) => !n.isConnected) || rest.some((n) => !n.isConnected), {
+        nodes: candidates ?? handles,
+        rest: others,
+      });
     }
-    return { result, moved, elementRefs, overlayRefs, handles: taken };
+    return { result, moved, elementRefs, overlayRefs, handles: [...handles, ...others] };
   } catch (err) {
     await disposeHandles([...handles, ...overlayHandles, ...(focusEl ? [focusEl] : []), ...(rootEl ? [rootEl] : [])]);
     throw err;
+  } finally {
+    await candidates?.dispose().catch(() => undefined);
+  }
+}
+
+/** Element handles for `indices` of the array handle `nodes`, in one round trip; the array handles are released. */
+async function takeHandles(page: Page, nodes: JSHandle<(HTMLElement | SVGElement)[]>, indices: number[]): Promise<ElementHandle[]> {
+  if (indices.length === 0) return [];
+  const picked = await page.evaluateHandle(({ all, at }) => at.map((i) => all[i]), { all: nodes, at: indices });
+  try {
+    const properties = await picked.getProperties();
+    return indices.map((_, k) => properties.get(String(k))!.asElement()!);
+  } finally {
+    await picked.dispose().catch(() => undefined);
   }
 }
 
 // --- T040: refs ---------------------------------------------------------------
 
-/** One listed element a ref stands for: the verified selector, and the exact element it was built for. */
+/**
+ * One listed element a ref stands for: the exact element, and the verified selector built for it. A snapshot
+ * taken with `selectors: false` (T045) leaves `selector` unset and keeps the `row` facts `buildSelector` needs;
+ * `resolveRef` fills `selector` in when the ref is first used.
+ */
 interface RefEntry {
-  selector: string;
+  selector?: string;
   handle: ElementHandle;
+  row?: RawElement;
 }
 
 interface RefTable {
@@ -1384,13 +1474,21 @@ export async function resolveRef(
     const have = list.length === 0 ? "none" : `@${match[1]}1 to @${match[1]}${list.length}`;
     return { ok: false, error: `Ref ${ref} is not in the latest snapshot of this page (it has ${have}): ${again}.` };
   }
-  const hit = await locate(page, entry.selector, entry.handle);
-  if (hit.count !== 1 || hit.position !== 0) {
-    return {
-      ok: false,
-      error: `Ref ${ref} is stale: the page changed and it no longer points to the element that was listed. Nothing was done; ${again}.`,
-    };
+  const stale = {
+    ok: false as const,
+    error: `Ref ${ref} is stale: the page changed and it no longer points to the element that was listed. Nothing was done; ${again}.`,
+  };
+  if (entry.selector === undefined) {
+    // T045: first use of a ref from a snapshot without selectors. The node must still be in the document, and
+    // buildSelector verifies each candidate by identity against this very handle, so the result reaches only it.
+    const connected = await entry.handle.evaluate((node) => node.isConnected).catch(() => false);
+    const built = connected && entry.row ? await buildSelector(page, entry.row, entry.handle) : undefined;
+    if (built === undefined) return stale;
+    entry.selector = built;
+    return { ok: true, selector: built };
   }
+  const hit = await locate(page, entry.selector, entry.handle);
+  if (hit.count !== 1 || hit.position !== 0) return stale;
   return { ok: true, selector: entry.selector };
 }
 
@@ -1452,7 +1550,9 @@ export function renderCompact(state: PageState): string {
     lines.push(`overlay @o${i + 1} ${roleToken(o.role)}${o.name ? ` ${quoteToken(o.name)}` : ""}${o.modal ? " modal" : ""}`)
   );
   if (state.focused) {
-    const at = elements.findIndex((e) => e.selector === state.focused!.selector);
+    // T045: a snapshot without selectors says outright whether the focused element is listed, and as which.
+    const { selector, listedAs } = state.focused;
+    const at = selector === undefined ? (listedAs ?? 0) - 1 : elements.findIndex((e) => e.selector === selector);
     lines.push(
       `focused: ${at >= 0 ? `@e${at + 1}` : `${roleToken(state.focused.role)} ${quoteToken(state.focused.name)}`}`
     );
