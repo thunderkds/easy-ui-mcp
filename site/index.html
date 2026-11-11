@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Easy UI: local UI testing for Claude Code</title>
-<meta name="description" content="Easy UI is a Dockerized MCP server that lets Claude Code drive a real browser step by step and get back a JSON and HTML report." />
+<meta name="description" content="Easy UI is a local UI-testing MCP server. Claude Code drives a real browser step by step and gets a structured JSON and HTML test report with screenshots, step labels and pass or fail. No cloud account, no API key, no LLM in the server." />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='7' fill='%230E100F' stroke='%237EDDB0' stroke-width='2'/%3E%3Cpath d='M2 11h28' fill='none' stroke='%237EDDB0' stroke-width='2'/%3E%3Cpath d='M10 18l4 4 8-8' fill='none' stroke='%237EDDB0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -362,6 +362,7 @@
     <div class="sidenav__group">
       <p class="sidenav__label">// overview</p>
       <a class="sidenav__item" href="#overview">Overview</a>
+      <a class="sidenav__item" href="#why-easy-ui">Why Easy UI</a>
       <a class="sidenav__item" href="#how-it-works">How it works</a>
       <a class="sidenav__item" href="#a-session">A session</a>
       <a class="sidenav__item" href="#before-after">Before and after</a>
@@ -391,18 +392,32 @@
 
   <main class="main" id="main">
     <section id="overview">
-      <p class="eyebrow">&gt; local ui testing for claude code</p>
+      <p class="eyebrow">&gt; ui testing + evidence for claude code</p>
       <h1>Easy UI</h1>
-      <p class="lede">A Dockerized MCP server that lets an AI agent such as Claude Code drive a real browser step by step and get back a JSON and HTML report with screenshots.</p>
+      <p class="lede">Not just another browser controller. Easy UI is a local UI-testing MCP server: an AI agent such as Claude Code drives a real browser step by step, and every session ends with a structured report you can read and share.</p>
       <div class="actions">
         <a class="btn btn--primary" href="https://github.com/thunderkds/easy-ui-mcp">View the source on GitHub</a>
         <a class="btn btn--secondary" href="#quick-start">Quick start</a>
       </div>
       <ul class="strip strip--3" aria-label="Highlights">
-        <li><span class="tile-t">Real browser</span><span class="tile-b">Playwright Chromium inside Docker, the only browser in v1. Claude Code decides what to click; the server performs and logs each action.</span></li>
-        <li><span class="tile-t">26 tools over MCP</span><span class="tile-b">HTTP/SSE on localhost:8765. Primitive actions, checks and page reads, with no test scripts to write.</span></li>
-        <li><span class="tile-t">No LLM in the container</span><span class="tile-b">No server-side model calls or API keys. Every session ends with a JSON and HTML report.</span></li>
+        <li><span class="tile-t">A report for every session</span><span class="tile-b">A JSON file and a self-contained HTML report: screenshots, step labels, pass or fail, and the action log. Nothing to set up.</span></li>
+        <li><span class="tile-t">26 tools over MCP</span><span class="tile-b">HTTP/SSE on localhost:8765, built for testing: sessions, labelled steps, and separate tools to assert, check and wait. Playwright Chromium inside Docker.</span></li>
+        <li><span class="tile-t">Local, no LLM inside</span><span class="tile-b">One <code>docker compose up</code>. No cloud account, no API key, no model calls in the container. The agent reasons; the server runs and records.</span></li>
       </ul>
+    </section>
+
+    <section id="why-easy-ui">
+      <h2>Why Easy UI</h2>
+      <p>General browser automation answers “can the agent click this?”. Easy UI answers “did the flow work, and where is the proof?”.</p>
+      <ul class="cards cards--3">
+        <li><span class="k">Structured reports</span><span class="out out--hard">every session</span><p>A JSON file and a self-contained HTML report with screenshots, step labels, pass or fail, and logs. <code>reports/index.html</code> lists them all.</p></li>
+        <li><span class="k">Testing primitives</span><span class="out">sessions and steps</span><p><code>ui_start_session</code> and <code>ui_end_session</code> bracket a run. <code>ui_step</code> names each stage. <code>ui_assert</code>, <code>ui_check</code> and <code>ui_wait_for</code> are three tools on purpose.</p></li>
+        <li><span class="k">A verdict you can trust</span><span class="out out--hard">no false green</span><p>A hard failure fails the session. Console errors, page errors, failed requests and HTTP 4xx/5xx are listed under Browser problems, so a green run cannot hide a throwing console.</p></li>
+        <li><span class="k">Local first</span><span class="out">one command</span><p><code>docker compose up -d --build</code>. No cloud account and no API key. Nothing leaves your machine.</p></li>
+        <li><span class="k">No LLM inside</span><span class="out">tools only</span><p>The server runs each tool and records the result. The agent does the reasoning, so cost and behaviour stay predictable.</p></li>
+        <li><span class="k">Made for Claude Code</span><span class="out">HTTP/SSE and stdio</span><p>One <code>claude mcp add</code> registers it. One connection runs up to 3 sessions side by side. <code>dist/stdio.js</code> serves hosts that wrap stdio servers.</p></li>
+      </ul>
+      <p class="callout">Easy UI is a local UI-testing MCP that gives your agent structured, shareable test reports. See <a href="#a-session">A session</a> for the flow and <a href="#reports">Reports</a> for what the report shows.</p>
     </section>
 
     <section id="how-it-works">

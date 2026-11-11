@@ -1,5 +1,5 @@
 # PROJECT_KANBAN.md
-**Last updated**: 2026-11-10
+**Last updated**: 2026-11-11
 
 > Compact task board. Full context lives in `PROJECT_SPEC.md`. Update this file whenever a task status changes.
 
@@ -19,6 +19,7 @@
 
 
 ### Done
+- [x] **T039** — Position easy-ui-mcp as a UI-testing MCP with evidence: README "Why" table, docs-site hero + `#why-easy-ui` section, package description | Supervisor | C1 | Risk: Low | P1 | Requested by user 2026-11-11 (pasted positioning note). Guide: `tasks/TASK_GUIDE_T039.md` | **Completed 2026-11-11**: README gets the positioning line, a "Why easy-ui-mcp" table and a corrected Scope section; docs site gets a new hero (eyebrow, lede, three tiles) and a `#why-easy-ui` section with six cards; `package.json` description updated; new T039 test + section list in `test/site.test.ts`; full `npm test` 313/313; checked at 1280px and 375px (no horizontal overflow, no page errors). Claims about other products left out on purpose. Evidence: `tasks/TASK_GUIDE_T039.md`
 - [x] **T038** — stdio entry point so Glama's `mcp-proxy` can run the server (local HTTP unchanged) | backend-developer | C2 | Risk: Medium | P1 | Requested by user 2026-11-10. Guide: `tasks/TASK_GUIDE_T038.md`. Brainstorm: `BRAINSTORMING_LOG_stdio-glama.md` (Option B approved 2026-11-10) | **Completed 2026-11-10**: `src/stdio.ts` + guarded `app.listen`/SIGTERM in `src/server.ts` (flag `EASY_UI_MCP_NO_HTTP`); `dist/stdio.js` handshake returns 26 tools, exits 0 on stdin close; HTTP `/health` unchanged; full `npm test` 312/312; code-review 0 P0/P1; security-review clean. Follow-up (user): push, then set Glama start `mcp-proxy -- node dist/stdio.js`, build `pnpm install && pnpm build && pnpm exec playwright install --with-deps chromium`, and the new SHA. Evidence: `tasks/TASK_REVIEW_T038.md`
 - [x] **T037** — The current-site dot in the family nav glows like the siblings | backend-developer | ? | Risk: Low | ? | **Completed 2026-11-10**: merged into main; current-site dot glows (`--glow-dot: 0 0 8px #3cf5a8`, the only allowed box-shadow); full `npm test` 307/307 (traced). Evidence: `tasks/TASK_REVIEW_T037.md`
 - [x] **T036** — Docs-site index page in the Easy Kit family style, with flows and charts | backend-developer | ? | Risk: Low | ? | **Completed 2026-11-10**: merged into main; docs page now in the Easy Kit family style (IBM Plex, icon tile + chip header, bordered GitHub, hero tiles) with flows, 26-tool map, before/after and measured bars; Easy Kit link → https://easy-kits.vercel.app/; full `npm test` 307/307 (traced). Evidence: `tasks/TASK_REVIEW_T036.md`

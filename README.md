@@ -1,8 +1,26 @@
 # easy-ui-mcp
 
-A Dockerized MCP (Model Context Protocol) server for local UI testing. It exposes Playwright-based browser automation tools over HTTP/SSE so an AI agent (like Claude Code) can drive web UI flows step-by-step and get back a JSON + HTML report with screenshots — no server-side LLM, no test scripts to write.
+**Not just another browser controller — a local UI-testing MCP that gives your agent structured, shareable test reports.**
+
+easy-ui-mcp is a Dockerized MCP (Model Context Protocol) server for local UI testing. It exposes Playwright-based browser tools over HTTP/SSE so an AI agent (like Claude Code) can drive web UI flows step-by-step and get back a JSON + HTML report with screenshots — no server-side LLM, no test scripts to write.
 
 A static docs page for this project lives in [`site/index.html`](site/index.html); it deploys to Vercel as plain static files (no install, no build — see `vercel.json`).
+
+## Why easy-ui-mcp
+
+General browser automation answers "can the agent click this?". easy-ui-mcp answers "did the flow work, and where is the proof?". It is built for testing and for evidence.
+
+| What you get | How it works |
+|---|---|
+| **A report for every session** | Each session writes a JSON file and a self-contained HTML report: screenshots, step labels, pass/fail, and the action log. `reports/index.html` lists them all. See [What the report shows](#what-the-report-shows). |
+| **Primitives made for testing** | `ui_start_session` / `ui_end_session` bracket a run. `ui_step(label)` names each stage. `ui_assert`, `ui_check` and `ui_wait_for` are three different tools on purpose: see [Verifying vs waiting](#verifying-vs-waiting--pick-the-right-one). |
+| **A verdict you can trust** | A hard failure fails the session. A soft `ui_check` is recorded and the run continues. Console errors, page errors, failed requests and HTTP 4xx/5xx are listed under **Browser problems**, so a green run cannot hide a throwing console. |
+| **Local-first, one command** | `docker compose up -d --build`. No cloud account, no API key, nothing leaves your machine. |
+| **No LLM inside the server** | The server only runs tools and records the result. The agent does the reasoning, so cost and behaviour stay predictable. |
+| **Made for Claude Code** | Register it over HTTP/SSE with one `claude mcp add`. One connection can run up to 3 sessions side by side, for example staging and production. A stdio entry (`dist/stdio.js`) serves hosts that wrap stdio servers. |
+| **Fewer wasted calls** | `ui_get_page_state` returns selectors already checked against the live page, plus element state, open dialogs and focus. Native `alert`/`confirm`/`prompt` dialogs are held open for the agent to answer. |
+
+Report size was measured too: a soft-check run went from 357 KB to about 4 KB once soft failures stopped capturing a full-screen PNG. See [Measured](site/index.html#measured) on the docs page.
 
 ## Quick Start
 
@@ -167,4 +185,4 @@ See [AGENTS.md](AGENTS.md) for the architecture and full MCP connection guide, a
 
 ## Scope (v1)
 
-Web only (Chromium), local only, no mobile support yet. See [PRD.md](PRD.md) for full product intent and [PROJECT_SPEC.md](PROJECT_SPEC.md) for architecture decisions.
+Web only (Chromium) and local only. The server runs over HTTP/SSE by default and over stdio through `dist/stdio.js` (see [Running over stdio](#running-over-stdio-glama-mcp-proxy)). Android (Appium) work is on hold: the infrastructure is in the image, but no `android_*` tools are registered. See [PRD.md](PRD.md) for full product intent and [PROJECT_SPEC.md](PROJECT_SPEC.md) for architecture decisions.
