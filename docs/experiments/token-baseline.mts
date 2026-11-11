@@ -186,7 +186,8 @@ async function mcpDriver(): Promise<{ d: Driver; recs: Rec[]; close: () => Promi
     step: async (label) => void (await call("ui_step", { label })),
     nav: async (url) => void (await call("ui_navigate", { url })),
     snap: async () => {
-      await new Promise((r) => setTimeout(r, 800)); // client-side settle, costs no tokens
+      // Before T042 a snapshot straight after a route change came back empty; SNAP_WAIT_MS=800 reproduces the old workaround.
+      await new Promise((r) => setTimeout(r, Number(process.env.SNAP_WAIT_MS ?? 0)));
       const rec = await call("ui_get_page_state", {});
       if (AFTER) {
         rec.isSnap = true;

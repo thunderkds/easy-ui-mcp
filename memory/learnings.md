@@ -21,8 +21,11 @@
 
 ## Gotchas
 
+### 2026-11-11 — A snapshot read while a single-page app re-renders drops every element (T042)
+A client-side route change keeps `document.readyState` at `complete` and fires no `load`, so load-state waits do nothing. `getPageState` took handles, the framework replaced the DOM, and every stale handle was dropped as "vanished": a successful, empty reply. Fix: a pass reports whether its own handles were detached (`isConnected`) and is retaken within a 2 s budget. When a tool reads many handles over several round trips, check at the end that they are still connected.
+
 ### 2026-11-11 — Measure token cost with the baseline script, in a folder of its own (T040)
-`node_modules/.bin/tsx docs/experiments/token-baseline.mts` drives four fixed flows through `src/stdio.ts` and prints tool traffic (chars ÷ 4). `MODE=after` drives them with refs; `EASY_UI_SERVER_ROOT=<checkout>` measures another worktree. The server writes `reports/` into its cwd, so the script starts it in `docs/experiments/run/` (gitignored). A snapshot taken straight after a navigating click can list 0 elements: the script waits 800 ms before each snapshot (bug tracked as T042).
+`node_modules/.bin/tsx docs/experiments/token-baseline.mts` drives four fixed flows through `src/stdio.ts` and prints tool traffic (chars ÷ 4). `MODE=after` drives them with refs; `EASY_UI_SERVER_ROOT=<checkout>` measures another worktree. The server writes `reports/` into its cwd, so the script starts it in `docs/experiments/run/` (gitignored). Since T042 the script no longer waits before a snapshot (`SNAP_WAIT_MS=800` restores the old workaround).
 
 ### 2026-11-11 — Another live session can advance main while a task branch is open
 During T040 a second session committed T039 and T044 to main (README rewritten). Re-check `git log` on main before integrating, expect README / `site/index.html` conflicts, and run the full `npm test` on the combined tree before committing it.
