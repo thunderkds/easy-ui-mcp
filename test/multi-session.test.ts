@@ -273,8 +273,8 @@ describe("one connection, several sessions", () => {
     assert.equal((await conn.call("ui_navigate", { url: PAGE_TWO, session_id: b })).isError, false);
 
     // each id sees its own page
-    assert.match((await conn.call("ui_get_page_state", { session_id: a })).text, /only-one/);
-    assert.match((await conn.call("ui_get_page_state", { session_id: b })).text, /only-two/);
+    assert.match((await conn.call("ui_get_page_state", { session_id: a })).text, /"One"/);
+    assert.match((await conn.call("ui_get_page_state", { session_id: b })).text, /"Two"/);
     const aSeesOne = await conn.call("ui_assert", { condition: "!!document.querySelector('#only-one')", session_id: a });
     assert.equal(aSeesOne.isError, false);
     assert.match(aSeesOne.text, /Assertion passed/);
@@ -290,7 +290,7 @@ describe("one connection, several sessions", () => {
     const endedA = await conn.call("ui_end_session", { session_id: a });
     assert.equal(endedA.isError, false, endedA.text);
     assert.match(endedA.text, new RegExp(`Session ${a} ended`));
-    assert.match((await conn.call("ui_get_page_state", { session_id: b })).text, /only-two/);
+    assert.match((await conn.call("ui_get_page_state", { session_id: b })).text, /"Two"/);
     assert.match((await conn.call("ui_get_page_state", { session_id: a })).text, /Unknown session/);
 
     const endedB = await conn.call("ui_end_session", { session_id: b });
@@ -319,7 +319,7 @@ describe("one connection, several sessions", () => {
     const conn = await connect();
     const only = await conn.start("single-session");
     assert.equal((await conn.call("ui_navigate", { url: PAGE_ONE })).isError, false);
-    assert.match((await conn.call("ui_get_page_state")).text, /only-one/);
+    assert.match((await conn.call("ui_get_page_state")).text, /"One"/);
     const ended = await conn.call("ui_end_session");
     assert.equal(ended.isError, false, ended.text);
     assert.match(ended.text, new RegExp(`Session ${only} ended \\(passed\\)`));
@@ -453,7 +453,7 @@ describe("one connection, several sessions", () => {
       assert.equal(r.isError, true, name);
       assert.equal(r.text, `Unknown session ${mine}`, name);
     }
-    assert.match((await one.call("ui_get_page_state", { session_id: mine })).text, /only-one/);
+    assert.match((await one.call("ui_get_page_state", { session_id: mine })).text, /"One"/);
     assert.equal(reportFor(mine), undefined, "the intruder did not end it");
 
     await one.call("ui_end_session");
@@ -513,7 +513,7 @@ describe("one connection, several sessions", () => {
     const conn = await connect();
     const r = await conn.call("ui_navigate", { url: PAGE_ONE });
     assert.equal(r.isError, false, r.text);
-    assert.match((await conn.call("ui_get_page_state")).text, /only-one/);
+    assert.match((await conn.call("ui_get_page_state")).text, /"One"/);
   });
 });
 
@@ -632,5 +632,189 @@ describe("T033: tabs and notices are per session", () => {
       const report = reportFor(id);
       assert.ok(report, `report for ${id}`);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T040: compact page state and refs, through a real MCP client
+// ---------------------------------------------------------------------------
+
+describe("T040: compact page state and refs", () => {
+  before(() => startServer({ SESSION_TIMEOUT_MS: "600000", MAX_SESSIONS_PER_CONNECTION: "3" }));
+  after(async () => {
+    await closeAllConnections();
+    await stopServer();
+  });
+
+  const COUNTER_PAGE = pageUrl(
+    `<p id="out">idle</p>
+     <button id="inc" onclick="document.getElementById('out').textContent='clicked'">Increase</button>
+     <input aria-label="Name" id="nm">`
+  );
+
+  /** The ref the compact reply gives the element line carrying `name`. */
+  function refOf(text: string, name: string): string {
+    const match = new RegExp(`^(@e\\d+) \\S+ "${name}"`, "m").exec(text);
+    assert.ok(match, `no ref for "${name}" in:\n${text}`);
+    return match[1];
+  }
+
+  test("AC1/AC2: the default reply is compact text without selectors; format:full is today's JSON without refs", async () => {
+    const conn = await connect();
+    const id = await conn.start("compact-default");
+    await conn.call("ui_navigate", { url: COUNTER_PAGE, session_id: id });
+
+    const compact = await conn.call("ui_get_page_state", { session_id: id });
+    assert.equal(compact.isError, false, compact.text);
+    assert.match(compact.text, /^url: data:text\/html/);
+    assert.match(compact.text, /^title: t$/m);
+    assert.match(compact.text, /^@e1 button "Increase"$/m);
+    assert.match(compact.text, /^@e2 textbox "Name"$/m);
+    assert.doesNotMatch(compact.text, /#inc|#nm|selector|\{"/, "no selector, no JSON");
+    assert.deepEqual(compact, await conn.call("ui_get_page_state", { format: "compact", session_id: id }));
+
+    const full = await conn.call("ui_get_page_state", { format: "full", session_id: id });
+    assert.equal(full.isError, false, full.text);
+    const parsed = JSON.parse(full.text);
+    assert.deepEqual(Object.keys(parsed), ["ok", "url", "title", "elements", "messages"]);
+    assert.deepEqual(parsed.elements, [
+      { role: "button", name: "Increase", selector: "#inc" },
+      { role: "textbox", name: "Name", selector: "#nm" },
+    ]);
+    assert.doesNotMatch(full.text, /@e\d|"ref"/);
+
+    // the agent saw no refs in the full reply, so the ones from the compact snapshot are gone
+    const old = await conn.call("ui_click", { selector: "@e1", session_id: id });
+    assert.equal(old.isError, true);
+    assert.match(old.text, /@e1.*ui_get_page_state/);
+    await conn.call("ui_end_session", { session_id: id });
+  });
+
+  test("AC3/AC6: click and fill by ref act on the listed element; the echo, the action log and the report show selectors, never a ref", async () => {
+    const conn = await connect();
+    const id = await conn.start("refs-report");
+    await conn.call("ui_navigate", { url: COUNTER_PAGE, session_id: id });
+    const state = await conn.call("ui_get_page_state", { session_id: id });
+
+    const clicked = await conn.call("ui_click", { selector: refOf(state.text, "Increase"), session_id: id });
+    assert.equal(clicked.isError, false, clicked.text);
+    assert.match(clicked.text, /"#inc"/, "the reply names the resolved selector");
+    assert.equal((await conn.call("ui_get_text", { selector: "#out", session_id: id })).text, "clicked");
+    const filled = await conn.call("ui_fill", { selector: refOf(state.text, "Name"), value: "Bob", session_id: id });
+    assert.equal(filled.isError, false, filled.text);
+    assert.match((await conn.call("ui_assert", { condition: "document.getElementById('nm').value === 'Bob'", session_id: id })).text, /passed/);
+    // a CSS selector keeps working next to refs
+    assert.equal((await conn.call("ui_click", { selector: "#inc", session_id: id })).isError, false);
+    // ref arguments of read tools resolve too
+    assert.equal((await conn.call("ui_get_text", { selector: refOf(state.text, "Increase"), session_id: id })).text, "Increase");
+
+    await conn.call("ui_end_session", { session_id: id });
+    const report = reportFor(id)!;
+    const actions = report.json.actions;
+    const click = actions.find((x: any) => x.action === "ui_click");
+    const fill = actions.find((x: any) => x.action === "ui_fill");
+    assert.equal(click.args.selector, "#inc");
+    assert.equal(fill.args.selector, "#nm");
+    assert.equal(actions.find((x: any) => x.action === "ui_get_text" && x.args?.selector === "#inc")?.ok, true);
+    assert.doesNotMatch(JSON.stringify(actions), /@[eo]\d/, "no bare ref in the report JSON");
+    assert.doesNotMatch(readFileSync(report.path.replace(/\.json$/, ".html"), "utf8"), /@[eo]\d/, "no bare ref in the HTML report");
+  });
+
+  test("AC4/AC5/AC7: a ref in another session, a changed page, an unknown number or no snapshot all fail and act on nothing", async () => {
+    const conn = await connect();
+    const a = await conn.start("refs-A");
+    const b = await conn.start("refs-B");
+    await conn.call("ui_navigate", { url: COUNTER_PAGE, session_id: a });
+    await conn.call("ui_navigate", { url: COUNTER_PAGE, session_id: b });
+    const stateA = await conn.call("ui_get_page_state", { session_id: a });
+
+    // B never took a snapshot: A's @e1 is nothing there
+    for (const ref of [refOf(stateA.text, "Increase"), "@e999", "@e0"]) {
+      const r = await conn.call("ui_click", { selector: ref, session_id: b });
+      assert.equal(r.isError, true, ref);
+      assert.match(r.text, new RegExp(`${ref}.*ui_get_page_state`), ref);
+    }
+    assert.equal((await conn.call("ui_get_text", { selector: "#out", session_id: b })).text, "idle");
+
+    // A's page changes under the ref: same id, a look-alike node
+    const swap = await conn.call("ui_assert", {
+      condition: "(() => { const old = document.getElementById('inc'); old.replaceWith(old.cloneNode(true)); return true; })()",
+      session_id: a,
+    });
+    assert.equal(swap.isError, false, swap.text);
+    const stale = await conn.call("ui_click", { selector: "@e1", session_id: a });
+    assert.equal(stale.isError, true);
+    assert.match(stale.text, /@e1.*stale.*ui_get_page_state/);
+    assert.equal((await conn.call("ui_get_text", { selector: "#out", session_id: a })).text, "idle", "nothing was clicked");
+    // fresh snapshot, fresh refs
+    const again = await conn.call("ui_get_page_state", { session_id: a });
+    assert.equal((await conn.call("ui_click", { selector: refOf(again.text, "Increase"), session_id: a })).isError, false);
+    assert.equal((await conn.call("ui_get_text", { selector: "#out", session_id: a })).text, "clicked");
+
+    await conn.call("ui_end_session", { session_id: a });
+    await conn.call("ui_end_session", { session_id: b });
+    const failedB = reportFor(b)!.json.actions.filter((x: any) => x.action === "ui_click");
+    assert.ok(failedB.length > 0 && failedB.every((x: any) => x.ok === false), "a refused ref is a failed step in the report");
+  });
+
+  test("AC3: ui_drag with two refs, ui_scroll with a container ref and ui_press_key with a selector ref act on the listed elements", async () => {
+    const conn = await connect();
+    const id = await conn.start("refs-actions");
+    await conn.call("ui_navigate", {
+      url: pageUrl(
+        `<ul id="list" style="user-select:none"><li role="option" id="A">Alpha</li><li role="option" id="B">Bravo</li><li role="option" id="C">Charlie</li></ul>
+         <div role="listbox" aria-label="Panel" id="panel" style="height:50px;overflow:auto"><div style="height:600px">tall</div></div>
+         <input aria-label="Field" id="field" onkeydown="document.title='key:'+event.key">
+         <script>
+           var dragged = null;
+           document.addEventListener('pointerdown', (e) => { dragged = e.target.closest('li'); });
+           document.addEventListener('pointerup', (e) => {
+             const over = document.elementFromPoint(e.clientX, e.clientY)?.closest('li');
+             if (dragged && over && over !== dragged) over.after(dragged);
+             dragged = null;
+           });
+         </script>`
+      ),
+      session_id: id,
+    });
+    const state = await conn.call("ui_get_page_state", { session_id: id });
+
+    const dragged = await conn.call("ui_drag", { from: refOf(state.text, "Alpha"), to: refOf(state.text, "Charlie"), session_id: id });
+    assert.equal(dragged.isError, false, dragged.text);
+    assert.match((await conn.call("ui_assert", { condition: "[...document.querySelectorAll('li')].map((e) => e.id).join('') === 'BCA'", session_id: id })).text, /passed/);
+
+    const scrolled = await conn.call("ui_scroll", { container: refOf(state.text, "Panel"), session_id: id });
+    assert.equal(scrolled.isError, false, scrolled.text);
+    assert.match((await conn.call("ui_assert", { condition: "document.getElementById('panel').scrollTop > 0", session_id: id })).text, /passed/);
+
+    const pressed = await conn.call("ui_press_key", { key: "Enter", selector: refOf(state.text, "Field"), session_id: id });
+    assert.equal(pressed.isError, false, pressed.text);
+    assert.match((await conn.call("ui_assert", { condition: "document.title === 'key:Enter'", session_id: id })).text, /passed/);
+
+    await conn.call("ui_end_session", { session_id: id });
+    const actions = reportFor(id)!.json.actions;
+    const drag = actions.find((x: any) => x.action === "ui_drag");
+    assert.deepEqual([drag.args.from, drag.args.to], ["#A", "#C"]);
+    assert.doesNotMatch(JSON.stringify(actions), /@[eo]\d/);
+  });
+
+  test("AC3: ui_click_outside accepts the @o1 ref of the open dialog", async () => {
+    const conn = await connect();
+    const id = await conn.start("refs-overlay");
+    await conn.call("ui_navigate", {
+      url: pageUrl(
+        `<p id="state">open</p>
+         <div id="backdrop" style="position:fixed;inset:0;background:#0006"
+              onclick="document.getElementById('state').textContent='closed';this.remove();document.getElementById('dlg').remove()"></div>
+         <div id="dlg" role="dialog" aria-modal="true" aria-label="Confirm" style="position:fixed;inset:20%;background:#fff"><button>Inner</button></div>`
+      ),
+      session_id: id,
+    });
+    const state = await conn.call("ui_get_page_state", { session_id: id });
+    assert.match(state.text, /^overlay @o1 dialog "Confirm" modal$/m);
+    const outside = await conn.call("ui_click_outside", { selector: "@o1", session_id: id });
+    assert.equal(outside.isError, false, outside.text);
+    assert.equal((await conn.call("ui_get_text", { selector: "#state", session_id: id })).text, "closed");
+    await conn.call("ui_end_session", { session_id: id });
   });
 });

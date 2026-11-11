@@ -1258,7 +1258,7 @@ function replaceRefTable(page: Page, next: RefTable | undefined): void {
 const REF_PATTERN = /^@([eo])(\d+)$/;
 
 /** Arguments that name an element; a ref in any of them is replaced by its selector before the tool runs. */
-const REF_ARGUMENTS = ["selector", "from", "to", "container"] as const;
+export const REF_ARGUMENTS = ["selector", "from", "to", "container"] as const;
 
 /**
  * The selector a ref stands for, or an error. The ref must be in the page's latest snapshot AND its

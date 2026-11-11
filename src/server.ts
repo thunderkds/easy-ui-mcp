@@ -23,6 +23,9 @@ import {
   classifyCheckOutcome,
   waitForCondition,
   getPageState,
+  renderCompact,
+  resolveRefArgs,
+  REF_ARGUMENTS,
   takeScreenshot,
   selectOption,
   pressKey,
@@ -114,7 +117,7 @@ const TOOL = {
 const MASKED_TEXT = "••••";
 
 const SELECTOR_DESCRIPTION =
-  "CSS selector, or the `selector` value of an element from ui_get_page_state, passed unchanged";
+  "CSS selector, or an `@eN` / `@oN` ref from the latest ui_get_page_state (a stale ref fails: call it again)";
 const NTH_NOTE =
   ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.';
 const REPORTS_DIR = path.join(process.cwd(), "reports");
@@ -239,7 +242,17 @@ export function buildMcpServer(): McpServer {
       if (error) return { isError: true, content: [{ type: "text", text: error }] };
       if (sessionId) beginCall(sessionId);
       try {
-        return await guardDialog(name, sessionId, () => handler(args as z.infer<z.ZodObject<S>>) as Promise<ToolResponse>);
+        return await guardDialog(name, sessionId, async () => {
+          // T040: a ref becomes its selector here, once, so the handler, the action log and the
+          // report all see a normal selector. Inside guardDialog, so a held dialog refuses first.
+          const resolved = await resolveRefArgs(resolvePageForRead(), args);
+          if (!resolved.ok) {
+            const tried = Object.fromEntries(REF_ARGUMENTS.filter((k) => typeof args[k] === "string").map((k) => [k, args[k]]));
+            await recordAction(name, tried, false, resolved.error);
+            return { isError: true, content: [{ type: "text" as const, text: resolved.error }] };
+          }
+          return (await handler(resolved.args as z.infer<z.ZodObject<S>>)) as ToolResponse;
+        });
       } finally {
         if (sessionId) endCall(sessionId);
       }
@@ -503,14 +516,12 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_click",
       description:
-        "Click the single element matching the given selector. The selector may be a CSS selector or the `selector` value from ui_get_page_state, passed unchanged." +
+        "Click the single element matching the given selector. The selector may be a CSS selector or an `@eN` ref from ui_get_page_state." +
         ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.' +
         " Optional: `button` (right/middle), `clickCount` 2 for a double-click, `modifiers` for Shift/Control-click, `position` for an offset inside the element, `force` to click through an element covering it." +
         " If the click opens a native alert/confirm/prompt, the reply says the browser is waiting: answer it with ui_dialog.",
       inputSchema: {
-        selector: z
-          .string()
-          .describe("CSS selector, or the `selector` value of an element from ui_get_page_state"),
+        selector: z.string().describe(SELECTOR_DESCRIPTION),
         button: z.enum(["left", "right", "middle"]).optional().describe("Mouse button (default left); right fires contextmenu"),
         clickCount: z.number().int().min(1).max(3).optional().describe("2 = double-click, 3 = triple-click (default 1)"),
         modifiers: z
@@ -662,12 +673,10 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_fill",
       description:
-        "Fill the single input element matching the given selector with a value. The selector may be a CSS selector or the `selector` value from ui_get_page_state, passed unchanged." +
+        "Fill the single input element matching the given selector with a value. The selector may be a CSS selector or an `@eN` ref from ui_get_page_state." +
         ' Selectors containing "nth=" are positional: call ui_get_page_state again after the page changes before reusing them.',
       inputSchema: {
-        selector: z
-          .string()
-          .describe("CSS selector, or the `selector` value of an input element from ui_get_page_state"),
+        selector: z.string().describe(SELECTOR_DESCRIPTION),
         value: z.string().describe("The value to fill into the input"),
       },
     },
@@ -773,7 +782,7 @@ export function buildMcpServer(): McpServer {
         NTH_NOTE,
       inputSchema: {
         selector: z.string().optional().describe(SELECTOR_DESCRIPTION + "; scrolls that element into view. Do not combine with container or direction"),
-        container: z.string().optional().describe("Selector of the scroll area to scroll (a single element); omit to scroll the page"),
+        container: z.string().optional().describe("Selector or `@eN` ref of the scroll area to scroll (a single element); omit to scroll the page"),
         direction: z.enum(["down", "up", "left", "right", "top", "bottom"]).optional().describe("Which way to scroll; default down"),
       },
     },
@@ -1088,22 +1097,26 @@ export function buildMcpServer(): McpServer {
     {
       title: "ui_get_page_state",
       description:
-        "Return the current page's URL, title, visible interactive elements and visible alert/status messages. " +
-        "Each element is {role, name, selector, state?}: pass `selector` unchanged to ui_click/ui_fill (at most 200 elements); " +
-        "`state` lists only non-default fields (disabled, checked, value, expanded, selected, pressed, required, invalid; a password's value is never returned). " +
-        "Custom widgets (combobox, listbox, option, switch, slider, contenteditable, summary...) are listed too. " +
-        "`overlays` ({role, name, selector, modal}, topmost first) names each open dialog and is absent when none is open; " +
-        "`focused` ({role, name, selector}) names the element holding focus and is absent when focus is on the page body. " +
-        "To read page text use ui_get_text.",
-      inputSchema: {},
+        "Return the current page as text: `url:`, `title:`, then one line per visible interactive element, `@eN role \"name\"` plus its non-default state " +
+        "(disabled, checked, value, expanded, selected, pressed, required, invalid; a password's value is never shown; at most 200 elements), " +
+        "`overlay @oN ...` for each open dialog (topmost first), `focused:` and `messages:` (visible alert/status text). " +
+        "Pass an `@eN` / `@oN` ref as the selector of any tool. A ref is valid only for the latest snapshot: after the page changes it fails, so call this again. " +
+        "`format: \"full\"` returns JSON instead, with a verified `selector` per element and no refs. " +
+        "Custom widgets (combobox, listbox, option, switch, slider, contenteditable, summary...) are listed too. To read page text use ui_get_text.",
+      inputSchema: {
+        format: z
+          .enum(["compact", "full"])
+          .optional()
+          .describe("compact (default): one text line per element with refs. full: JSON with selectors, no refs"),
+      },
     },
-    async () => {
-      const result = await getPageState(resolvePageForRead());
+    async ({ format }) => {
+      const result = await getPageState(resolvePageForRead(), { keepRefs: format !== "full" });
       await recordAction("ui_get_page_state", undefined, result.ok, result.ok ? undefined : result.error);
       if (!result.ok) {
         return { isError: true, content: [{ type: "text", text: result.error ?? "Failed to get page state" }] };
       }
-      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      return { content: [{ type: "text", text: format === "full" ? JSON.stringify(result) : renderCompact(result) }] };
     }
   );
 
