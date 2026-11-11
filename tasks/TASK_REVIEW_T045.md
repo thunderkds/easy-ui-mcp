@@ -47,18 +47,18 @@ Not done: merge (yours); <auto verify: running (T182) | auto verify: <result> | 
 
 | Check | Result | Notes |
 |-------|--------|-------|
-| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | |
-| Verification command run | ☐ pass / ☐ fail | |
-| Negative cases hold | ☐ pass / ☐ fail | |
-| verify | ☐ pass / ☐ fail / ☐ N/A | |
-| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☐ pass / ☐ fail | |
-| Full smoke suite still green (no regression) | ☐ pass / ☐ fail | |
-| Code review | ☐ pass / ☐ fail | |
-| Security review | ☐ pass / ☐ fail | |
-| **Companion score (easy-verifier)** | ☐ pass / ☐ fail / ☐ N/A | |
-| **UI: Visual regression (diff or verdict pasted)** | ☐ pass / ☐ fail / ☐ N/A | |
-| **UI: Design-system compliance (tokens/colors/typography verified)** | ☐ pass / ☐ fail / ☐ N/A | |
-| **UI: Responsiveness at target viewports** | ☐ pass / ☐ fail / ☐ N/A | |
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/web.test.ts` (20 `T045` tests: round-trip count, compact text identical with and without selectors, focus line, every lazy ref resolves to its element, click by ref, stale on replaced / removed / navigated, re-ordered sibling still reached, unverifiable ref stale, full struct unchanged, T042 cases in lazy mode, handles alive after a pass / a throw, shadow-root order, closed page, `within: @eN`); `test/multi-session.test.ts` (`T045 SC8/AC11`: the report step carries the resolved selector) |
+| Verification command run | ☑ pass | Supervisor on 0a34f51: `npx tsc --noEmit -p tsconfig.json` clean; `npm test` → tests 381, suites 9, pass 381, fail 0 |
+| Negative cases hold | ☑ pass | Tests committed first (9bcef7f); on the starting commit the count test sees 9 `page.locator` calls for a 5-button page against 202 for a 200-element page (implementer's run; after: 1 and 1). Stale cases (replaced node, removed node, navigation) fail with the existing message in lazy mode; real page: an old ref after a navigating click is refused. No existing assertion was edited |
+| verify | ☑ pass | pass — Supervisor real runs 2026-11-11 against 0a34f51. In-process on `en.wikipedia.org/wiki/Microsoft`: 724 ms and 452 ms (200 elements, 0 `page.locator` calls), 403 ms with `viewport: true`; refs resolved in 14–244 ms each to a selector matching exactly 1 element; click by ref navigated to `Talk:Microsoft`; the old ref was then stale. Through an MCP client against `src/stdio.ts`: same page 627 ms; saucedemo repro 30 / 7 / 24 / 7 / 24 elements straight after each click (T042 holds); the four baseline flows in `MODE=after` all completed (14.7 s for all four). AC 10 (at most 3 s) met. `verify` skill not installed: these runs are the live check |
+| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☑ pass | `getPageState` / `snapshotPass` / `buildSelector` / `resolveRef` / `renderCompact` focus line in `src/tools/web.ts`, the one call in `src/server.ts`, tests, three docs |
+| Full smoke suite still green (no regression) | ☑ pass | `npm test` 381/381 on 0a34f51, including the tool-list budget test |
+| Code review | ☑ pass | Supervisor, inline. 0 P0 / P1. P2 recorded: the array handle is used in the compact mode only; `format: "full"` still takes one handle per candidate, because four T042 tests count `page.$$` calls (AC 9 holds for the compact mode). P3 accepted: a focused element that is not listed and that no selector reaches now prints as `role "name"` instead of being omitted; the in-page candidate walk copies Playwright's shadow-root order and is pinned by a test; lane_check `C2, 7 files, 622 lines, EXCEEDS (lines 622 > 500); unpredicted: README.md` (423 of the lines are tests; the README sentence about re-ordering had become wrong) |
+| Security review | ☑ pass | Supervisor, inline: no findings. No new input reaches a selector or the page; a selector built at use is still verified by element identity (`locate`: one match, the listed node), so page content cannot steer a ref to another element; nothing is injected into the page |
+| **Companion score (easy-verifier)** | ☑ N/A | easy-verifier not run in this session |
+| **UI: Visual regression (diff or verdict pasted)** | ☑ N/A | one sentence of docs-site text; `test/site.test.ts` green |
+| **UI: Design-system compliance (tokens/colors/typography verified)** | ☑ N/A | no new styles |
+| **UI: Responsiveness at target viewports** | ☑ N/A | text-only docs edit |
 
 ---
 
@@ -92,8 +92,19 @@ getPageState {"keepRefs":true,"viewport":true} 10900 ms, elements 91
 ```
 An earlier run of the same page on the same commit: 23,778 ms (200 elements, 307 `page.locator` calls) and 19,308 ms with `viewport: true` (91 elements, 121 calls). `page.$$` took 4,330 handles.
 
-**AFTER**:
+**AFTER**: captured 2026-11-11 on 0a34f51, by the Supervisor, same page and method:
+```
+getPageState {"keepRefs":true,"selectors":false} 724 ms, elements 200 locator calls 0
+   @e1 link "Jump to content" -> role=link[name="Jump to content"] 244 ms, matches 1
+   @e120 link "Microsoft AI" -> role=link[name="Microsoft AI"] 160 ms, matches 1
+   @e200 link "Azure" -> #mwQQ 14 ms, matches 1
+getPageState {"keepRefs":true,"selectors":false,"viewport":true} 403 ms, elements 91 locator calls 0
+getPageState {"keepRefs":true,"selectors":false} 452 ms, elements 200 locator calls 0
+click by ref (link "Talk") -> {"ok":true}; url after click https://en.wikipedia.org/wiki/Talk:Microsoft
+old ref after the navigation -> Ref @e1 is stale: the page changed ...
+through MCP (src/stdio.ts): en.wikipedia.org/wiki/Microsoft 200 elements 627 ms
+```
 
-**DELTA**:
+**DELTA**: A compact snapshot of a page with 4,330 interactive candidates takes about half a second instead of 19–31 s, because it no longer verifies a selector per listed element (about 300 page round trips before, none now) and no longer takes a handle per candidate. The selector behind a ref is built and verified when the ref is first used, 14–244 ms on this page. The reply text is unchanged.
 
-**WITNESS**:
+**WITNESS**: Supervisor, 2026-11-11; `npm test` 381/381, the Wikipedia measurement, the saucedemo repro and the four-flow run executed by the Supervisor against 0a34f51; implementer: backend-developer on `worktree-agent-a00fe485bbf320e1c`.
