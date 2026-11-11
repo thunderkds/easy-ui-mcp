@@ -75,6 +75,7 @@ const GRAPHITE_MINT_TOKENS: Record<string, string> = {
 /** The sections, in page order (T036 regrouped them as overview / guide / reference). */
 const SECTION_IDS = [
   'overview',
+  'why-easy-ui',
   'how-it-works',
   'a-session',
   'before-after',
@@ -221,6 +222,42 @@ test('T035: the four guide sections are in the sidebar and carry their facts', (
     for (const needle of needles) assert.ok(body.includes(needle), `#${id} mentions ${needle}`);
     assert.match(body, /<pre><code>/, `#${id} has an example call`);
   }
+});
+
+test('T039: the page and README lead with UI testing and evidence, and the Why section carries the six points', () => {
+  const html = page();
+  const nav = html.slice(html.indexOf('id="sidenav"'), html.indexOf('<main'));
+  assert.ok(nav.includes('href="#why-easy-ui"'), 'sidebar links to #why-easy-ui');
+  assert.match(html, /<meta name="description" content="[^"]*UI-testing MCP[^"]*report/, 'meta description states the testing focus');
+
+  const hero = html.slice(html.indexOf('<section id="overview"'), html.indexOf('</section>', html.indexOf('<section id="overview"')));
+  assert.match(hero, /Not just another browser controller/, 'hero lede draws the line from general browser control');
+  assert.match(hero, /structured report/, 'hero lede promises a structured report');
+
+  const start = html.indexOf('<section id="why-easy-ui"');
+  const why = html.slice(start, html.indexOf('</section>', start));
+  for (const needle of [
+    'Structured reports',
+    'Testing primitives',
+    'ui_assert',
+    'ui_check',
+    'ui_wait_for',
+    'A verdict you can trust',
+    'Browser problems',
+    'Local first',
+    'docker compose up -d --build',
+    'No LLM inside',
+    'Made for Claude Code',
+    'dist/stdio.js',
+  ]) {
+    assert.ok(why.includes(needle), `#why-easy-ui mentions ${needle}`);
+  }
+
+  const readme = read('README.md');
+  assert.match(readme, /local UI-testing MCP that gives your agent structured, shareable test reports/, 'README carries the positioning line');
+  assert.ok(readme.includes('## Why easy-ui-mcp'), 'README has the Why section');
+  assert.ok(readme.indexOf('## Why easy-ui-mcp') < readme.indexOf('## Quick Start'), 'Why comes before Quick Start');
+  assert.match(read('package.json'), /"description": "Local UI-testing MCP server/, 'package.json description matches');
 });
 
 test('T025 AC5/AC7: shell and accessibility landmarks', () => {

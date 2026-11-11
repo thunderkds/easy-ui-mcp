@@ -1,7 +1,7 @@
 {
   "name": "easy-ui-mcp",
   "version": "0.1.0",
-  "description": "UI Testing MCP Server — Dockerized Playwright automation exposed over MCP HTTP/SSE.",
+  "description": "Local UI-testing MCP server: Dockerized Playwright tools for AI agents, with a structured JSON + HTML report (screenshots, step labels, pass/fail) for every session.",
   "main": "dist/server.js",
   "type": "module",
   "scripts": {
