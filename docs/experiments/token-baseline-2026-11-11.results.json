@@ -1,0 +1,412 @@
+{
+ "schemaTokens": 6705,
+ "results": {
+  "todomvc (small app)": {
+   "calls": 18,
+   "snapshots": 3,
+   "A": {
+    "requests": 368,
+    "snapshots": 747,
+    "otherReplies": 298,
+    "total": 1413,
+    "cumulative": 11032
+   },
+   "B": {
+    "requests": 289,
+    "snapshots": 262,
+    "otherReplies": 274,
+    "total": 824,
+    "cumulative": 6656
+   },
+   "minimalReplies": {
+    "otherReplies": 41,
+    "saved": 257
+   },
+   "perSnapshot": [
+    {
+     "url": "https://demo.playwright.dev/todomvc/#/",
+     "elements": 4,
+     "capped": false,
+     "current": 149,
+     "compact": 55,
+     "duplicateLines": 0
+    },
+    {
+     "url": "https://demo.playwright.dev/todomvc/#/",
+     "elements": 11,
+     "capped": false,
+     "current": 322,
+     "compact": 112,
+     "duplicateLines": 2
+    },
+    {
+     "url": "https://demo.playwright.dev/todomvc/#/completed",
+     "elements": 10,
+     "capped": false,
+     "current": 275,
+     "compact": 95,
+     "duplicateLines": 0
+    }
+   ],
+   "viewport": {
+    "snaps": [
+     {
+      "total": 4,
+      "inView": 4,
+      "compactAll": 219,
+      "compactInView": 219
+     },
+     {
+      "total": 11,
+      "inView": 11,
+      "compactAll": 448,
+      "compactInView": 448
+     },
+     {
+      "total": 10,
+      "inView": 10,
+      "compactAll": 381,
+      "compactInView": 381
+     }
+    ],
+    "targets": 5,
+    "targetsOffscreen": 0
+   },
+   "sampleReplies": [
+    "ui_start_session: Session 8f8ccad3-0b06-448e-b9f9-ab6389cb36bf started for target \"TodoMVC add and complete\"",
+    "ui_step: Step: Open the app",
+    "ui_navigate: Navigated to https://demo.playwright.dev/todomvc/#/ (title: \"React • TodoMVC\")",
+    "ui_step: Step: Add three todos",
+    "ui_fill: Filled \"role=textbox[name=\"What needs to be done?\"]\" with \"Buy milk\"",
+    "ui_press_key: Pressed Enter in \"role=textbox[name=\"What needs to be done?\"]\"",
+    "ui_fill: Filled \"role=textbox[name=\"What needs to be done?\"]\" with \"Write report\"",
+    "ui_press_key: Pressed Enter in \"role=textbox[name=\"What needs to be done?\"]\"",
+    "ui_fill: Filled \"role=textbox[name=\"What needs to be done?\"]\" with \"Call the bank\"",
+    "ui_press_key: Pressed Enter in \"role=textbox[name=\"What needs to be done?\"]\"",
+    "ui_step: Step: Complete the first and filter",
+    "ui_set_checked: Set \"role=checkbox[name=\"Toggle Todo\"] >> nth=0\" to checked",
+    "ui_click: Clicked \"role=link[name=\"Completed\"]\"",
+    "ui_assert: Assertion passed",
+    "ui_end_session: Session 8f8ccad3-0b06-448e-b9f9-ab6389cb36bf ended (passed). Reports: /tmp/claude-1000/-home-thunderkds-workspace-pets-easy-ui-mcp/176785b2-6c91-4c89-ad9f-6168a"
+   ]
+  },
+  "saucedemo (login + checkout)": {
+   "calls": 25,
+   "snapshots": 6,
+   "A": {
+    "requests": 389,
+    "snapshots": 1449,
+    "otherReplies": 255,
+    "total": 2092,
+    "cumulative": 26194
+   },
+   "B": {
+    "requests": 358,
+    "snapshots": 580,
+    "otherReplies": 267,
+    "total": 1205,
+    "cumulative": 14937
+   },
+   "minimalReplies": {
+    "otherReplies": 52,
+    "saved": 203
+   },
+   "perSnapshot": [
+    {
+     "url": "https://www.saucedemo.com/",
+     "elements": 3,
+     "capped": false,
+     "current": 69,
+     "compact": 28,
+     "duplicateLines": 0
+    },
+    {
+     "url": "https://www.saucedemo.com/inventory.html",
+     "elements": 24,
+     "capped": false,
+     "current": 582,
+     "compact": 254,
+     "duplicateLines": 11
+    },
+    {
+     "url": "https://www.saucedemo.com/cart.html",
+     "elements": 11,
+     "capped": false,
+     "current": 240,
+     "compact": 89,
+     "duplicateLines": 1
+    },
+    {
+     "url": "https://www.saucedemo.com/checkout-step-one.html",
+     "elements": 10,
+     "capped": false,
+     "current": 201,
+     "compact": 74,
+     "duplicateLines": 0
+    },
+    {
+     "url": "https://www.saucedemo.com/checkout-step-two.html",
+     "elements": 9,
+     "capped": false,
+     "current": 199,
+     "compact": 79,
+     "duplicateLines": 0
+    },
+    {
+     "url": "https://www.saucedemo.com/checkout-complete.html",
+     "elements": 7,
+     "capped": false,
+     "current": 159,
+     "compact": 57,
+     "duplicateLines": 0
+    }
+   ],
+   "viewport": {
+    "snaps": [
+     {
+      "total": 3,
+      "inView": 3,
+      "compactAll": 113,
+      "compactInView": 113
+     },
+     {
+      "total": 24,
+      "inView": 19,
+      "compactAll": 1014,
+      "compactInView": 906
+     },
+     {
+      "total": 11,
+      "inView": 8,
+      "compactAll": 357,
+      "compactInView": 302
+     },
+     {
+      "total": 10,
+      "inView": 7,
+      "compactAll": 295,
+      "compactInView": 241
+     },
+     {
+      "total": 9,
+      "inView": 4,
+      "compactAll": 315,
+      "compactInView": 222
+     },
+     {
+      "total": 7,
+      "inView": 7,
+      "compactAll": 226,
+      "compactInView": 226
+     }
+    ],
+    "targets": 11,
+    "targetsOffscreen": 1
+   },
+   "sampleReplies": [
+    "ui_start_session: Session 59e5db44-8faf-4ccb-8aa7-80e4e5fdd69f started for target \"Saucedemo checkout\"",
+    "ui_step: Step: Log in",
+    "ui_navigate: Navigated to https://www.saucedemo.com/ (title: \"Swag Labs\")",
+    "ui_fill: Filled \"#user-name\" with \"standard_user\"",
+    "ui_fill: Filled \"#password\" with \"secret_sauce\"",
+    "ui_click: Clicked \"#login-button\"",
+    "ui_step: Step: Add two items and open the cart",
+    "ui_click: Clicked \"#add-to-cart-sauce-labs-backpack\"",
+    "ui_click: Clicked \"#add-to-cart-sauce-labs-bike-light\"",
+    "ui_click: Clicked \".shopping_cart_link\"",
+    "ui_step: Step: Check out",
+    "ui_click: Clicked \"#checkout\"",
+    "ui_fill: Filled \"#first-name\" with \"Ada\"",
+    "ui_fill: Filled \"#last-name\" with \"Lovelace\"",
+    "ui_fill: Filled \"#postal-code\" with \"10000\"",
+    "ui_click: Clicked \"#continue\"",
+    "ui_click: Clicked \"#finish\"",
+    "ui_assert: Assertion passed",
+    "ui_end_session: Session 59e5db44-8faf-4ccb-8aa7-80e4e5fdd69f ended (passed). Reports: /tmp/claude-1000/-home-thunderkds-workspace-pets-easy-ui-mcp/176785b2-6c91-4c89-ad9f-6168a"
+   ]
+  },
+  "wikipedia (long article)": {
+   "calls": 14,
+   "snapshots": 3,
+   "A": {
+    "requests": 223,
+    "snapshots": 25759,
+    "otherReplies": 211,
+    "total": 26192,
+    "cumulative": 200655
+   },
+   "B": {
+    "requests": 211,
+    "snapshots": 4474,
+    "otherReplies": 213,
+    "total": 4897,
+    "cumulative": 36252
+   },
+   "minimalReplies": {
+    "otherReplies": 30,
+    "saved": 180
+   },
+   "perSnapshot": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Playwright_(software)",
+     "elements": 200,
+     "capped": true,
+     "current": 8092,
+     "compact": 1535,
+     "duplicateLines": 38
+    },
+    {
+     "url": "https://en.wikipedia.org/wiki/Microsoft",
+     "elements": 200,
+     "capped": true,
+     "current": 11164,
+     "compact": 1566,
+     "duplicateLines": 26
+    },
+    {
+     "url": "https://en.wikipedia.org/wiki/Selenium_(software)",
+     "elements": 200,
+     "capped": true,
+     "current": 6503,
+     "compact": 1374,
+     "duplicateLines": 40
+    }
+   ],
+   "viewport": {
+    "snaps": [
+     {
+      "total": 200,
+      "inView": 100,
+      "compactAll": 6140,
+      "compactInView": 3287
+     },
+     {
+      "total": 200,
+      "inView": 91,
+      "compactAll": 6263,
+      "compactInView": 3311
+     },
+     {
+      "total": 200,
+      "inView": 110,
+      "compactAll": 5494,
+      "compactInView": 3484
+     }
+    ],
+    "targets": 2,
+    "targetsOffscreen": 0
+   },
+   "sampleReplies": [
+    "ui_start_session: Session 1ff84f2c-2de9-46de-9a0b-eee4a6269479 started for target \"Wikipedia read and search\"",
+    "ui_step: Step: Open an article",
+    "ui_navigate: Navigated to https://en.wikipedia.org/wiki/Playwright_(software) (title: \"Playwright (software) - Wikipedia\")",
+    "ui_step: Step: Follow a link",
+    "ui_click: Clicked \"role=link[name=\"Microsoft\"] >> nth=0\"",
+    "ui_get_text: Microsoft",
+    "ui_step: Step: Search",
+    "ui_fill: Filled \"#searchInput\" with \"Selenium (software)\"",
+    "ui_press_key: Pressed Enter in \"#searchInput\"",
+    "ui_assert: Assertion passed",
+    "ui_end_session: Session 1ff84f2c-2de9-46de-9a0b-eee4a6269479 ended (passed). Reports: /tmp/claude-1000/-home-thunderkds-workspace-pets-easy-ui-mcp/176785b2-6c91-4c89-ad9f-6168a"
+   ]
+  },
+  "hacker news (link list)": {
+   "calls": 14,
+   "snapshots": 4,
+   "A": {
+    "requests": 215,
+    "snapshots": 26674,
+    "otherReplies": 197,
+    "total": 27086,
+    "cumulative": 154592
+   },
+   "B": {
+    "requests": 195,
+    "snapshots": 5113,
+    "otherReplies": 186,
+    "total": 5494,
+    "cumulative": 39654
+   },
+   "minimalReplies": {
+    "otherReplies": 28,
+    "saved": 169
+   },
+   "perSnapshot": [
+    {
+     "url": "https://news.ycombinator.com/",
+     "elements": 198,
+     "capped": false,
+     "current": 4534,
+     "compact": 1372,
+     "duplicateLines": 50
+    },
+    {
+     "url": "https://news.ycombinator.com/newest",
+     "elements": 200,
+     "capped": true,
+     "current": 4718,
+     "compact": 1425,
+     "duplicateLines": 90
+    },
+    {
+     "url": "https://news.ycombinator.com/front",
+     "elements": 172,
+     "capped": false,
+     "current": 4034,
+     "compact": 1267,
+     "duplicateLines": 21
+    },
+    {
+     "url": "https://news.ycombinator.com/item?id=50429068",
+     "elements": 200,
+     "capped": true,
+     "current": 13388,
+     "compact": 1049,
+     "duplicateLines": 138
+    }
+   ],
+   "viewport": {
+    "snaps": [
+     {
+      "total": 198,
+      "inView": 125,
+      "compactAll": 5489,
+      "compactInView": 3520
+     },
+     {
+      "total": 200,
+      "inView": 142,
+      "compactAll": 5701,
+      "compactInView": 4128
+     },
+     {
+      "total": 172,
+      "inView": 103,
+      "compactAll": 5067,
+      "compactInView": 2988
+     },
+     {
+      "total": 200,
+      "inView": 37,
+      "compactAll": 4195,
+      "compactInView": 926
+     }
+    ],
+    "targets": 3,
+    "targetsOffscreen": 0
+   },
+   "sampleReplies": [
+    "ui_start_session: Session 16a40a28-96fe-4327-ad8e-d0952e2003d6 started for target \"Hacker News browse\"",
+    "ui_step: Step: Open the front page",
+    "ui_navigate: Navigated to https://news.ycombinator.com/ (title: \"Hacker News\")",
+    "ui_step: Step: Newest, then past",
+    "ui_click: Clicked \"role=link[name=\"new\"]\"",
+    "ui_click: Clicked \"role=link[name=\"past\"] >> nth=0\"",
+    "ui_step: Step: Open the first comment thread",
+    "ui_click: Clicked \"role=link[name=\"1007 comments\"]\"",
+    "ui_assert: Assertion passed",
+    "ui_end_session: Session 16a40a28-96fe-4327-ad8e-d0952e2003d6 ended (passed). Reports: /tmp/claude-1000/-home-thunderkds-workspace-pets-easy-ui-mcp/176785b2-6c91-4c89-ad9f-6168a"
+   ]
+  }
+ }
+}
