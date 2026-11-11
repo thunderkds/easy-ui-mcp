@@ -45,8 +45,21 @@ Not done: merge (yours); <auto verify: running (T182) | auto verify: <result> | 
 
 ## Evidence
 
-| Check | Result | Notes / output snippet |
-|-------|--------|------------------------|
+| Check | Result | Notes |
+|-------|--------|-------|
+| **New test(s) cover Acceptance Criteria (file paths pasted)** | ☑ pass | `test/web.test.ts`: 9 `T042` tests (re-render SC1, never settles SC2, single pass SC3, refs after a retry SC4, empty page SC5, cap note joined AC6, ticking clock / animation, destroyed context, closed page) |
+| Verification command run | ☑ pass | Supervisor on 8fc7021: `npx tsc --noEmit -p tsconfig.json` clean; `npm test` → tests 343, suites 8, pass 343, fail 0 (traced under T042) |
+| Negative cases hold | ☑ pass | Red run by the implementer on the starting commit: SC1 failed with `[]` instead of `['Final 1','Final 2','Final 3']`; SC2, SC4, AC6 and the destroyed-context test failed too. Stable pages take one pass (SC3 counts `page.$$` calls) |
+| verify | ☑ pass | pass — Supervisor real run 2026-11-11 against `src/stdio.ts` of 8fc7021 through an MCP client: on saucedemo the snapshot straight after each click lists 30 / 7 / 24 / 7 / 24 elements (main: 0 every time). Stable pages unchanged: Wikipedia, Hacker News and TodoMVC snapshots take the same time as on main and carry no "still changing" note. The four baseline flows pass with no wait before snapshots (807 / 1,210 / 4,591 / 5,465 tokens). The `verify` skill is not installed in this session; this run is the live check |
+| Review scope bounded to the change's blast radius (affected set, not whole repo) | ☑ pass | `getPageState` in `src/tools/web.ts`, its tests, one RUNBOOK row; `src/server.ts` untouched (tool list still 19,017 characters) |
+| Full smoke suite still green (no regression) | ☑ pass | `npm test` 343/343 on 8fc7021 |
+| Code review | ☑ pass | 0 P0 / P1 / P2; 3 P3 accepted (budget overshoot on a large never-settling page, 2.7–2.9 s; a permanently unverifiable visible element would cost 2 s per snapshot, not seen; lane_check `C1, 3 files, 291 lines, EXCEEDS (lines 291 > 250)`, 197 lines are tests). Report: `reports/code-review_worktree-agent-a47fe5f3f25bab868_20261111T115055.html` |
+| **Companion score (easy-verifier)** | ☑ N/A | easy-verifier not run in this session |
+| **UI: Visual regression (diff or verdict pasted)** | ☑ N/A | no UI change |
+| **UI: Design-system compliance (tokens/colors/typography verified)** | ☑ N/A | no UI change |
+| **UI: Responsiveness at target viewports** | ☑ N/A | no UI change |
+
+-------|--------|------------------------|
 | **New test(s) cover Acceptance Criteria (file paths pasted)** | ☐ pass / ☐ fail | [test file path(s) — required before Done] |
 | Verification command run | ☐ pass / ☐ fail | [paste actual output] |
 | Negative cases hold | ☐ pass / ☐ fail | [paste the red run against the prior content, or the mutation diff (`git diff --stat`, non-empty) before each verdict] |
@@ -77,9 +90,15 @@ click #continue-shopping: immediate 0 elements (87 ms) | after 800ms 24 | url: h
 ```
 In-process probe at the same moment: `document.readyState` is `complete`, the DOM still holds 8 buttons, and the snapshot lists 0 elements.
 
-**AFTER**: [same command, post-change] OR [verbatim excerpt of the new content]
+**AFTER**: captured 2026-11-11 on 8fc7021, by the Supervisor, same repro script against the task branch:
+```
+after login click: 30 elements, 297 ms; url: https://www.saucedemo.com/inventory.html
+click .shopping_cart_link: immediate 7 elements (204 ms) | after 800ms 7 | url: https://www.saucedemo.com/cart.html
+click #continue-shopping: immediate 24 elements (211 ms) | after 800ms 24 | url: https://www.saucedemo.com/inventory.html
+click .shopping_cart_link: immediate 7 elements (176 ms) | after 800ms 7 | url: https://www.saucedemo.com/cart.html
+click #continue-shopping: immediate 24 elements (247 ms) | after 800ms 24 | url: https://www.saucedemo.com/inventory.html
+```
 
-**DELTA**: [one sentence — what a user can now do that they could not before]
+**DELTA**: An agent can take a snapshot straight after a click that changes the route and gets the new page's elements instead of an empty list; the snapshot costs 100–200 ms more only when the page was re-rendering.
 
-**WITNESS**: [who ran it and when — derived from `memory/event-trace/Txxx.jsonl`, never the
-implementing agent alone]
+**WITNESS**: Supervisor, 2026-11-11; `npm test` 343/343, the saucedemo repro and the four-flow run executed by the Supervisor against 8fc7021 and traced in `memory/event-trace/T042.jsonl`; implementation by backend-developer in a separate worktree.
