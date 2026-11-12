@@ -20,6 +20,9 @@
 - [Session-aware tools use `registerSessionTool`](learnings.md#gotchas) — plain `server.registerTool(` acts on no session; doc tests scan the literal call; onclose needs DELETE (T029)
 - [stdio entry: close on stdin end, await onclose cleanup](learnings.md#gotchas) — SDK stdio transport ignores stdin EOF; `settleClosing()` before exit or reports are lost (T038)
 - [Page state: compact text + identity-checked refs by default (T040)](decisions.md#architecture) — `@eN`/`@oN` resolve in `registerSessionTool`; refused ref is a soft step; `format: "full"` = old JSON and ends refs
+- [README is the short pitch; detail on the docs page (T046)](decisions.md#architecture) — 44 lines, tool list kept for the doc-drift test; absolute links into `site/index.html` ids; pinned <= 60 lines
+- [Kit scripts take project root from cwd (T046)](learnings.md#gotchas) — run `delivery-report` with `CLAUDE_PROJECT_DIR=<main repo>` from a worktree or WITNESS is underived
+- [Spawn prompts need a Startup reads block (T046)](learnings.md#gotchas) — use `craft-spawn-prompt`; a missing `Startup reads:` line is a P1 process finding
 - [Compact snapshots build selectors on demand (T045)](decisions.md#architecture) — `selectors: false` for compact; a ref's selector is built and identity-checked on first use; `format: "full"` still eager and slow on huge pages
 - [Per-element Playwright calls are slow on huge pages (T045)](learnings.md#gotchas) — ~100 ms per `locator` check, 2 s for 4,330 handles; batch in one `evaluate`; `page.$$` pierces shadow roots
 - [Merge gate reads main's board](learnings.md#gotchas) — commit the closed row and review file on main before `git merge`

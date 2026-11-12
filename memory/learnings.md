@@ -139,3 +139,11 @@ During T040 a second session committed T039 and T044 to main (README rewritten).
 ### 2026-11-10 — The merge gate reads the board before a chained command runs (T035)
 **Gotcha**: `pre_bash_block_unsafe_merge.py` evaluates PROJECT_KANBAN.md and the Evidence rows *before* the Bash call executes, so "commit evidence && move row to Ready for Review && git merge" in one call is refused as a whole (nothing in it runs). Do the evidence commit and the board move in their own calls, then the merge. The verify row's Notes cell must itself contain the word "pass" (see the corrected-regex entry above).
 **Source**: T035 merge, 2026-11-10.
+
+### 2026-11-12 — `delivery-report` and other kit scripts take their project root from the working directory (T046)
+**Gotcha**: Run from a worktree, `render.py` saved the report inside the worktree and found no event trace, so WITNESS read "underived". Run it with `CLAUDE_PROJECT_DIR=<main repo>` and absolute guide paths so the report and the trace resolve in the main checkout. Check the WITNESS line says "Derived from ... record(s)" before using the page.
+**Source**: T046 Stage 5.
+
+### 2026-11-12 — A spawn prompt without a Startup reads block lets the agent skip the spec and the brainstorm log (T046)
+**Gotcha**: The `pre_agent` hook warned that the T046 prompt had no `**Startup reads**` block and no memory slice; the agent then edited without opening `PROJECT_SPEC.md` or the brainstorm log. The code review counts a missing `Startup reads:` line as a P1 process finding. Use `craft-spawn-prompt` for every spawn, even for a docs task, and ask the agent for its `Startup reads:` line in its report.
+**Source**: T046 Stage 4 (agent report, 2026-11-12).
