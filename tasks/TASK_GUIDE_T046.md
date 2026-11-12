@@ -51,17 +51,17 @@ User, 2026-11-12: "from the README, I wanna make it more simple. Focusing which 
 
 ## Acceptance Criteria
 
-- [ ] `README.md` is at most 60 lines.
-- [ ] It opens with the positioning line, unchanged: "local UI-testing MCP that gives your agent structured, shareable test reports".
-- [ ] It states the problem first (what goes wrong with plain browser automation for testing), then why to use this repo (the six points, one short row each), then Quick Start (build, health check, `claude mcp add`).
-- [ ] It keeps one line naming all registered tools in backticks, and mentions `session_id` once (for the doc-drift tests).
-- [ ] It has a short stdio note (`dist/stdio.js`, run via `mcp-proxy -- node dist/stdio.js`) that links to the site section.
-- [ ] Every link from the README to the guide is an absolute `https://easy-ui-mcp.vercel.app/#<id>` URL whose id exists in `site/index.html`. The README still contains `site/index.html` once (T025 AC10: link to the site source).
-- [ ] The README links the other docs: `AGENTS.md`, `HARNESS.md`, `RUNBOOK.md`, `PRD.md`.
-- [ ] `site/index.html` gains the three pieces the README used to hold alone: a stdio section (build, start with `mcp-proxy`, one client per connection, exits when stdin closes), a Scope (v1) note (web and Chromium only, local only, Android on hold, no `android_*` tools), and links to AGENTS.md, HARNESS.md, RUNBOOK.md and PRD.md. The sidebar lists any new section. The new text is moved from the README, not reworded.
-- [ ] The facts the README removed are on the site (spot-check list in the Test Plan); none is dropped.
-- [ ] `test/site.test.ts` T039 README assertions describe the new README: positioning line, Quick Start, the six-point table, the line count ceiling, links to existing site ids. The old "two top-level parts" and "detail part holds ### Tools / ### Networking / ### Scope (v1)" assertions are replaced, not weakened silently.
-- [ ] Full `npm test` has 0 failures, with no other test edited.
+- [x] `README.md` is at most 60 lines.
+- [x] It opens with the positioning line, unchanged: "local UI-testing MCP that gives your agent structured, shareable test reports".
+- [x] It states the problem first (what goes wrong with plain browser automation for testing), then why to use this repo (the six points, one short row each), then Quick Start (build, health check, `claude mcp add`).
+- [x] It keeps one line naming all registered tools in backticks, and mentions `session_id` once (for the doc-drift tests).
+- [x] It has a short stdio note (`dist/stdio.js`, run via `mcp-proxy -- node dist/stdio.js`) that links to the site section.
+- [x] Every link from the README to the guide is an absolute `https://easy-ui-mcp.vercel.app/#<id>` URL whose id exists in `site/index.html`. The README still contains `site/index.html` once (T025 AC10: link to the site source).
+- [x] The README links the other docs: `AGENTS.md`, `HARNESS.md`, `RUNBOOK.md`, `PRD.md`.
+- [x] `site/index.html` gains the three pieces the README used to hold alone: a stdio section (build, start with `mcp-proxy`, one client per connection, exits when stdin closes), a Scope (v1) note (web and Chromium only, local only, Android on hold, no `android_*` tools), and links to AGENTS.md, HARNESS.md, RUNBOOK.md and PRD.md. The sidebar lists any new section. The new text is moved from the README, not reworded.
+- [x] The facts the README removed are on the site (spot-check list in the Test Plan); none is dropped.
+- [x] `test/site.test.ts` T039 README assertions describe the new README: positioning line, Quick Start, the six-point table, the line count ceiling, links to existing site ids. The old "two top-level parts" and "detail part holds ### Tools / ### Networking / ### Scope (v1)" assertions are replaced, not weakened silently.
+- [x] Full `npm test` has 0 failures, with no other test edited.
 
 ## Evaluation & Acceptance
 
@@ -92,7 +92,9 @@ node --import tsx --test test/site.test.ts test/docs-tools.test.ts && npm test
 
 ## Demonstration
 
-> See `tasks/TASK_REVIEW_T046.md`. BEFORE is the 207-line README at `8449c12`; AFTER is the short README plus the extended site page.
+> See `tasks/TASK_REVIEW_T046.md`. AFTER is the short README plus the extended site page.
+
+**BEFORE** (measured 2026-11-12 on `main` at `7b24a59`, before any implementation commit): `README.md` is 207 lines, 3,198 words, 21,087 characters, 2 top-level parts, 13 subsections; the highlights part is lines 9–42 and the detail part is 165 lines (43–207). It names 26 tools. `site/index.html` is 976 lines with 20 sections; it has no `mcp-proxy` text, no Scope note, and no links to AGENTS.md, HARNESS.md, RUNBOOK.md or PRD.md.
 
 ---
 
@@ -143,10 +145,10 @@ node --import tsx --test test/site.test.ts test/docs-tools.test.ts && npm test
 
 ## Completion Checklist
 
-- [ ] Implementation done
-- [ ] Self-review: `Skill({ skill: "code-review" })` run
-- [ ] Security review: not required for a docs change; Supervisor confirms no secret or internal path was added
-- [ ] Tests written AND pass; output pasted into `tasks/TASK_REVIEW_T046.md`
-- [ ] `Skill({ skill: "verify" })` run: the site page renders and its new anchors work
-- [ ] `memory/MEMORY.md` updated if a new pattern was learned (Supervisor only)
-- [ ] Supervisor notified: task ready for Stage 4 review
+- [x] Implementation done
+- [x] Self-review: `Skill({ skill: "code-review" })` run
+- [x] Security review: not required for a docs change; Supervisor confirms no secret or internal path was added
+- [x] Tests written AND pass; output pasted into `tasks/TASK_REVIEW_T046.md`
+- [x] `Skill({ skill: "verify" })` run: the site page renders and its new anchors work
+- [x] `memory/MEMORY.md` updated if a new pattern was learned (Supervisor only)
+- [x] Supervisor notified: task ready for Stage 4 review
