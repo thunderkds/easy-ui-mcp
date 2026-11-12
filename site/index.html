@@ -371,6 +371,7 @@
       <p class="sidenav__label">// guide</p>
       <a class="sidenav__item" href="#quick-start">Quick start</a>
       <a class="sidenav__item" href="#another-repo">Use from another repo</a>
+      <a class="sidenav__item" href="#stdio">Running over stdio</a>
       <a class="sidenav__item" href="#networking">Networking</a>
       <a class="sidenav__item" href="#writing-a-flow">Writing a flow</a>
       <a class="sidenav__item" href="#several-sessions">Several sessions</a>
@@ -387,6 +388,8 @@
       <a class="sidenav__item" href="#measured">Measured</a>
       <a class="sidenav__item" href="#troubleshooting">Troubleshooting</a>
       <a class="sidenav__item" href="#development">Development</a>
+      <a class="sidenav__item" href="#scope">Scope (v1)</a>
+      <a class="sidenav__item" href="#more-docs">More docs</a>
     </div>
   </nav>
 
@@ -561,6 +564,16 @@ ui_dialog  action: "accept"</code></pre>
       <p>MCP registration is per project: run <code>claude mcp add</code> from that repo's root too. The container only needs to run once and is shared across repos.</p>
 <pre><code><span class="p">$</span> cd /path/to/your-app
 <span class="p">$</span> claude mcp add --transport http easy-ui-mcp http://localhost:8765/mcp</code></pre>
+    </section>
+
+    <section id="stdio">
+      <h2>Running over stdio (Glama, <code>mcp-proxy</code>)</h2>
+      <p>Hosts that wrap a stdio MCP server, such as Glama's <code>mcp-proxy</code>, run <code>dist/stdio.js</code> instead of the HTTP server. It speaks the same tools over stdin/stdout, binds no port, and exits when stdin closes.</p>
+<pre><code><span class="c"># build</span>
+<span class="p">$</span> pnpm install &amp;&amp; pnpm build &amp;&amp; pnpm exec playwright install --with-deps chromium
+<span class="c"># start</span>
+<span class="p">$</span> mcp-proxy -- node dist/stdio.js</code></pre>
+      <p>One stdio connection is one client, so the legacy shared page (the one <code>ui_navigate</code> uses without a session) is not shared with anyone else. The Docker/HTTP flow above is unchanged.</p>
     </section>
 
     <section id="networking">
@@ -936,6 +949,16 @@ ui_drag           from: "[data-testid=\"card-1\"]"  to: "[data-testid=\"column-d
           <p>This page is plain static HTML in <code>site/index.html</code>. Vercel serves the <code>site/</code> directory as-is, with no install and no build (see <code>vercel.json</code>).</p>
         </div>
       </details>
+    </section>
+
+    <section id="scope">
+      <h2>Scope (v1)</h2>
+      <p>Web only (Chromium) and local only. The server runs over HTTP/SSE by default and over stdio through <code>dist/stdio.js</code> (see <a href="#stdio">Running over stdio</a>). Android (Appium) work is on hold: the infrastructure is in the image, but no <code>android_*</code> tools are registered.</p>
+    </section>
+
+    <section id="more-docs">
+      <h2>More docs</h2>
+      <p>See <a href="https://github.com/thunderkds/easy-ui-mcp/blob/main/AGENTS.md">AGENTS.md</a> for the architecture and full MCP connection guide, and <a href="https://github.com/thunderkds/easy-ui-mcp/blob/main/HARNESS.md">HARNESS.md</a> for the REST API reference. Deploy/rollback procedures are in <a href="https://github.com/thunderkds/easy-ui-mcp/blob/main/RUNBOOK.md">RUNBOOK.md</a>. See <a href="https://github.com/thunderkds/easy-ui-mcp/blob/main/PRD.md">PRD.md</a> for full product intent and <a href="https://github.com/thunderkds/easy-ui-mcp/blob/main/PROJECT_SPEC.md">PROJECT_SPEC.md</a> for architecture decisions.</p>
     </section>
 
     <footer class="foot"><p>Easy UI (easy-ui-mcp) v0.1.0. Source and issues on <a href="https://github.com/thunderkds/easy-ui-mcp">GitHub</a>.</p></footer>

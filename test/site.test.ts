@@ -255,17 +255,31 @@ test('T039: the page and README lead with UI testing and evidence, and the Why s
 
   const readme = read('README.md');
   assert.match(readme, /local UI-testing MCP that gives your agent structured, shareable test reports/, 'README carries the positioning line');
-  // T044: two parts. Highlights (with Quick Start) first, the detail of how it works below.
+  // T046: the README is short (problem, why, quick start); the detail lives on the page.
+  const lines = readme.replace(/\n$/, '').split('\n');
+  assert.ok(lines.length <= 60, `README is at most 60 lines (now ${lines.length})`);
   const at = (h: string) => readme.indexOf(`\n${h}\n`);
-  assert.ok(at('## Highlights') > -1 && at('### Quick Start') > -1 && at('## How it works in detail') > -1, 'README has Highlights, Quick Start and How it works in detail');
-  assert.ok(at('## Highlights') < at('### Quick Start'), 'Highlights comes before Quick Start');
-  assert.ok(at('### Quick Start') < at('## How it works in detail'), 'Quick Start sits in the highlights part');
-  assert.ok(readme.indexOf('| What you get |') < at('## How it works in detail'), 'the six-point table is in the highlights part');
-  const detail = readme.slice(at('## How it works in detail'));
-  for (const h of ['### Tools', '### Networking', '### Scope (v1)', '#### What the report shows']) {
-    assert.ok(detail.includes(`\n${h}\n`), `the detail part holds ${h}`);
+  assert.ok(at('## The problem') > -1 && at('## Why use it') > -1 && at('## Quick Start') > -1, 'README has The problem, Why use it and Quick Start');
+  assert.ok(at('## The problem') < at('## Why use it'), 'the problem comes first');
+  assert.ok(at('## Why use it') < at('## Quick Start'), 'why comes before Quick Start');
+  const whyTable = readme.slice(at('## Why use it'), at('## Quick Start'));
+  const rows = whyTable.split('\n').filter((l) => /^\| \*\*/.test(l));
+  assert.ok(rows.length >= 6, 'the why table keeps all six points');
+  for (const row of rows) assert.ok(row.length <= 260, `one short row each: ${row.slice(0, 40)}`);
+  for (const needle of ['report', 'ui_assert', 'verdict', 'one command', 'No LLM', 'Claude Code', 'Fewer wasted calls']) {
+    assert.ok(whyTable.toLowerCase().includes(needle.toLowerCase()), `the why table mentions ${needle}`);
   }
-  assert.ok(!/\n## (?!Highlights|How it works in detail)/.test(readme.replace(/```[\s\S]*?```/g, '')), 'README has exactly two top-level parts');
+  assert.ok(readme.includes('docker compose up -d --build') && readme.includes('curl http://localhost:8765/health') && readme.includes('claude mcp add --transport http easy-ui-mcp http://localhost:8765/mcp'), 'Quick Start has build, health check and claude mcp add');
+  assert.ok(readme.includes('mcp-proxy -- node dist/stdio.js'), 'README has the short stdio note');
+  const siteIds = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+  const guideLinks = [...readme.matchAll(/\]\((https:\/\/easy-ui-mcp\.vercel\.app\/)([^)]*)\)/g)];
+  assert.ok(guideLinks.length >= 2, 'README links into the guide');
+  for (const [, , rest] of guideLinks) {
+    assert.ok(rest === '' || rest.startsWith('#'), `guide link ${rest} is the page or an anchor`);
+    if (rest.startsWith('#')) assert.ok(siteIds.has(rest.slice(1)), `README link ${rest} has a matching id in site/index.html`);
+  }
+  assert.doesNotMatch(readme, /\]\(site\/index\.html#/, 'no relative anchor links to the site');
+  for (const doc of ['AGENTS.md', 'HARNESS.md', 'RUNBOOK.md', 'PRD.md']) assert.ok(readme.includes(doc), `README links ${doc}`);
   assert.match(read('package.json'), /"description": "Local UI-testing MCP server/, 'package.json description matches');
 });
 
@@ -283,6 +297,25 @@ test('T025 AC5/AC7: shell and accessibility landmarks', () => {
   for (const m of html.matchAll(/<button\b[^>]*>/g)) {
     assert.match(m[0], /aria-label=|aria-controls=/, `button has an accessible name: ${m[0]}`);
   }
+});
+
+test('T046: the page holds what the README no longer does: stdio, Scope (v1) and the other docs', () => {
+  const html = page();
+  const nav = html.slice(html.indexOf('id="sidenav"'), html.indexOf('<main'));
+  const section = (id: string) => {
+    const start = html.indexOf(`<section id="${id}"`);
+    assert.ok(start > -1, `section #${id} exists`);
+    return html.slice(start, html.indexOf('</section>', start));
+  };
+  for (const id of ['stdio', 'scope', 'more-docs']) assert.ok(nav.includes(`href="#${id}"`), `sidebar links to #${id}`);
+  const stdio = section('stdio');
+  for (const needle of ['mcp-proxy -- node dist/stdio.js', 'pnpm build', 'dist/stdio.js', 'one client', 'stdin']) {
+    assert.ok(stdio.includes(needle), `#stdio mentions ${needle}`);
+  }
+  const scope = section('scope');
+  for (const needle of ['Chromium', 'local only', 'Android', 'android_*']) assert.ok(scope.includes(needle), `#scope mentions ${needle}`);
+  const docs = section('more-docs');
+  for (const doc of ['AGENTS.md', 'HARNESS.md', 'RUNBOOK.md', 'PRD.md']) assert.match(docs, new RegExp(`<a href="[^"]*${doc.replace('.', '\\.')}">`), `#more-docs links ${doc}`);
 });
 
 test('T025 facts: key commands and numbers match README/RUNBOOK', () => {
