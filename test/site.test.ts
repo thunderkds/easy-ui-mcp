@@ -318,6 +318,28 @@ test('T046: the page holds what the README no longer does: stdio, Scope (v1) and
   for (const doc of ['AGENTS.md', 'HARNESS.md', 'RUNBOOK.md', 'PRD.md']) assert.match(docs, new RegExp(`<a href="[^"]*${doc.replace('.', '\\.')}">`), `#more-docs links ${doc}`);
 });
 
+test('T046: finer reference detail from the old README is on the page', () => {
+  const html = page();
+  for (const needle of [
+    'Unknown session',
+    'was closed after 10 min idle',
+    '-webkit-text-security',
+    'host-gateway"]',
+    'nth=',
+    'checked=false',
+    'alertdialog',
+    'menuitemradio',
+    'Showing 37 of 180 elements',
+    '{role, name, selector, state?}',
+    'requestfailed',
+    'Downloaded: &lt;name&gt;',
+    '&lt;host-LAN-IP&gt;:8766',
+  ]) {
+    assert.ok(html.includes(needle), `site/index.html keeps ${needle}`);
+  }
+  assert.match(read('README.md'), /\[`site\/index\.html`\]\(site\/index\.html\)/, 'README links the site source file');
+});
+
 test('T025 facts: key commands and numbers match README/RUNBOOK', () => {
   const html = page();
   for (const needle of [
