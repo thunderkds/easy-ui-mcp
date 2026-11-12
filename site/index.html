@@ -371,6 +371,7 @@
       <p class="sidenav__label">// guide</p>
       <a class="sidenav__item" href="#quick-start">Quick start</a>
       <a class="sidenav__item" href="#another-repo">Use from another repo</a>
+      <a class="sidenav__item" href="#stdio">Running over stdio</a>
       <a class="sidenav__item" href="#networking">Networking</a>
       <a class="sidenav__item" href="#writing-a-flow">Writing a flow</a>
       <a class="sidenav__item" href="#several-sessions">Several sessions</a>
@@ -387,6 +388,8 @@
       <a class="sidenav__item" href="#measured">Measured</a>
       <a class="sidenav__item" href="#troubleshooting">Troubleshooting</a>
       <a class="sidenav__item" href="#development">Development</a>
+      <a class="sidenav__item" href="#scope">Scope (v1)</a>
+      <a class="sidenav__item" href="#more-docs">More docs</a>
     </div>
   </nav>
 
@@ -563,6 +566,16 @@ ui_dialog  action: "accept"</code></pre>
 <span class="p">$</span> claude mcp add --transport http easy-ui-mcp http://localhost:8765/mcp</code></pre>
     </section>
 
+    <section id="stdio">
+      <h2>Running over stdio (Glama, <code>mcp-proxy</code>)</h2>
+      <p>Hosts that wrap a stdio MCP server, such as Glama's <code>mcp-proxy</code>, run <code>dist/stdio.js</code> instead of the HTTP server. It speaks the same tools over stdin/stdout, binds no port, and exits when stdin closes.</p>
+<pre><code><span class="c"># build</span>
+<span class="p">$</span> pnpm install &amp;&amp; pnpm build &amp;&amp; pnpm exec playwright install --with-deps chromium
+<span class="c"># start</span>
+<span class="p">$</span> mcp-proxy -- node dist/stdio.js</code></pre>
+      <p>One stdio connection is one client, so the legacy shared page (the one <code>ui_navigate</code> uses without a session) is not shared with anyone else. The Docker/HTTP flow above is unchanged.</p>
+    </section>
+
     <section id="networking">
       <h2>Networking</h2>
       <p>The browser lives inside the container, so it must reach <code>localhost:&lt;port&gt;</code> on your machine, where your app's dev server runs. The container therefore uses the host network.</p>
@@ -576,10 +589,11 @@ ui_dialog  action: "accept"</code></pre>
       <details class="more">
         <summary>More detail</summary>
         <div class="more-body">
-          <p>The container runs with <code>network_mode: host</code> in <code>docker-compose.yml</code>, not a published port on a bridge network. This is required: the browser Playwright drives inside the container must reach <code>localhost:&lt;port&gt;</code> on your host machine, where the dev server of the app you are testing runs. On a default bridge network the container has no route back to the host, so targets such as <code>http://localhost:8766</code> hang or fail with <code>ERR_CONNECTION_REFUSED</code>.</p>
+          <p>The container runs with <code>network_mode: host</code> in <code>docker-compose.yml</code>, not a published port on a bridge network. This is required: the browser Playwright drives inside the container must reach <code>localhost:&lt;port&gt;</code> on your host machine, where the dev server of the app you are testing runs. On a default bridge network the container has no route back to the host, so targets such as <code>http://localhost:8766</code> hang or fail with <code>ERR_CONNECTION_REFUSED</code>, and <code>http://&lt;host-LAN-IP&gt;:8766</code> will just time out, even if the target server is listening and reachable via <code>curl</code> from the host shell.</p>
           <p>Where <code>network_mode: host</code> is not available (for example Docker Desktop on macOS or Windows), use <code>host.docker.internal</code> as the hostname instead of <code>localhost</code> when calling <code>ui_navigate</code>, and add this to <code>docker-compose.yml</code>:</p>
 <pre><code>extra_hosts:
   - "host.docker.internal:host-gateway"</code></pre>
+          <p>As one line: <code>extra_hosts: ["host.docker.internal:host-gateway"]</code>.</p>
         </div>
       </details>
     </section>
@@ -639,14 +653,14 @@ ui_click  selector: @e2</code></pre>
       <details class="more">
         <summary>More detail</summary>
         <div class="more-body">
-          <p>One connection can hold several open sessions (up to 3; set <code>MAX_SESSIONS_PER_CONNECTION</code> to change it), for example to compare two URLs. <code>ui_start_session</code> returns a session id; pass it as <code>session_id</code> to any other tool to choose the session it acts on. Each session has its own browser, page, step label and report.</p>
+          <p>One connection can hold several open sessions (up to 3; set <code>MAX_SESSIONS_PER_CONNECTION</code> to change it), for example to compare two URLs or a logged-in and a logged-out user. <code>ui_start_session</code> returns a session id; pass it as <code>session_id</code> to any other tool to choose the session it acts on. Each session has its own browser, page, step label and report.</p>
 <pre><code>ui_start_session  target: "staging"      -&gt; Session &lt;id-A&gt; started
 ui_start_session  target: "production"   -&gt; Session &lt;id-B&gt; started
 ui_navigate       url: ...  session_id: &lt;id-A&gt;
 ui_navigate       url: ...  session_id: &lt;id-B&gt;
 ui_end_session    session_id: &lt;id-A&gt;
 ui_end_session    session_id: &lt;id-B&gt;</code></pre>
-          <p>With exactly one open session <code>session_id</code> can be left out. With several open, leaving it out is an error that lists the open ids. A session is reachable only from the connection that started it. A session with no tool call for 10 minutes (<code>SESSION_TIMEOUT_MS</code>) is closed automatically and its report is written with status <code>timed_out</code>; when a connection closes, every session it still owns is ended and reported.</p>
+          <p>With exactly one open session <code>session_id</code> can be left out. With several open, leaving it out is an error that lists the open ids, so a call never lands on the wrong page. A session is reachable only from the connection that started it. Another connection passing its id gets <code>Unknown session</code>. A session with no tool call for 10 minutes (<code>SESSION_TIMEOUT_MS</code>, in milliseconds) is closed automatically: its browser is shut down and its report is written with status <code>timed_out</code>. A call with that id then returns <code>Session &lt;id&gt; was closed after 10 min idle</code>. When a connection closes, every session it still owns is ended and reported.</p>
         </div>
       </details>
     </section>
@@ -724,6 +738,25 @@ ui_get_text</code></pre>
           <p>Before you click, ask the page what it looks like right now. <code>ui_get_page_state</code> lists up to 200 visible interactive elements, each with an <code>@eN</code> ref and, when it differs from the default, its state. A ref is valid for the latest snapshot only and fails, rather than misfires, once the page has changed; <code>format: "full"</code> returns JSON with a verified <code>selector</code> per element and no refs. On a long page, <code>viewport: true</code> lists only what is on screen and <code>within</code> only what is inside one element; a scoped reply says how many elements it left out. Custom widgets are included: <code>combobox</code>, <code>listbox</code>, <code>option</code>, <code>switch</code>, <code>slider</code>, <code>spinbutton</code>, <code>searchbox</code>, <code>treeitem</code>, <code>summary</code>, <code>contenteditable</code> regions, and anything with a role and <code>tabindex &gt;= 0</code>.</p>
           <p><code>overlay @o1 dialog "Confirm" modal</code> lists each open dialog, topmost first, and its ref works wherever a selector does (for example <code>ui_click_outside</code>). No overlay line means nothing is open, so a modal opening or closing shows up as the line appearing or disappearing. <code>focused: @e2</code> names the element holding focus, and is absent when focus is on the page body, in an iframe or in a shadow root.</p>
           <p><code>ui_get_text</code> reads text: the trimmed visible text of one element, or of the whole page body with no selector, cut at 4000 characters with a note of the real length. It fails on 0 or more than 1 match and on an element that is not visible. The text it reads is returned to you but not stored in the report.</p>
+          <h3>The reply in detail</h3>
+          <p><code>ui_get_page_state</code> returns the page as short text: a <code>url:</code> line, a <code>title:</code> line, then one line per visible interactive element (up to 200) as <code>@eN role "name"</code> followed by its non-default state, and <code>messages:</code> (visible alert/status text such as validation errors). Pass the ref as the <code>selector</code> of <code>ui_click</code>, <code>ui_fill</code>, <code>ui_select_option</code>, <code>ui_press_key</code>, <code>ui_hover</code>, <code>ui_set_checked</code>, <code>ui_scroll</code>, <code>ui_get_text</code>, <code>ui_take_screenshot</code> and <code>ui_upload_file</code> (and as <code>from</code> / <code>to</code> of <code>ui_drag</code>, <code>container</code> of <code>ui_scroll</code>, <code>within</code> of <code>ui_get_page_state</code>) instead of guessing a CSS selector.</p>
+          <p>A ref means the latest snapshot of that page and nothing older. A compact snapshot does no selector work; the selector behind a ref is built and checked against the live page when you first use the ref. A ref follows the element that was listed: if that element is gone or replaced by a look-alike, the call fails with a message that names the ref and says to call <code>ui_get_page_state</code> again. It never acts on a different element, and nothing is clicked or typed. A ref from another session or tab, one used before any snapshot, and an unknown number fail the same way. Reports and the action log show the real selector of each successful action. A refused ref is listed as a soft failed step with the ref the agent tried; it does not fail the session or take a failure screenshot. CSS and Playwright selectors still work everywhere; elements without an accessible name are not listed, so reach those with a CSS selector.</p>
+          <p><code>format: "full"</code> returns the earlier JSON instead: the elements as <code>{role, name, selector, state?}</code> with a selector checked against the live page, plus <code>overlays</code>, <code>focused</code> and <code>messages</code>. It has no refs, and taking it ends the refs of the previous snapshot. A selector containing <code>nth=</code> is positional: call <code>ui_get_page_state</code> again after the page changes before reusing it.</p>
+          <p>Page state also tells you what the page looks like right now, so you do not have to guess:</p>
+          <ul>
+            <li>An element line carries only its non-default state, as <code> key</code> for <code>true</code> and <code> key=value</code> otherwise: <code>disabled</code>, <code>checked</code> (<code>checked</code>, <code>checked=false</code> or <code>checked="mixed"</code>), <code>value="..."</code> (inputs, textarea, select; cut at 100 characters; <strong>never</strong> shown for a password field), <code>expanded</code>, <code>selected</code>, <code>pressed</code>, <code>required</code>, <code>invalid</code>. Names are quoted JSON strings, so a quote or a line break in a name cannot make a second line.</li>
+            <li>Custom widgets are listed too: <code>combobox</code>, <code>listbox</code>, <code>option</code>, <code>switch</code>, <code>slider</code>, <code>spinbutton</code>, <code>searchbox</code>, <code>treeitem</code>, <code>menuitemcheckbox</code>/<code>menuitemradio</code>, <code>summary</code>, <code>contenteditable</code> regions, and anything with a role and <code>tabindex &gt;= 0</code>.</li>
+            <li><code>overlay @o1 dialog "Confirm" modal</code> lists each open dialog, topmost first (<code>role=dialog</code>, <code>alertdialog</code>, <code>dialog[open]</code>, <code>aria-modal</code>); <code>@o1</code> is accepted wherever a selector is, for example by <code>ui_click_outside</code>. No overlay line means nothing is open, so a modal opening or closing shows up as the line appearing or disappearing.</li>
+            <li><code>focused: @e2</code> names the element holding focus (as <code>role "name"</code> when it is not in the list). It is absent when focus is on the page body, in an iframe or in a shadow root.</li>
+            <li><code>note:</code> appears when the list was cut at 200 elements (it then suggests <code>viewport</code> and <code>within</code>), or when you scoped the list and it left elements out.</li>
+          </ul>
+          <p>To read less on a long page, scope the list. Both arguments are optional and off by default, so with neither the reply is exactly as described above.</p>
+          <ul>
+            <li><code>viewport: true</code> lists only elements whose bounding box is at least partly on screen at the current scroll position.</li>
+            <li><code>within</code> (a selector or an <code>@eN</code> / <code>@oN</code> ref) lists only the elements inside that one element; it fails, listing nothing, if it matches no element or several. An element with nothing interactive inside gives an empty list, not an error.</li>
+            <li>Pass both and an element must satisfy both. <code>overlays</code>, <code>focused</code> and <code>messages</code> are never scoped. Refs number the scoped list and work as usual.</li>
+            <li>A scoped reply that left elements out says so, for example <code>note: Showing 37 of 180 elements (viewport only); scroll, or call without viewport, for the rest</code>. The 200-element cap applies after scoping, and its note can follow on the same line.</li>
+          </ul>
         </div>
       </details>
     </section>
@@ -774,7 +807,7 @@ ui_set_viewport   width: 768  height: 1024</code></pre>
         <summary>More detail</summary>
         <div class="more-body">
           <p><code>ui_start_session</code> takes optional <code>device</code> (a Playwright device name such as <code>"iPhone 13"</code>: mobile user agent, touch, pixel ratio, size), <code>viewport</code> <code>{width, height}</code> (overrides the device size), <code>colorScheme</code> (<code>light</code> or <code>dark</code>), <code>locale</code> and <code>timezoneId</code>. An unknown device is an error that lists the valid names. With none of them the browser is a 1280x720 desktop. They apply to that session only, and appear in the report header. <code>ui_set_viewport(width, height)</code> resizes mid-flow (320-3840 by 320-2160); layouts can change, so call <code>ui_get_page_state</code> again afterwards.</p>
-          <p><code>ui_fill</code> sets the whole value at once. <code>ui_type(selector, text, delayMs?)</code> types key by key (<code>keydown</code>, <code>input</code> and <code>keyup</code> per character, appended to what is there), for autocomplete, search-as-you-type, masked inputs and OTP boxes. The report only says how many characters were typed, and the text is replaced by <code>••••</code> when the target is a password, one-time-code or card-number field.</p>
+          <p><code>ui_fill</code> sets the whole value at once. <code>ui_type(selector, text, delayMs?)</code> types key by key (<code>keydown</code>, <code>input</code> and <code>keyup</code> per character, appended to what is there), for autocomplete, search-as-you-type, masked inputs and OTP boxes. The report only says how many characters were typed. The text itself is replaced by <code>••••</code> (in the reply and the stored step) when the target is a password, one-time-code or card-number (<code>autocomplete</code>) field, or uses <code>-webkit-text-security</code>.</p>
           <p><code>ui_navigate_history(action)</code> with <code>back</code>, <code>forward</code> or <code>reload</code> keeps the history and form state that a second <code>ui_navigate</code> would lose. <code>ui_scroll</code> also takes <code>container</code> (a scroll area such as a chat panel or virtual table) and <code>direction</code> (<code>down</code>, <code>up</code>, <code>left</code>, <code>right</code>, <code>top</code>, <code>bottom</code>), moves one step per call and says when the end is reached, so a loop over a lazy list knows when to stop.</p>
           <p><code>ui_take_screenshot</code> also takes <code>selector</code> (just that element), <code>fullPage</code> (the whole page, cut at 16000 device pixels tall and 3840px wide) and <code>inline: true</code>, which returns the PNG as image content (scaled to fit 1280x8000px) as well as writing it to <code>reports/</code>.</p>
 <pre><code>ui_type             selector: "[name=\"city\"]"  text: "Han"  delayMs: 50
@@ -803,7 +836,7 @@ ui_get_logs       since: "start"</code></pre>
           <p><code>ui_get_logs</code> reads the browser problems captured so far while the flow runs: console errors, uncaught page errors, failed requests and HTTP 4xx/5xx responses (method and URL, never bodies or headers). <code>since: last</code> (default) returns only what is new, <code>start</code> returns everything, and <code>level: warning</code> adds console warnings. Repeats are grouped as <code>×N</code>, at most 50 lines per call. Use it when an action seemed to do nothing.</p>
           <p>A <code>target=_blank</code> link or <code>window.open</code> popup opens a tab the session tracks: the next response says <code>New tab opened: &lt;url&gt; (tab 2)</code>, but the session does not switch to it. <code>ui_tabs</code> with <code>list</code>, <code>switch</code> or <code>close</code> moves between tabs (numbered from 1), and every other tool acts on the current tab.</p>
           <p><code>ui_upload_file(selector)</code> uploads one built-in file, <code>default_draft.png</code> (a tiny PNG), to a file input or to the chooser a button opens. It takes no path, so no other file in the container can be sent to the site under test. <code>ui_drag(from, to)</code> drags one element onto another, for HTML5 drag-and-drop and pointer-based sortables.</p>
-          <p>Downloads are saved to <code>reports/downloads/&lt;session&gt;/</code>, logged as an action and announced on the next response. A session keeps at most 20 downloads of up to 25 MB each; a download over either cap is discarded and the next response says so (once, for the count cap). Tabs, logs and downloads exist only inside a <code>ui_start_session</code> bracket and belong to one session: with several open, pass <code>session_id</code>.</p>
+          <p>Downloads are saved to <code>reports/downloads/&lt;session&gt;/</code>, logged as an action and announced on the next response (<code>Downloaded: &lt;name&gt; (&lt;bytes&gt; bytes)</code>). A session keeps at most 20 downloads of up to 25 MB each; a download over either cap is discarded and the next response says so (once, for the count cap). Tabs, logs and downloads exist only inside a <code>ui_start_session</code> bracket and belong to one session: with several open, pass <code>session_id</code>.</p>
 <pre><code>ui_upload_file    selector: "input[type=file]"
 ui_drag           from: "[data-testid=\"card-1\"]"  to: "[data-testid=\"column-done\"]"</code></pre>
         </div>
@@ -831,7 +864,7 @@ ui_drag           from: "[data-testid=\"card-1\"]"  to: "[data-testid=\"column-d
         <div class="more-body">
           <p>That is the UTC start time, a readable slug of the session target, and the first 8 characters of the session id. <code>reports/index.html</code> lists the sessions, newest first and capped at 500 (older reports stay on disk, unlisted), and is rewritten after every report.</p>
           <p>An HTML report shows a verdict box (status, target, step, action and failure counts, and duration); the run as labelled steps, with per-step outcomes and elapsed time; browser problems (console errors, uncaught page errors and network-level request failures, captured automatically and never changing the verdict, up to 50 per session); and the raw action log, collapsed behind a disclosure.</p>
-          <p>HTTP 4xx/5xx responses are captured as <code>httperror</code> (status, method and URL without the query string). Auto-failure screenshots are budgeted per session (<code>FAILURE_SCREENSHOT_BUDGET</code>, default 3), and identical screenshot content is embedded only once.</p>
+          <p>HTTP 4xx/5xx responses (a 500 is a <em>successful</em> request to Playwright, so <code>requestfailed</code> never fires) are captured as <code>httperror</code> as <code>&lt;status&gt; &lt;METHOD&gt; &lt;url&gt;</code>, with the query string dropped because it may hold tokens. Auto-failure screenshots are budgeted per session (<code>FAILURE_SCREENSHOT_BUDGET</code>, default 3), and identical screenshot content is embedded only once.</p>
         </div>
       </details>
     </section>
@@ -936,6 +969,16 @@ ui_drag           from: "[data-testid=\"card-1\"]"  to: "[data-testid=\"column-d
           <p>This page is plain static HTML in <code>site/index.html</code>. Vercel serves the <code>site/</code> directory as-is, with no install and no build (see <code>vercel.json</code>).</p>
         </div>
       </details>
+    </section>
+
+    <section id="scope">
+      <h2>Scope (v1)</h2>
+      <p>Web only (Chromium) and local only. The server runs over HTTP/SSE by default and over stdio through <code>dist/stdio.js</code> (see <a href="#stdio">Running over stdio</a>). Android (Appium) work is on hold: the infrastructure is in the image, but no <code>android_*</code> tools are registered.</p>
+    </section>
+
+    <section id="more-docs">
+      <h2>More docs</h2>
+      <p>See <a href="https://github.com/thunderkds/easy-ui-mcp/blob/main/AGENTS.md">AGENTS.md</a> for the architecture and full MCP connection guide, and <a href="https://github.com/thunderkds/easy-ui-mcp/blob/main/HARNESS.md">HARNESS.md</a> for the REST API reference. Deploy/rollback procedures are in <a href="https://github.com/thunderkds/easy-ui-mcp/blob/main/RUNBOOK.md">RUNBOOK.md</a>. See <a href="https://github.com/thunderkds/easy-ui-mcp/blob/main/PRD.md">PRD.md</a> for full product intent and <a href="https://github.com/thunderkds/easy-ui-mcp/blob/main/PROJECT_SPEC.md">PROJECT_SPEC.md</a> for architecture decisions.</p>
     </section>
 
     <footer class="foot"><p>Easy UI (easy-ui-mcp) v0.1.0. Source and issues on <a href="https://github.com/thunderkds/easy-ui-mcp">GitHub</a>.</p></footer>
