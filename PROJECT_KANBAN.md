@@ -1,5 +1,5 @@
 # PROJECT_KANBAN.md
-**Last updated**: 2026-11-11
+**Last updated**: 2026-11-12
 
 > Compact task board. Full context lives in `PROJECT_SPEC.md`. Update this file whenever a task status changes.
 
@@ -14,6 +14,7 @@
 
 
 ### In Progress
+- [ ] **T046** — Simpler README (problem, why, quick start); the detailed guide lives on the index page | frontend-developer | C1 | Risk: Medium | P1 | Requested by user 2026-11-12 ("make the README simpler: the problem, why use it; detail guide on the index page"); user chose Path A (keep one-line tool list). Guide: `tasks/TASK_GUIDE_T046.md`. Brainstorm: `BRAINSTORMING_LOG_T046-readme-simple.md`. Branch: `task/T046-readme-simple`
 
 ### Ready for Review
 
